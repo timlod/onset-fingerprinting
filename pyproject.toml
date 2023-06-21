@@ -3,7 +3,7 @@ requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "onset_fingerprinting"
+name = "onset-fingerprinting"
 description = "Fingerprinting/classification of audio onsets"
 version = "0.0"
 readme = "README.md"
