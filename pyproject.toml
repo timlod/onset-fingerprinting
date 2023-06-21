@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onset_fingerprinting"
+description = "Fingerprinting/classification of audio onsets"
+version = "0.0"
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["audio", "onset"]
+authors = [
+{email = "tim@loderhose.com"},
+{name = "Tim Loderhose"}
+]
+classifiers = [
+"Programming Language :: Python :: 3",
+]
+dependencies = [
+# For MIR
+"librosa",
+# For plotting
+"matplotlib",
+"numpy",
+# For dataframes
+"pandas",
+# For modelling
+"scikit_learn",
+"scipy",
+# For audio file loading
+"soundfile"
+]
+
+[project.optional-dependencies]
+devtools = ["black", "black-macchiato", "mypy", "flake8", "isort", "python-lsp-server"]
+dev = ["jupyter"]
+
+[tool.setuptools]
+packages = ["loopmate"]
+
+[tool.mypy]
+python_version = "3.10"
