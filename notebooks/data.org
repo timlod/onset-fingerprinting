@@ -1,0 +1,179 @@
+#+TITLE: Load and organize Rodrigo's data
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Saturday, 10 June 2023
+#+STARTUP: showall
+#+PROPERTY: header-args :exports both :session data :kernel lm :cache no
+:PROPERTIES:
+OPTIONS: ^:nil
+#+LATEX_COMPILER: xelatex
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [logo, color, author]
+#+LATEX_HEADER: \insertauthor
+#+LATEX_HEADER: \usepackage{minted}
+#+LATEX_HEADER: \usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+:END:
+
+* Imports and Environment Variables
+:PROPERTIES:
+:visibility: folded
+:END:
+
+#+name: imports
+#+begin_src python
+import time
+from pathlib import Path
+
+import librosa
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import sounddevice as sd
+import soundfile as sf
+from onset_fingerprinting import utils
+from scipy import signal as sig
+#+end_src
+
+#+name: env
+#+begin_src python
+data_dir = Path("../data")
+#+end_src
+
+* First dataset (SP/OP/DPA)
+** Train data
+Audio files (all files exist twice as channels, we only take one each):
+#+begin_src python
+dpa_sp, sr = sf.read(
+    data_dir / "audio" / "dpa_sp.wav",
+    dtype=np.float32,
+)
+dpa_op, sr = sf.read(
+    data_dir / "audio" / "dpa_op.wav",
+    dtype=np.float32,
+)
+sp_op, sr = sf.read(
+    data_dir / "audio" / "sp_op.wav",
+    dtype=np.float32,
+)
+dpa = dpa_sp[:, 0]
+dpa /= max(abs(dpa))
+sp = dpa_sp[:, 1]
+sp /= max(abs(sp))
+op = dpa_op[:, 1]
+op /= max(abs(op))
+spopdpa = np.concatenate([sp[None, :], op[None, :], dpa[None, :]], axis=0)
+np.save(data_dir / "SP_OP_DPA.npy", spopdpa)
+#+end_src
+
+Labels/onset locations:
+#+begin_src python
+labels = pd.read_json(data_dir / "raw_labels" / "labels.json").T.sort_index()
+labels.columns = ["label"]
+# Rodrigo specified that the file mistakenly has 256 added to timings
+timings = (
+    pd.read_json(
+        data_dir / "raw_labels" / "onset start + end.json"
+    ).T.sort_index()
+    - 256
+)
+timings.columns = ["start", "end"]
+labels[timings.columns] = timings
+labels.to_csv(data_dir / "labels.csv", index=None)
+#+end_src
+
+
+** Test data
+These are not clipping, so I'm not normalizing them (the training data did
+clip, but only went until 0.99 or so, so normalization didn't do any real
+scaling beyond moving to -1/1).
+#+begin_src python
+t_dpa_sp, _ = sf.read(
+    data_dir / "audio" / "Musical Example 2 DPA + SP.wav",
+    dtype=np.float32,
+)
+t_dpa_op, _ = sf.read(
+    data_dir / "audio" / "Musical Example 2 DPA + OP.wav",
+    dtype=np.float32,
+)
+t_dpa = t_dpa_sp[:, 0]
+t_sp = t_dpa_sp[:, 1]
+t_op = t_dpa_op[:, 1]
+t_spopdpa = np.concatenate(
+    [t_sp[None, :], t_op[None, :], t_dpa[None, :]], axis=0
+)
+np.save(data_dir / "test_SP_OP_DPA.npy", t_spopdpa)
+#+end_src
+
+#+begin_src python
+t_labels = pd.read_json(
+    data_dir / "raw_labels" / "testing labels.json"
+).T.sort_index()
+t_labels.columns = ["label"]
+# Rodrigo specified that the file mistakenly has 256 added to timings
+t_timings = (
+    pd.read_json(
+        data_dir / "raw_labels" / "testing start + end.json"
+    ).T.sort_index()
+    - 256
+)
+t_timings.columns = ["start", "end"]
+t_labels[t_timings.columns] = t_timings
+t_labels.to_csv(data_dir / "test_labels.csv", index=None)
+#+end_src
+
+** Visual sanity checks
+Compute which hits are clipping (most rimshots do in fact clip and should thus
+be filtered out).
+#+begin_src python
+bad_examples = utils.clipping_audio(sp, labels) | utils.clipping_audio(
+    op, labels
+)
+#+end_src
+
+#+begin_src python :file figures/labels.png
+onsets = labels.start.to_numpy()
+label_idx = labels.reset_index().groupby("label").index.agg((min, max))
+label_idx["interval"] = label_idx.apply(
+    lambda x: pd.Interval(onsets[x["min"]], onsets[x["max"]], "left"), axis=1
+)
+plt.figure(figsize=(15, 5))
+plt.plot(dpa, label="DPA", alpha=0.7)
+plt.plot(sp, label="SP", alpha=0.7)
+plt.plot(op, label="OP", alpha=0.7)
+for label in label_idx.index:
+    a, b, _ = label_idx.loc[label]
+    plt.plot((onsets[a : b + 1]), [-1] * (b - a + 1))
+    plt.annotate(label, (onsets[a], -1))
+for example in bad_examples:
+    start, end = timings.iloc[example]
+    plt.plot([start, end], [0, 0], color="red")
+plt.plot([], [], color="red", label="Clipping")
+
+plt.legend()
+plt.tight_layout()
+#+end_src
+
+#+RESULTS:
+[[file:figures/labels.png]]
+
+#+begin_src python :file figures/train_onset_check.png
+plt.figure(figsize=(10, 4))
+plt.plot(dpa_op[:labels.at[1, "end"]], label=["DPA", "OP"])
+plt.vlines(labels["start"][:3], -0.4, 0.4, color="red")
+plt.legend();
+#+end_src
+
+#+RESULTS:
+[[file:figures/train_onset_check.png]]
+
+
+#+begin_src python :file figures/test_onset_check.png
+plt.figure(figsize=(10, 4))
+plt.plot(t_dpa_op[:t_labels.at[1, "end"]], label=["DPA", "OP"])
+plt.vlines(t_labels["start"][:3], -0.4, 0.4, color="red")
+plt.legend();
+#+end_src
+
+#+RESULTS:
+[[file:figures/test_onset_check.png]]
