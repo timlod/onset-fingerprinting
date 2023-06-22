@@ -5,6 +5,19 @@ import seaborn as sns
 from sklearn.neighbors import KNeighborsClassifier
 
 
+def clipping_audio(x: np.ndarray, labels: pd.DataFrame) -> set:
+    """Return examples where input audio is clipping.
+
+    :param x: audio normalized to -1, 1
+    :param labels: label dataframe
+    """
+    bad_idx = np.where((x == 1) | (x == -1))[0]
+    bad_examples = pd.IntervalIndex(
+        pd.IntervalIndex.from_arrays(labels.start, labels.end)
+    ).get_indexer(bad_idx)
+    return set(bad_examples)
+
+
 def knn_metrics(X_test, y_train, y_test, knn: KNeighborsClassifier):
     """Generate KNN metrics for a given test dataset:
 
