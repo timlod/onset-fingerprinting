@@ -25,6 +25,8 @@ def mfcc(
     n_fft: int = 512,
     flucoma: bool = False,
     method="zerozero",
+    mel_args=mel_args,
+    mfcc_args=mfcc_args,
 ):
     """Compute mel-frequency cepstral coefficients (MFCCs) around a given onset
     inside an audio array.
