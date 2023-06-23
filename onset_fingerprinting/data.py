@@ -12,7 +12,8 @@ def stft_frame(x: np.ndarray, n_fft: int, window: np.ndarray):
     :param n_fft: size of the fft
     :param window: fft windowing function array of size n_fft
     """
-    x = librosa.util.pad_center(x, size=n_fft)
+    if n_fft > len(x):
+        x = librosa.util.pad_center(x, size=n_fft)
     return np.fft.rfft(window * x)
 
 
@@ -45,7 +46,8 @@ def mfcc(
     pad = np.zeros(pad_length, dtype=np.float32)
     pre = audio[onset - pad_length : onset]
     window = librosa.filters.get_window("hann", frame_length, fftbins=True)
-    window = librosa.util.pad_center(window, size=n_fft)
+    if n_fft > frame_length:
+        window = librosa.util.pad_center(window, size=n_fft)
 
     if method == "zerozero":
         # 1: start at onset, zero both ends
@@ -64,10 +66,8 @@ def mfcc(
     S = np.empty((n_fft // 2 + 1, n_frames), dtype=np.complex64)
     for i in range(n_frames):
         S[:, i] = stft_frame(
-            y[hop_length * i : hop_length * i + frame_length],
-            n_fft,
-            window,
+            y[hop_length * i : hop_length * i + frame_length], n_fft, window
         )
     mels = librosa.feature.melspectrogram(S=np.abs(S) ** 2, **mel_args)
     mfcc = librosa.feature.mfcc(S=librosa.power_to_db(mels), **mfcc_args)
-    return mfcc
+    return mfcc, S
