@@ -1,0 +1,287 @@
+#+TITLE: Drum onset sound dataset v1 specification draft
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Friday, 23 June 2023
+#+STARTUP: showall
+:PROPERTIES:
+OPTIONS: ^:nil
+#+LATEX_COMPILER: xelatex
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [logo, color, author]
+#+LATEX_HEADER: \insertauthor
+#+LATEX_HEADER: \usepackage{minted}
+#+LATEX_HEADER: \usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+:END:
+
+* Goal
+
+Create a dataset that can be used to develop and rigorously evaluate
+state-of-the-art drum onset/transient sound fingerprinting and classification
+algorithms.
+
+Additionally, other types of tasks could conceivable learned using this
+dataset (in the context of drums/percussion):
+- onset detection
+- drum expression/articulation classification
+  - similar task as onset sound classification, but using more audio samples
+    (larger context window)
+
+Difficulties:
+- training data and test data is different:
+  - fingerprinting is performed on (mostly?) isolated hits of a drum, but used
+    in a non-isolated context
+
+* Audio onset fingerprinting/classification
+
+Typical audio/sound classification involves training a model to classify a
+sound as belonging to one of a number of pre-defined classes.
+
+Onset sound fingerprinting/classification is somewhat different: developed
+algorithms are used to accurately classify extremely short snippets of sound in
+real-time, to allow the use of the classification result in live musical
+performance.
+
+In the context of the development of the Open Percussion Sensor (OP), the end
+goal is the following:
+#+begin_quote
+Users place the sensor on a drum of interest, record a number of hits on 'zones
+of interest' used to 'fingerprint' each hit zone such that classification of
+hits during live performance can be performed in real-time.
+#+end_quote
+
+In this context the goal is not training a model on this dataset which users
+can directly use to perform live, but rather discover a suitable processing
+pipeline/set of choices which allows end users to efficiently train or
+fine-tune their own, local model used in performance.
+
+While typical machine learning (ML) development finds parameters which allow
+training a model on given training data such that performance generalizes well
+to a test set, in this case we try to find parameters using one training set
+such that *the training procedure* will generalize well to training a
+generalizable model on another (the end user's) dataset.
+
+* Nomenclature
+
+Some terms that will show up several times throughout this document:
+
+- Session :: one contained 'run' of training/testing data, with core elements
+  such as drum/player/tuning/mic levels constant
+- Hit :: stick striking drum once
+- Channel :: audio channel, of which there will be one per measurement device
+- isolated audio/data :: recordings where only the hit of interest is played,
+  in isolation
+- in-context audio/data :: recordings of hits during natural performance, e.g.
+  possibly including bleed/vibration from the entire drumkit or other
+  instruments playing at the same time
+
+* REVIEW Example training/evaluation process
+:LOGBOOK:
+- State "REVIEW"     from              [2023-06-23 Fri 11:54]
+:END:
+
+Here I'm detailing what could be a training/evaluation process, under the
+assumption of fully training individual models (not with the goal of
+fine-tuning a model on few examples). I am still thinking about this, so this
+should not yet be considered final or even correct!
+
+1. Pre-process all audio
+   - compute e.g. MFCCs, statistics, etc.
+   - how exactly this happens is part of the parameter set
+2. Training of models to find good pre-processing and model parameters
+   - models are trained on individual sessions and evaluated on their
+     respective validation sets - not your typical cross-validation, as the
+     data is not split randomly, but across sessions, and
+     - validation sets consist of, or include, in-context data
+   - select parameters which achieve good performance in aggregate across
+     validation sets of diverse sessions
+   - validation can further be split to evaluate context drift performance
+     (detuning, changing musical context)
+3. Use parameters to train evaluation models on training sets of held-out data
+   - held-out data should also be from sufficiently different sessions (e.g.
+     drum not seen during training)
+   - this differs from classical ML as ideally none of the new training data
+     should have been used previously for training
+4. Evaluate those models on test set of held-out data
+   - (mainly/only?) in-context data
+5. Further evaluate under context drift (detuning, changing musical context)
+
+* Recording setup
+
+- take picture of drumkit placement and room, to be sure
+- record sensor/microphone placement
+- if filming hits, approximately record how camera was setup/video was captured
+  - does it make sense to use a drum stick with colored tip to improve tracking
+    ability?
+  - perhaps this is overkill for the first bigger dataset collected
+
+* Hit zones
+
+For each instrument, we will define as 'hit zones' the location which will be
+struck to generate the sound recorded by the hit.
+
+Zones are in order of importance (if we wanted to record less, I would drop off
+at the end of the list).
+
+** Snare
+
+1. Center
+2. Edge
+3. Rim shot center
+4. Cross stick
+5. Rim shoulder
+6. Rim shot edge   
+7. Rim tip
+8. Shell
+9. Stick shot
+
+Should be played with varying levels of force (e.g. include plenty of ghost
+notes, potential labels for which can be gotten 
+
+** Tom
+Like snare, except perhaps cross stick?
+
+** Kick
+1. Press
+   1. don't release beater upon hit
+2. Release
+   1. immediately release beater after hit
+
+Not sure if heel up/down make any difference in the 'drum head frame of
+reference'.
+
+* Data required
+
+Training/tuning should be performed on 10-20 hits per drum per zone, so let's
+backtrace from what we need to make a successful test:
+
+*Test setup:* (for one session)
+- ~20 hits per zone for training (meaning we can experiment a little with
+  amount of data)
+- 20 hits per zone for testing, isolated
+- 20 hits per zone for testing, [[*Come up with repeatable real-world context][in context]]
+  - let's do an extra 10 to allow to add some in-context data for training as
+    well
+
+-> Z (number of zones) * 70
+
+For example, for one session, using all snare zones: ~9 * 70 = 630~ hits in one
+test dataset. Assuming data is recorded continuously at 60bpm, this would take
+around 10min to play. If we decide to play extra hits with snares on/off, or
+external dampening (e.g. by hand), this will add a factor on top. While for
+some hits, we should probably let it ring a bit, others may also be played in
+quicker succession, so perhaps we can play this a lot faster as well.
+
+*Training setup:*
+
+It may be easiest to use the same regimen as for the test setup, perhaps with
+some extra strikes, meaning that the same regimen is played twice per session.
+See [[*Regimen for isolated data that's easy to play and record][Regimen for isolated data that's easy to play and record]] and [[*Regimen for real-world context that's easy to play and record][Regimen for
+real-world context that's easy to play and record]].
+
+For each session, ideally levels are set optimally. Make sure a plan is
+followed in such a way that it's easy to match recordings to their metadata.
+
+* Metadata
+
+This metadata is hierarchical, e.g. everything from a higher level could/should
+also be stored in all lower levels, making each session or hit in principle
+self-contained. For simplicity, it's better not to store every little detail at
+hit-level, if that information stays constant across the session.
+
+** Global
+
+- Sensor/Microphone details
+- Sampling rate
+
+** Per session
+
+- Drum type
+- Drum model
+- Drum head type/model
+- Drum tuning/pitch (write script to analyze this)
+  - perhaps to account for natural detuning during play, this may be good to
+    record at hit level
+- Player ID (give unique ID to each performer)
+- context metadata
+  - e.g. information about what other instruments are playing
+
+** REVIEW Per hit
+
+- zone
+- onset start
+  - can extract with existing algorithm and improve manually (write script to
+    automate fixing onset timings?)
+- velocity
+  - can write script to extract loudness per channel per session
+- location (if using camera data)
+- snares on/off
+- dampening on/off (place hand on head? probably just for subset of hits)
+- isolated (not isolated means play is in context) - might also live in session?
+  - different name may be appropriate
+
+* TODO Things to discuss/agree on
+
+** Levels
+Should we set levels according to in-context play (meaning for isolated hits
+that they will appear slightly low, as we have to account for the test
+scenario)?
+
+** Sampling rate
+48kHz or 96kHz?
+
+An argument for 96kHz would be increased onset frame sizes to train on, and the
+fact that we can always undersample to get lower resolution, if necessary.
+However, if our sensor/mic is only responsive up to 20kHz, would this be
+strictly equivalent to upsampling audio recorded at lower resolutions?
+
+Further, if we can perhaps record some ultrasonic frequencies, it may be
+interesting to sample at 96kHz to record those (if this is the one:
+https://www.dpamicrophones.com/lavalier/4060-series-miniature-omnidirectional-microphone,
+that would suggest that it has some response up to 40kHz with high boost
+enabled, at increasing attenuation).
+
+** Kick drum
+Does the OP sensor already work for kick drums?
+
+** Hitting zones in different locations
+Essentially, how important is it to strike for example the edge all around the
+drum? If it is significant, should we record more hits for zones where it
+matters, making sure to get proper coverage?
+
+If we do aim for a video feed, this will probably be very relevant.
+
+** Regimen for isolated data that's easy to play and record
+To allow for an efficient recording/data collection process, it will be useful
+to have a set 'piece' to play for each session that guarantees coverage of all
+useful 
+
+For example, a pyramid exercise going through the different hits at different
+velocities:
+
+|----------------+-------------+----------|
+| Number of hits | Note length | Velocity |
+|----------------+-------------+----------|
+|             4x | ♩- 1/4     |      100 |
+|             8x | ♪ - 1/8     |      100 |
+|             4x | ♩- 1/4     |       50 |
+|             8x | ♪ - 1/8     |       50 |
+|             4x | ♩- 1/4     |        0 |
+|             8x | ♪ - 1/8     |        0 |
+|            16x | 𝅘𝅥𝅯 - 1/16    |    0-100 |
+|----------------+-------------+----------|
+
+This would be 52 hits for one zone at different volumes in a pattern that is
+quickly learned and can be repeated regularly across different zones and
+sessions.
+
+Note: the final one is a roll with increasing volume.
+
+Question: what to do with misses? For example, especially quiet rimshots may
+not always hit well, especially in the roll section.
+
+** Regimen for real-world context that's easy to play and record
+Drum groove using variety of hits, if possible at a consistent tempo
+- perhaps train beat (rudiment-like) with accents on cymbals?
+
+Here it might be easier to mix different zones and velocities to arrive at
+something that's easy to play consistently.
