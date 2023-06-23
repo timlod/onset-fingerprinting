@@ -5,6 +5,19 @@ mel_args = {"fmin": 200, "fmax": 12000, "n_mels": 40, "sr": 44100}
 mfcc_args = {"n_mfcc": 14}
 
 
+def window_contribution_weight(window: np.ndarray, hop_length: int):
+    """Create an array of stft frame weights which corresponds to the amount of
+    the signal of interest which contributed to the frame due to windowing.
+
+    :param window: window multiplied with audio frames in the STFT
+    :param hop_length: hop_length of the stft
+    """
+    w = []
+    for i in range(1, 1 + len(window) // hop_length):
+        w.append(np.trapz(window[: i * hop_length]))
+    return np.concatenate((w, w[i - 2 :: -1])) / max(w)
+
+
 def stft_frame(x: np.ndarray, n_fft: int, window: np.ndarray):
     """Compute single STFT frame using the fft.
 
