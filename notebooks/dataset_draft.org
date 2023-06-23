@@ -181,6 +181,26 @@ record]] and [[*Regimen for real-world context that's easy to play and record][R
 We have to make sure a 'recording plan' is followed in such a way that it's
 easy to match recordings to their metadata.
 
+** Sessions
+
+The following are things to permute on (we can record a session for each
+combination of the following):
+- players
+  - as different players hit drums differently
+- sticks
+  - as different sticks might generate different transients
+- tunings
+  - to make sure the system works equally well across different styles
+  - also to evaluate how performance decreases under natural detuning
+- drum(kit)s
+  - as different drums sound different. Especially 3-flanged vs. diecast vs.
+    wood hoops will have an impact
+
+Obviously getting 'full' coverage here will be unfeasible - but I'd recommend
+at least having one snare drum deeply covered:
+- same player, same drum, different tunings, a couple of tunings with different
+  sticks
+
 * Metadata
 
 This metadata is hierarchical, e.g. everything from a higher level could/should
