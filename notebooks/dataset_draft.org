@@ -27,9 +27,11 @@ dataset (in the context of drums/percussion):
     (larger context window)
 
 Difficulties:
-- training data and test data is different:
-  - fingerprinting is performed on (mostly?) isolated hits of a drum, but used
-    in a non-isolated context
+- training data and test data can be different:
+  - fingerprinting is often performed while hitting only the drum of interest,
+    mostly not in the same way it is used live, whereas the real-time
+    classification might use data with bleed from different instruments, played
+    in a different style
 
 * Audio onset fingerprinting/classification
 
