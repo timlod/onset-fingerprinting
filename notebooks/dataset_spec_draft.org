@@ -367,7 +367,7 @@ Note how this adds additional data about the pitch of each hit.
     "zone": ["press", "press", "release", "release"],
     "onset_start": [0, 48000, 96000, 144000],
     "velocity": [0.5, 1.0, 0.5, 1.0],
-    "isolated": [true, true, true, true],
+    "isolated": [true, true, true, true]
 }
 #+end_src
 

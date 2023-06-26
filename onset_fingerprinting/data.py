@@ -1,8 +1,70 @@
+import json
+from pathlib import Path
+
 import librosa
 import numpy as np
+import pandas as pd
+import soundfile as sf
+from torch.utils.data import Dataset
 
 mel_args = {"fmin": 200, "fmax": 12000, "n_mels": 40, "sr": 44100}
 mfcc_args = {"n_mfcc": 14}
+
+
+def read_json(file: Path) -> dict:
+    """Read JSON file and return its dictionary.
+
+    :param file: path to json file
+    """
+    with open(file, "r") as f:
+        return json.load(f)
+
+
+def parse_hits(d: dict) -> pd.DataFrame:
+    """Parse hits dictionary into dataframe.
+
+    Mainly unwraps the conditions list such that we can call pd.DataFrame(d).
+
+    :param d: dictionary output of json.load(<hits_file>)
+    """
+    d = d.copy()
+    if "conditions" in d:
+        for cond in d["conditions"]:
+            d[cond] = d["conditions"][cond]
+        del d["conditions"]
+    return pd.DataFrame(d)
+
+
+class POSD(Dataset):
+    """PyTorch onset audio classification dataset."""
+
+    def __init__(self, path: str | Path, channel: str):
+        """Initialize POSD.
+
+        Future args?
+        - recompute velocity
+        - improve onsets
+
+        :param path: path to folder containing the dataset
+        :param channel: name of channel to load
+        """
+        # go into path, recursively load all matching files
+        path = Path(path)
+        hit_meta_files = list(path.rglob("*_hits.json"))
+        session_meta_files = [x.with_stem(x.stem[:-5]) for x in hit_meta_files]
+        sessions = [read_json(x) for x in session_meta_files]
+        assert all(channel in x["channels"] for x in sessions)
+        hits = [parse_hits(read_json(x)) for x in hit_meta_files]
+        files = [
+            x.with_name(x.stem + f"_{channel}.wav") for x in session_meta_files
+        ]
+
+    def load_files(files, session_meta, hits):
+        for file, meta in zip(files, session_meta):
+            audio, sr = sf.read(file)
+
+    def get_onset_frames(audio, onsets):
+        pass
 
 
 def window_contribution_weight(window: np.ndarray, hop_length: int):
