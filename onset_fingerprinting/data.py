@@ -7,9 +7,6 @@ import pandas as pd
 import soundfile as sf
 from torch.utils.data import Dataset
 
-mel_args = {"fmin": 200, "fmax": 12000, "n_mels": 40, "sr": 44100}
-mfcc_args = {"n_mfcc": 14}
-
 
 def read_json(file: Path) -> dict:
     """Read JSON file and return its dictionary.
@@ -92,16 +89,14 @@ def stft_frame(x: np.ndarray, n_fft: int, window: np.ndarray):
     return np.fft.rfft(window * x)
 
 
-def mfcc(
+def stft(
     audio: np.ndarray,
     onset: int,
     frame_length: int = 256,
     hop_length: int = 64,
     n_fft: int = 512,
-    flucoma: bool = False,
+    hop_edge_padding: bool = False,
     method="zerozero",
-    mel_args=mel_args,
-    mfcc_args=mfcc_args,
 ):
     """Compute mel-frequency cepstral coefficients (MFCCs) around a given onset
     inside an audio array.
@@ -112,14 +107,19 @@ def mfcc(
     :param hop_length: hop length for the STFT
     :param n_fft: size of the FFT, can be larger than frame_length in case
         oversampling is desired
-    :param flucoma: whether to use additional padding such that the first and
-        last stft frames use hop_length audio samples respectively
+    :param hop_edge_padding: whether to use additional padding such that the
+        first and last stft frames use hop_length audio samples respectively.
+        This is the approach used in FluCoMa.  If this is not used, the STFT
+        will reflect how a usual (say librosa) centered STFT would work, with
+        the first frame containing at least half of the signal.
     :param method: zerozero: pad front and back of audio with zeros, prezero:
         pad front with preceding audio, back with zeros, pre: pad front with
         preceding audio, don't pad back
     """
     y = audio[onset : onset + frame_length]
-    pad_length = frame_length - hop_length if flucoma else frame_length // 2
+    pad_length = (
+        frame_length - hop_length if hop_edge_padding else frame_length // 2
+    )
     pad = np.zeros(pad_length, dtype=np.float32)
     pre = audio[onset - pad_length : onset]
     window = librosa.filters.get_window("hann", frame_length, fftbins=True)
@@ -145,6 +145,30 @@ def mfcc(
         S[:, i] = stft_frame(
             y[hop_length * i : hop_length * i + frame_length], n_fft, window
         )
-    mels = librosa.feature.melspectrogram(S=np.abs(S) ** 2, **mel_args)
-    mfcc = librosa.feature.mfcc(S=librosa.power_to_db(mels), **mfcc_args)
-    return mfcc, S
+    return S
+
+
+def cspec_to_mfcc(
+    S: np.ndarray,
+    sr: int,
+    fmin: int = 0,
+    fmax: None | int = None,
+    n_mels: int = 40,
+    n_mfccs: int = 14,
+):
+    """Compute MFCCs from a complex spectrogram.
+
+    :param S: spectrogram output of stft, complex
+    :param sr: sample rate
+    :param fmin: lowest frequency
+    :param fmax: highest frequency
+    :param n_mels: number of mel bands to use
+    :param n_mfccs: number of mfccs to compute
+    """
+    mels = librosa.feature.melspectrogram(
+        S=np.abs(S) ** 2, sr=sr, fmin=fmin, fmax=fmax, n_mels=n_mels
+    )
+    mfcc = librosa.feature.mfcc(
+        S=librosa.power_to_db(mels), sr=sr, n_mfccs=n_mfccs
+    )
+    return mfcc
