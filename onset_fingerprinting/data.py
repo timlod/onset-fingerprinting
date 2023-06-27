@@ -64,17 +64,21 @@ class POSD(Dataset):
         pass
 
 
-def window_contribution_weight(window: np.ndarray, hop_length: int):
+def window_contribution_weights(window, hop_length, hop_edge_padding: False):
     """Create an array of stft frame weights which corresponds to the amount of
     the signal of interest which contributed to the frame due to windowing.
 
     :param window: window multiplied with audio frames in the STFT
     :param hop_length: hop_length of the stft
+    :param hop_edge_padding: whether hop_edge padding was used in stft
     """
     w = []
-    for i in range(1, 1 + len(window) // hop_length):
-        w.append(np.trapz(window[: i * hop_length]))
-    return np.concatenate((w, w[i - 2 :: -1])) / max(w)
+    start_idx = len(window) // 2 if not hop_edge_padding else hop_length
+
+    for i in range(start_idx, len(window) + hop_length, hop_length):
+        w.append(np.trapz(window[:i]))
+    w += w[-2::-1]
+    return np.array(w) / max(w)
 
 
 def stft_frame(x: np.ndarray, n_fft: int, window: np.ndarray):
