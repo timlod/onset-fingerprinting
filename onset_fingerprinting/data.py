@@ -97,7 +97,7 @@ class StretchFrameExtractor(FrameExtractor):
         self, frame_length: int, pre_samples: int, max_stretch: float = 0.03
     ):
         super().__init__(frame_length, pre_samples)
-        self.max_shift = int(frame_length + pre_samples * max_stretch)
+        self.max_shift = int((frame_length + pre_samples) * max_stretch)
         self.full_length = frame_length + pre_samples
 
     def get_frames(self, audio, onsets):
@@ -108,8 +108,9 @@ class StretchFrameExtractor(FrameExtractor):
             where=np.random.randint(2, size=len(shifts), dtype=bool),
         )
         out = np.empty((len(onsets), self.full_length), dtype=np.float32)
-        for i, (onset, shift) in enumerate(zip(onsets, shifts)):
-            onset -= self.pre_samples
+        for i, (onset, shift) in enumerate(
+            zip(onsets - self.pre_samples, shifts)
+        ):
             out[i] = resample(
                 audio[onset : onset + self.full_length + shift],
                 self.full_length,
