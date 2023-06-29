@@ -1,11 +1,15 @@
 import json
 from pathlib import Path
+from typing import Callable
 
 import librosa
 import numpy as np
 import pandas as pd
 import soundfile as sf
+from scipy.signal import resample
 from torch.utils.data import Dataset
+
+from onset_fingerprinting import augmentation
 
 
 def read_json(file: Path) -> dict:
@@ -35,15 +39,45 @@ def parse_hits(d: dict) -> pd.DataFrame:
 class POSD(Dataset):
     """PyTorch onset audio classification dataset."""
 
-    def __init__(self, path: str | Path, channel: str):
+    def __init__(
+        self,
+        path: str | Path,
+        frame_length: int,
+        channel: str,
+        transform: Callable,
+        pre_samples: int = 0,
+        augmentations: list = [],
+    ):
         """Initialize POSD.
 
         Future args?
-        - recompute velocity
-        - improve onsets
+
+            - recompute velocity
+
+            - improve onsets
+
+        The transformation will need to be composable on individual examples I
+        guess.
+
+        Idea: extract slightly larger window than frame around each onset to
+        use in transformations.  This way we don't need to keep the entire
+        audio file, but can still use the neighborhood of the onset to do data
+        augmentation.  Alternatively, pre-compute a sane number of
+        augmentations beforehand using aug_transform - these will be done while
+        loading the original file to keep memory use to a minimum.  The
+        reasoning here is that computing full augmentation and transformation
+        for single 256 sample bits is going to be the bottleneck in training.
+        With this approach, we don't add randomness at every epoch, but just
+        increase the dataset size usable.
 
         :param path: path to folder containing the dataset
         :param channel: name of channel to load
+        :param transform: function which takes as input an array of audio and a
+            sequence of onset start indexes, and returns an array of
+            transformed data
+        :param aug_transform: function which takes as input an array of audio
+            and a sequence of onset start indexes, and returns modified audio
+        :param pre_samples: take this many samples from before the onset
         """
         # go into path, recursively load all matching files
         path = Path(path)
@@ -51,23 +85,85 @@ class POSD(Dataset):
         session_meta_files = [x.with_stem(x.stem[:-5]) for x in hit_meta_files]
         sessions = [read_json(x) for x in session_meta_files]
         assert all(channel in x["channels"] for x in sessions)
-        hits = [parse_hits(read_json(x)) for x in hit_meta_files]
-        files = [
+        self.sessions = sessions
+        self.hits = [parse_hits(read_json(x)) for x in hit_meta_files]
+        self.files = [
             x.with_name(x.stem + f"_{channel}.wav") for x in session_meta_files
         ]
 
-    def load_files(files, session_meta, hits):
-        for file, meta in zip(files, session_meta):
-            audio, sr = sf.read(file)
+        self.frame_length = frame_length
+        self.pre_samples = pre_samples
+        self.frame_extractor = FrameExtractor(frame_length, pre_samples)
+        # augmentation composition
+        self.extractors = [
+            self.frame_extractor,
+            SampleShiftFrameExtractor(frame_length, pre_samples, 10),
+            StretchFrameExtractor(frame_length, pre_samples, 0.06),
+        ]
+        self.augmentations = [
+            augmentation.AddGaussianNoise(p=1),
+            augmentation.AirAbsorption(p=1),
+            augmentation.SevenBandParametricEQ(p=1),
+            # augmentation.Gain(p=1),
+            augmentation.TanhDistortion(p=1),
+        ]
+        self.aug = augmentation.SomeOf(
+            (1, len(self.augmentations)), self.augmentations, p=1
+        )
 
-    def get_onset_frames(audio, onsets):
-        pass
+    def load_files(self):
+        files, sessions, hits_per_session = (
+            self.files,
+            self.sessions,
+            self.hits,
+        )
+        n_aug_each = 5
+        self.audio = np.empty(
+            (
+                (
+                    1
+                    + len(self.extractors)
+                    # * len(self.augmentations)
+                    * n_aug_each
+                )
+                * sum(len(h) for h in hits_per_session),
+                self.frame_length + self.pre_samples,
+            ),
+            dtype=np.float32,
+        )
+        self.labels = []
+        i = 0
+        for file, session, hits in zip(files, sessions, hits_per_session):
+            self.labels.extend(hits.zone)
+            audio, sr = sf.read(file)
+            self.audio[i : i + len(hits)] = self.frame_extractor(
+                audio, hits.onset_start
+            )
+            for extractor in self.extractors:
+                aug_audio = extractor(audio, hits.onset_start)
+                for _ in range(n_aug_each):
+                    self.labels.extend(hits.zone)
+                    i += len(hits)
+                    self.audio[i : i + len(hits)] = self.aug(aug_audio.T, sr).T
+
+                # for aug in self.augmentations:
+                #     for _ in range(n_aug_each):
+                #         self.labels.extend(hits.zone)
+                #         i += len(hits)
+                #         self.audio[i : i + len(hits)] = aug(aug_audio.T, sr).T
+
+
 class FrameExtractor:
+    """
+    Given a full audio waveform and onsets of interest, select for each onset
+    the frame of interest.
+    """
+
     def __init__(self, frame_length: int, pre_samples: int):
         self.frame_length = frame_length
         self.pre_samples = pre_samples
 
-    def get_frames(self, audio: np.ndarray, onsets: np.ndarray):
+    def __call__(self, audio: np.ndarray, onsets: np.ndarray):
         view = np.lib.stride_tricks.sliding_window_view(
             audio, window_shape=(self.frame_length + self.pre_samples)
         )
@@ -79,7 +175,7 @@ class SampleShiftFrameExtractor(FrameExtractor):
         super().__init__(frame_length, pre_samples)
         self.max_shift = max_shift
 
-    def get_frames(self, audio: np.ndarray, onsets: np.ndarray):
+    def __call__(self, audio: np.ndarray, onsets: np.ndarray):
         shifts = np.random.randint(1, self.max_shift, len(onsets))
         np.negative(
             shifts,
@@ -100,7 +196,7 @@ class StretchFrameExtractor(FrameExtractor):
         self.max_shift = int((frame_length + pre_samples) * max_stretch)
         self.full_length = frame_length + pre_samples
 
-    def get_frames(self, audio, onsets):
+    def __call__(self, audio, onsets):
         shifts = np.random.randint(1, self.max_shift, len(onsets))
         np.negative(
             shifts,
