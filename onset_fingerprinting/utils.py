@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from matplotlib.colors import ListedColormap
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 from sklearn.neighbors import KNeighborsClassifier
 
 
@@ -118,3 +120,150 @@ def plot_knn_metrics(
         if (label == labels[0]) and len(axs) > 1:
             ax2.set(yticklabels=[], ylabel=None)
     fig.tight_layout()
+
+
+def compare_model_confusion(
+    test_labels: np.ndarray, pred_labels: list, normalize=None, psize=4
+):
+    n = len(pred_labels)
+    fig, axs = plt.subplots(1, n, figsize=(n * psize, psize))
+
+    labels = list(set(test_labels) | set.union(*[set(l) for l in pred_labels]))
+    for pred, ax in zip(pred_labels, axs):
+        ConfusionMatrixDisplay.from_predictions(
+            test_labels, pred, labels=labels, ax=ax, xticks_rotation="vertical"
+        )
+    fig.tight_layout()
+
+
+def plot_disagreements(test_labels, predicted_labels_list):
+    num_models = len(predicted_labels_list)
+    num_samples = len(test_labels)
+    labels = list(
+        set(test_labels) | set.union(*[set(l) for l in predicted_labels_list])
+    )
+    num_labels = len(labels)
+    ld = {l: i for l, i in zip(labels, range(num_labels))}
+
+    # Prepare an array where rows represent models and columns represent instances
+    agreement_array = np.empty((num_models + 1, num_samples))
+    agreement_array[0, :] = np.vectorize(ld.get)(test_labels)
+
+    # Fill the array: 1 for correct prediction, 0 for incorrect
+    for i, preds in enumerate(predicted_labels_list):
+        agreement_array[i + 1, :] = preds == test_labels
+
+    # Find instances that at least one model misclassified
+    misclassified = np.any(agreement_array[1:] == 0, axis=0)
+
+    for i, preds in enumerate(predicted_labels_list):
+        agreement_array[i + 1, :] = np.vectorize(ld.get)(preds)
+
+    sorter = np.lexsort(agreement_array[::-1, :], axis=0)
+    misclassified = misclassified[sorter]
+    agreement_array = agreement_array[:, sorter]
+    # Create a colormap with a unique color for each label
+    cmap = ListedColormap(sns.color_palette(n_colors=num_labels))
+
+    # Create a figure
+    fig = plt.figure(figsize=(10, num_models))
+
+    # Use imshow to create a heatmap, only for misclassified instances
+    plt.imshow(agreement_array[:, misclassified], aspect="auto", cmap=cmap)
+
+    # Configure the axes and labels
+    plt.yticks(
+        np.arange(num_models + 1),
+        ["True"] + [f"Model {i+1}" for i in range(num_models)],
+    )
+    plt.xticks([])
+    plt.title("Model Disagreements on Misclassified Instances")
+
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=cmap.colors[i])
+        for i in range(num_labels)
+    ]
+    fig.legend(
+        handles,
+        labels,
+        ncols=num_labels,
+        fontsize="small",
+        columnspacing=0.5,
+        loc="upper center",
+        bbox_to_anchor=(0.44, 0.1),
+    )
+    fig.tight_layout()
+
+
+def plot_misclf(
+    true_labels: np.ndarray,
+    pred_labels: list[np.ndarray],
+    psize: float = 1.2,
+    model_names: list[str] | None = None,
+    normalize: bool = False,
+):
+    n = len(pred_labels)
+    if model_names is None:
+        model_names = list(map(str, range(len(pred_labels))))
+    else:
+        assert len(model_names) == n
+
+    labels = list(set(true_labels) | set.union(*[set(l) for l in pred_labels]))
+    n_classes = len(labels)
+    n_models = len(pred_labels)
+
+    cm = np.zeros((n_models, n_classes, n_classes))
+    for i, preds in enumerate(pred_labels):
+        cm[i] = confusion_matrix(true_labels, preds, labels=labels)
+
+    df = pd.concat((pd.DataFrame(x, columns=labels, index=labels) for x in cm))
+    model = [[i] * len(cm[i]) for i in range(n)]
+    df["model"] = [x for y in model for x in y]
+
+    df = df.melt(
+        df.columns[-1],
+        var_name="pred",
+        value_name="misclassifications",
+        ignore_index=False,
+    ).reset_index(names="true")
+
+    df = df[(df["misclassifications"] != 0) & (df["true"] != df["pred"])]
+    if normalize:
+        df["misclassifications"] /= df.groupby("model")[
+            "misclassifications"
+        ].transform(sum)
+    trues = df["true"].unique()
+    preds = df["pred"].unique()
+    df = df.set_index(["true", "pred"])
+
+    fig, axs = plt.subplots(
+        len(preds),
+        len(trues),
+        figsize=(len(trues) * psize, len(preds) * psize),
+        sharex=True,
+        sharey=True,
+        squeeze=False,
+    )
+    cp = np.array(sns.color_palette(n_colors=n))
+    for i, (axs_row, pred) in enumerate(zip(axs, preds)):
+        for j, (ax, true) in enumerate(zip(axs_row, trues)):
+            try:
+                row = df.loc[true, pred]
+                ax.bar(
+                    row["model"],
+                    row["misclassifications"],
+                    1,
+                    color=cp[row["model"]],
+                )
+            except:
+                # for spine in ax.spines:
+                #     ax.spines[spine].set_visible(False)
+                pass
+            if i == len(preds) - 1:
+                ax.set_xlabel(true)
+            if j == 0:
+                ax.set_ylabel(pred)
+            ax.set_xticks([])
+
+    handles = [plt.Rectangle((0, 0), 1, 1, color=cp[i]) for i in range(n)]
+    fig.legend(handles, [m for m in model_names], title="Model")
