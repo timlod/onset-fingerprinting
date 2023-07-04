@@ -238,7 +238,7 @@ def stft_frame(x: np.ndarray, n_fft: int, window: np.ndarray):
     :param n_fft: size of the fft
     :param window: fft windowing function array of size n_fft
     """
-    if n_fft > len(x):
+    if n_fft > x.shape[-1]:
         x = librosa.util.pad_center(x, size=n_fft)
     return np.fft.rfft(window * x)
 
@@ -270,34 +270,39 @@ def stft(
         pad front with preceding audio, back with zeros, pre: pad front with
         preceding audio, don't pad back
     """
-    y = audio[onset : onset + frame_length]
+    y = audio[..., onset : onset + frame_length]
     pad_length = (
         frame_length - hop_length if hop_edge_padding else frame_length // 2
     )
-    pad = np.zeros(pad_length, dtype=np.float32)
-    pre = audio[onset - pad_length : onset]
+    dim0 = 1 if y.ndim == 1 else y.shape[0]
+    pad = np.zeros((dim0, pad_length), dtype=np.float32).squeeze()
+    pre = audio[..., onset - pad_length : onset]
     window = librosa.filters.get_window("hann", frame_length, fftbins=True)
     if n_fft > frame_length:
         window = librosa.util.pad_center(window, size=n_fft)
 
     if method == "zerozero":
         # 1: start at onset, zero both ends
-        y = np.concatenate((pad, y, pad))
+        y = np.concatenate((pad, y, pad), axis=-1)
 
     elif method == "prezero":
         # 2: start at onset, zero end, take audio before
 
-        y = np.concatenate((pre, y, pad))
+        y = np.concatenate((pre, y, pad), axis=-1)
 
     elif method == "pre":
         # 3: take frames from ongoing STFT, hard end on last frame
-        y = np.concatenate((pre, y))
+        y = np.concatenate((pre, y), axis=-1)
 
-    n_frames = 1 + (len(y) - frame_length) // hop_length
-    S = np.empty((n_fft // 2 + 1, n_frames), dtype=np.complex64)
+    n_frames = 1 + (y.shape[-1] - frame_length) // hop_length
+    S = np.empty(
+        (dim0, n_fft // 2 + 1, n_frames), dtype=np.complex64
+    ).squeeze()
     for i in range(n_frames):
-        S[:, i] = stft_frame(
-            y[hop_length * i : hop_length * i + frame_length], n_fft, window
+        S[..., i] = stft_frame(
+            y[..., hop_length * i : hop_length * i + frame_length],
+            n_fft,
+            window,
         )
     return S
 
