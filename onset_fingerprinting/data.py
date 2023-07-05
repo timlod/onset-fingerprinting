@@ -330,7 +330,7 @@ def cspec_to_mfcc(
     fmin: int = 0,
     fmax: None | int = None,
     n_mels: int = 40,
-    n_mfccs: int = 14,
+    n_mfcc: int = 14,
 ):
     """Compute MFCCs from a complex spectrogram.
 
@@ -345,6 +345,6 @@ def cspec_to_mfcc(
         S=np.abs(S) ** 2, sr=sr, fmin=fmin, fmax=fmax, n_mels=n_mels
     )
     mfcc = librosa.feature.mfcc(
-        S=librosa.power_to_db(mels), sr=sr, n_mfccs=n_mfccs
+        S=librosa.power_to_db(mels), sr=sr, n_mfcc=n_mfcc
     )
     return mfcc
