@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 from typing import Callable
 
+import audiomentations
+import fcwt
 import librosa
 import numpy as np
 import pandas as pd
@@ -9,7 +11,20 @@ import soundfile as sf
 from scipy.signal import resample
 from torch.utils.data import Dataset
 
-from onset_fingerprinting import augmentation
+## TODO: listen to examples which are constantly misclassified to check if I
+## could tell them apart myself
+
+AUGMENTATIONS = [
+    audiomentations.AddGaussianNoise(p=1),
+    audiomentations.AirAbsorption(p=1),
+    audiomentations.SevenBandParametricEQ(
+        min_gain_db=-10, max_gain_db=10, p=1
+    ),
+    # audiomentations.Gain(p=1),
+    audiomentations.TanhDistortion(
+        min_distortion=0.005, max_distortion=0.1, p=1
+    ),
+]
 
 
 def read_json(file: Path) -> dict:
@@ -46,7 +61,8 @@ class POSD(Dataset):
         channel: str,
         transform: Callable,
         pre_samples: int = 0,
-        augmentations: list = [],
+        augmentations: list = AUGMENTATIONS,
+        n_rounds_aug: int = 5,
     ):
         """Initialize POSD.
 
@@ -78,6 +94,9 @@ class POSD(Dataset):
         :param aug_transform: function which takes as input an array of audio
             and a sequence of onset start indexes, and returns modified audio
         :param pre_samples: take this many samples from before the onset
+        :param n_rounds_aug: how many times to duplicate training data under a
+            different set of augmentations.  This is done for each frame
+            extractor
         """
         # go into path, recursively load all matching files
         path = Path(path)
@@ -94,22 +113,19 @@ class POSD(Dataset):
         self.frame_length = frame_length
         self.pre_samples = pre_samples
         self.frame_extractor = FrameExtractor(frame_length, pre_samples)
-        # augmentation composition
-        self.extractors = [
+        # audiomentations composition
+        self.extra_extractors = [
             self.frame_extractor,
-            SampleShiftFrameExtractor(frame_length, pre_samples, 10),
+            SampleShiftFrameExtractor(frame_length, pre_samples, 6),
             StretchFrameExtractor(frame_length, pre_samples, 0.06),
         ]
-        self.augmentations = [
-            augmentation.AddGaussianNoise(p=1),
-            augmentation.AirAbsorption(p=1),
-            augmentation.SevenBandParametricEQ(p=1),
-            # augmentation.Gain(p=1),
-            augmentation.TanhDistortion(p=1),
-        ]
-        self.aug = augmentation.SomeOf(
-            (1, len(self.augmentations)), self.augmentations, p=1
-        )
+        self.augmentations = augmentations
+        self.aug = audiomentations.SomeOf((1, 3), self.augmentations, p=1)
+        self.n_rounds_aug = n_rounds_aug
+
+        self.transform = transform
+        self.load_files()
+        # self.audio = self.transform(self.audio, self)
 
     def load_files(self):
         files, sessions, hits_per_session = (
@@ -117,14 +133,13 @@ class POSD(Dataset):
             self.sessions,
             self.hits,
         )
-        n_aug_each = 5
         self.audio = np.empty(
             (
                 (
                     1
-                    + len(self.extractors)
+                    + len(self.extra_extractors)
                     # * len(self.augmentations)
-                    * n_aug_each
+                    * self.n_rounds_aug
                 )
                 * sum(len(h) for h in hits_per_session),
                 self.frame_length + self.pre_samples,
@@ -136,12 +151,14 @@ class POSD(Dataset):
         for file, session, hits in zip(files, sessions, hits_per_session):
             self.labels.extend(hits.zone)
             audio, sr = sf.read(file)
+            # This is the raw data
             self.audio[i : i + len(hits)] = self.frame_extractor(
                 audio, hits.onset_start
             )
-            for extractor in self.extractors:
+            # Everything here will be augmented
+            for extractor in self.extra_extractors:
                 aug_audio = extractor(audio, hits.onset_start)
-                for _ in range(n_aug_each):
+                for _ in range(self.n_rounds_aug):
                     self.labels.extend(hits.zone)
                     i += len(hits)
                     self.audio[i : i + len(hits)] = self.aug(aug_audio.T, sr).T
