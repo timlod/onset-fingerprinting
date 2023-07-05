@@ -121,9 +121,13 @@ defined in such a way that additional metadata can be recorded as is needed.
 
 POSD metadata is specified using JSON.
 
+Do not include units for optional numerical metadata (e.g. do not record 440Hz
+for an instrument tuned to A4, but rather 440), but rather document clearly
+what unit each field is using!
+
 Have a look at POSD-Drum-V1, which shows how POSD can be used to 
 
-*** Instruments (Instrument class?)
+*** Instrument class
 
 Instrument-level data lives out side of the session/hit hierarchy, and is not
 strictly necessary, as the important bits (an instrument's hitzones) can be
@@ -135,17 +139,38 @@ level, to have a format to validate hit-level data against.
 
 1. Instrument name
    - use this name in the [[*Instrument][Instrument]] section in the session metadata
-   - this will be 
-2. Hit zones
+   - use as JSON keys at the top level
+2. =zones=: Hit zones
    - a list of all possible ways the instrument is recorded across all
      sessions, and a brief description thereof
    - names have to be the same as those specified in [[*Hit][Hit]] metadata
-3. Hit-level conditions
-   - possible conditions as that could be present in hit-level data, as a tuple
-     of (name, possible values) pairs
-4. Additional instrument-level metadata
-   - e.g., could detail that hit-level location data is stored as a 2D
-       coordinate grid
+3. =conditions=: Hit-level conditions
+   - list of possible conditions which could be present in hit-level data, as
+     {"name": [possible values]} pairs
+   - these are essentially categorical features which can be used to further
+     split zones, if needed
+4. =additional=: optional dictionary of additional instrument-level metadata
+   - e.g. hit-level location data is stored as a 2D coordinate grid for
+     non-circular instruments. You may want to place such information in the
+     README instead (or as well).
+     
+**** Location data for 'round' drums
+If location data is stored for hits on typical circular drums (snare, kick,
+tambourine, timpani, etc.), please use a tuple of [[https://en.wikipedia.org/wiki/Polar_coordinate_system][polar coordinates]] using the
+following system:
+- Distance from center between 0 and 1 (0 meaning dead on center, 1 meaning on
+  edge)
+- Angle in degrees (0 to 360), where 0/360° are the top of the drum (from
+  player's perspective), and angles increase clockwise
+
+For example, hits toward top and bottom of a snare drum might be at (0.8, 0)
+and (0.8, 180) respectively; hits towards center right/left might at (0.1, 90)
+and (0.1, 270).
+For a dead-center hit, the angle component does not matter - in that case, we
+recommend recording 0°.
+
+For other types of instruments, please document clearly how locations are
+represented.
 
 *** Session
 
@@ -156,30 +181,42 @@ metadata about context in that session.
 **** Recording
 
 Required:
-2. Sampling rate
-3. For each recording device/channel:   
+1. Sampling rate (in Hz)
+2. For each recording device/channel:   
    - Name of the recording device
    Optional:
    - Additional details such as:
-     - Placement/location of recording device around the instrument
+     - =location= of recording device around the instrument
+       - you can use the coordinate system defined [[*Location data for 'round' drums][earlier]] to record sensor
+         location around circular drums. Make sure to document how to record
+         placement clearly, including distance to sound source
+     - =pickup_pattern=: e.g. omni, cardioid, etc.
 
-These has to match the actual audio files stored as part of the dataset.
+Channel names have to match the actual audio files stored as part of the
+dataset.
          
 **** Instrument
 
 Required:
-1. Instrument name
-   - If present, has to match metadata in [[*Instruments][Instruments]]
+1. =name=: Instrument name
+   - If present, has to match metadata in [[*Instrument class][Instrument class]]
    - use something informative, like 'snare' or 'kick'
 
 Optional:
-1. Additional session-level instrument metadata
-   - e.g. tuning, pitch, manufacturer, model, etc.   
+1. Additional session-level instrument metadata like the following:
+   - =tuning=
+   - =pitch=
+   - =manufacturer=
+   - =model=
+   - =stick_type=, =beater_material= and similar
+   - etc.
+
+Use Hertz/Hz to record tuning or pitch, if present.
 
 **** Context
 
 This section is completely optional, and could record things like:
-1. Player
+1. =player_id=: Player
    - Give an ID to each player in the dataset if multiple people recorded
      sessions
 2. Musical context
@@ -192,36 +229,41 @@ learning task(s).
 *** Hit
 
 Required:
-1. Zone
-   - Hit zone matching those defined in [[*Instruments][Instruments]], if present
-2. Onset start
+1. =zone=
+   - Hit zone matching those defined in [[*Instrument class][Instrument class]], if present
+2. =onset_start=
    - integer index into the paired audio file
-3. Velocity
+3. =velocity=
    - value between 0 and 1 (approximately) noting the strength of the hit, e.g.
      0 for the most silent possible hit, and 1 for the hardest possible hit
    - ?should we make this optional?
-4. isolated?
+4. =isolated=
    - A boolean flag specifying whether the hit is isolated or in-context
 
 Optional:
-1. Location
+1. =location=
    - if useful/possible, think about storing the location of a hit within a
-     zone, or globally around the instrument
-2. Hit conditions
-   - has to match those specified in [[*Instruments][Instruments]], if present
+     zone, or globally around the instrument, see [[*Location data for 'round' drums][Location data for 'round'
+     drums]]
+2. =pitch=
+   - more fine-grained pitch information (in Hz) than that recorded per
+     session, useful for pitched instruments like timpani
+3. Hit conditions
+   - has to match those specified in [[*Instrument class][Instrument class]], if present
 
 ** TODO Example
 
 The following is a small example detailing a simplistic POSD that contains
 sessions recording snare and kick drum hits.
 
-*** TODO Folder structure
+*** Folder structure
 
-Currently a dataset would look like this. It would be possible to introduce
-folders for different instruments or other other things, but I'm not currently
-sure if this should be done. We could allow users to set their own hierarchies,
-specifying that a dataset can have arbitrarily nested folders, and a loader
-should visit everything recursively and load all session data that way.
+A POSD dataset has the following structure, with =instruments.json= present at
+the top-level of the directory. Session and hit metadata need to be in the same
+folder as the sound files they refer to. Nested directories are allowed to
+introduce a hierarchy for ease of viewing - POSD loaders should visit all
+sub-directories of a dataset to look for session data. For example, one could
+create a folder for each instrument class.
 
 #+begin_example
 Dataset folder
@@ -236,17 +278,7 @@ Dataset folder
 - session2_OP.wav
 #+end_example
 
-Further, session and hits json files could conceivably be in the same JSON
-file. The only reason I'm not doing that currently is because the list of hits
-may be very long, making it necessary to load a huge JSON file even though one
-may just want to look at session-level data.
-
 *** Instruments
-
-?I don't like the 'additional' rubric, and perhaps JSON is not ideal here, as we
-can't write comments explaining what this means. For example, I'm trying to
-describe that snare drums can contain location information on an X/Y coordinate
-grid, with X/Y values taking on values between 0 and 1.
 
 ~instruments.json~
 #+begin_src json
