@@ -135,12 +135,7 @@ class POSD(Dataset):
         )
         self.audio = np.empty(
             (
-                (
-                    1
-                    + len(self.extra_extractors)
-                    # * len(self.augmentations)
-                    * self.n_rounds_aug
-                )
+                (1 + len(self.extra_extractors) * self.n_rounds_aug)
                 * sum(len(h) for h in hits_per_session),
                 self.frame_length + self.pre_samples,
             ),
@@ -163,11 +158,7 @@ class POSD(Dataset):
                     i += len(hits)
                     self.audio[i : i + len(hits)] = self.aug(aug_audio.T, sr).T
 
-                # for aug in self.augmentations:
-                #     for _ in range(n_aug_each):
-                #         self.labels.extend(hits.zone)
-                #         i += len(hits)
-                #         self.audio[i : i + len(hits)] = aug(aug_audio.T, sr).T
+            i += len(hits)
 
 
 class FrameExtractor:
