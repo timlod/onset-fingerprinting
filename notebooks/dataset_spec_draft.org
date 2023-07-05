@@ -33,6 +33,10 @@ dataset (in the context of drums/percussion):
   - similar task as onset sound classification, but using more audio samples
     (larger context window)
 
+POSD should be adaptable to different types of instruments, with common
+attributes shared across a large class of instruments, and a defined structure
+to add more specific atttributes.
+
 * Audio onset fingerprinting/classification
 
 Typical audio/sound classification involves training a model to classify a
@@ -95,6 +99,13 @@ which can be accessed by their location in the soundfile. We call individual
 note onsets (including the audio directly following the onset) =hits=, and
 arrange them in =sessions=, in which a large amount of metadata stays constant
 across individual hits.
+
+The specification contains a number of required attributes - when recording
+these, make sure to follow the guideline directly. For optional attributes,
+make sure to document clearly how data is/should be collected. For this, we
+recommend a README file at the top-level of your project (.txt, .md or .org
+files are recommended). This readme should make it easy to understand and parse
+your additions to POSD.
 
 ** Metadata
 
