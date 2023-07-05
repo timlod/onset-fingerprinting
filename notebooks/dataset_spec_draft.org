@@ -181,8 +181,8 @@ metadata about context in that session.
 **** Recording
 
 Required:
-1. Sampling rate (in Hz)
-2. For each recording device/channel:   
+1. =sampling_rate= (in Hz)
+2. =channels= - for each recording device/channel:
    - Name of the recording device
    Optional:
    - Additional details such as:
