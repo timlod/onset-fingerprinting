@@ -59,7 +59,8 @@ class POSD(Dataset):
         path: str | Path,
         frame_length: int,
         channel: str,
-        transform: Callable,
+        # e.g. lambda x, posd: cspec_to_mfcc(stft(x, posd.pre_samples), sr=sr)
+        transform: Callable | None = None,
         pre_samples: int = 0,
         augmentations: list = AUGMENTATIONS,
         n_rounds_aug: int = 5,
@@ -113,19 +114,18 @@ class POSD(Dataset):
         self.frame_length = frame_length
         self.pre_samples = pre_samples
         self.frame_extractor = FrameExtractor(frame_length, pre_samples)
-        # audiomentations composition
         self.extra_extractors = [
             self.frame_extractor,
             SampleShiftFrameExtractor(frame_length, pre_samples, 6),
             StretchFrameExtractor(frame_length, pre_samples, 0.06),
         ]
-        self.augmentations = augmentations
-        self.aug = audiomentations.SomeOf((1, 3), self.augmentations, p=1)
+        self.aug = audiomentations.SomeOf((0, 3), augmentations, p=1)
         self.n_rounds_aug = n_rounds_aug
 
         self.transform = transform
         self.load_files()
-        # self.audio = self.transform(self.audio, self)
+        if self.transform is not None:
+            self.audio = self.transform(self.audio, self)
 
     def load_files(self):
         files, sessions, hits_per_session = (
@@ -151,12 +151,15 @@ class POSD(Dataset):
                 audio, hits.onset_start
             )
             # Everything here will be augmented
-            for extractor in self.extra_extractors:
-                aug_audio = extractor(audio, hits.onset_start)
-                for _ in range(self.n_rounds_aug):
-                    self.labels.extend(hits.zone)
-                    i += len(hits)
-                    self.audio[i : i + len(hits)] = self.aug(aug_audio.T, sr).T
+            if self.n_rounds_aug > 0:
+                for extractor in self.extra_extractors:
+                    aug_audio = extractor(audio, hits.onset_start)
+                    for _ in range(self.n_rounds_aug):
+                        self.labels.extend(hits.zone)
+                        i += len(hits)
+                        self.audio[i : i + len(hits)] = self.aug(
+                            aug_audio.T, sr
+                        ).T
 
             i += len(hits)
 
