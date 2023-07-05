@@ -300,12 +300,6 @@ Dataset folder
             ]
         }
         ],
-        "additional": {
-            "location_ranges": {
-                "x": [0, 1],
-                "y": [0, 1]
-            }
-        }
     },
     "kick": {
         "zones": [
@@ -315,23 +309,19 @@ Dataset folder
             {
             "release": "Beater is released immediately upon striking drumhead"
         }
-        ]
+        ],
+        "conditions": {}
     }
 }
 #+end_src
 
 *** Sessions
 
-?Should we define certain optional options, like context, or add
-instrument-class level metadata that is referenced? (we could populate with
-options like full kit, music, band, etc., but there are probably too many
-reasonable options to define in the spec)
-
-There are two sessions, one recording the snare, one the kick. These JSON files
-will accompany .wav files, namely one for each channel, in the same folder.
-Note: all data and metadata will share the same name. WAV files will be
-post-fixed by _<channel>, where <channel> one of the channels specified in the
-session metadata!
+In this example there are two sessions, one recording the snare, one the kick.
+These JSON files will accompany .wav files, namely one for each channel, in the
+same folder. Note: all data and metadata will share the same name. WAV files
+will be post-fixed by _<channel>, where <channel> one of the channels specified
+in the session metadata!
 
 ~session1.json~
 #+begin_src json
@@ -339,11 +329,11 @@ session metadata!
     "sampling_rate": 96000,
     "channels": {
         "SP": {
-            "location": 12,
+            "location": [0.95, 0],
             "distance": 10
         },
         "OP": {
-            "location": 13,
+            "location": [0.95, 30],
             "distance": 8
         }
     },
@@ -366,11 +356,11 @@ session metadata!
     "sampling_rate": 96000,
     "channels": {
         "SP": {
-            "location": 15,
+            "location": [0.98, 45],
             "distance": 10
         },
         "OP": {
-            "location": 16,
+            "location": [0.98, 60],
             "distance": 8
         }
     },
@@ -390,28 +380,73 @@ session metadata!
 
 ~session1_hits.json~
 
-Note how this adds additional data about the pitch of each hit.
+Conditions are added flat to keep things simple. Note how this adds additional
+data about the pitch of each hit.
 #+begin_src json
-{
-    "zone": ["center", "center", "edge", "edge"],
-    "onset_start": [0, 48000, 96000, 144000],
-    "velocity": [0.0, 1.0, 0.0, 1.0],
-    "isolated": [true, true, true, true],
-    "conditions": {
-        "wires": ["on", "on", "off", "off"]
-    },
-    "pitch": [220, 220, 219, 219]
+[
+    {
+    "zone":"center",
+    "onset_start":0,
+    "velocity":0.0,
+    "isolated":true,
+    "pitch":220,
+    "wires":"on"
+},
+    {
+    "zone":"center",
+    "onset_start":48000,
+    "velocity":1.0,
+    "isolated":true,
+    "pitch":220,
+    "wires":"on"
+},
+    {
+    "zone":"edge",
+    "onset_start":96000,
+    "velocity":0.0,
+    "isolated":true,
+    "pitch":219,
+    "wires":"off"
+},
+    {
+    "zone":"edge",
+    "onset_start":144000,
+    "velocity":1.0,
+    "isolated":true,
+    "pitch":219,
+    "wires":"off"
 }
+]
 #+end_src
 
 ~session2_hits.json~
 #+begin_src json
-{
-    "zone": ["press", "press", "release", "release"],
-    "onset_start": [0, 48000, 96000, 144000],
-    "velocity": [0.5, 1.0, 0.5, 1.0],
-    "isolated": [true, true, true, true]
+[
+    {
+    "zone":"press",
+    "onset_start":0,
+    "velocity":0.5,
+    "isolated":true
+},
+    {
+    "zone":"press",
+    "onset_start":48000,
+    "velocity":1.0,
+    "isolated":true
+},
+    {
+    "zone":"release",
+    "onset_start":96000,
+    "velocity":0.5,
+    "isolated":true
+},
+    {
+    "zone":"release",
+    "onset_start":144000,
+    "velocity":1.0,
+    "isolated":true
 }
+]
 #+end_src
 
 
