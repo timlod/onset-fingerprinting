@@ -127,6 +127,7 @@ https://help.sunhou.se/v2/software-overview/hardware-panel/hardware-inputs/drum-
 2. Edge
 3. Rimshot center
 4. Cross stick
+   - there are a variety of different sounds achievable here - just one zone?
 5. Rim shoulder
 6. Rimshot edge
 7. Rim tip

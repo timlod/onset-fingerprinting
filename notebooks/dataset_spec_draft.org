@@ -315,7 +315,10 @@ Dataset folder
 }
 #+end_src
 
-*** Sessions
+*** TODO Sessions
+Instead of having one session per file, we could have one large file containing
+a list of all sessions. Each session should then have a name, where name +
+channel + .wav should then exist somewhere in the folder structure to load.
 
 In this example there are two sessions, one recording the snare, one the kick.
 These JSON files will accompany .wav files, namely one for each channel, in the
