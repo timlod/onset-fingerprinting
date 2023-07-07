@@ -141,12 +141,12 @@ level, to have a format to validate hit-level data against.
    - use this name in the [[*Instrument][Instrument]] section in the session metadata
    - use as JSON keys at the top level
 2. =zones=: Hit zones
-   - a list of all possible ways the instrument is recorded across all
+   - collection of all possible ways the instrument is recorded across all
      sessions, and a brief description thereof
    - names have to be the same as those specified in [[*Hit][Hit]] metadata
 3. =conditions=: Hit-level conditions
-   - list of possible conditions which could be present in hit-level data, as
-     {"name": [possible values]} pairs
+   - collection of possible conditions which could be present in hit-level
+     data, as {"name": [possible values]} pairs
    - these are essentially categorical features which can be used to further
      split zones, if needed
 4. =additional=: optional dictionary of additional instrument-level metadata
@@ -278,38 +278,33 @@ Dataset folder
 - session2_OP.wav
 #+end_example
 
-*** Instruments
+*** Instrument class
+
+The purpose of this file 
+
+TODO: Add isolated to conditions?
 
 ~instruments.json~
 #+begin_src json
 {
     "snare": {
-        "zones": [
-            {
-            "center": "Strike in the center of the drumhead"
-        },
-            {
+        "zones": {
+            "center": "Strike in the center of the drumhead",
             "edge": "Strike at the edge of the drumhead"
-        }
-        ],
-        "conditions": [
+        },
+        "conditions": 
             {
             "wires": [
                 "on",
                 "off"
             ]
-        }
-        ],
+        },
     },
     "kick": {
-        "zones": [
-            {
-            "press": "Beater is not released upon striking drumhead"
-        },
-            {
+        "zones": {
+            "press": "Beater is not released upon striking drumhead",
             "release": "Beater is released immediately upon striking drumhead"
-        }
-        ],
+        },
         "conditions": {}
     }
 }
