@@ -229,6 +229,8 @@ Think about what sort of data may aid the targeted (or other potential) machine
 learning task(s).
 
 *** Hit
+In the metadata, hits are recorded at the end of the file containing session
+metadata.
 
 Required:
 1. =zone=
@@ -259,7 +261,7 @@ sessions recording snare and kick drum hits.
 *** Folder structure
 
 A POSD dataset has the following structure, with =instruments.json= present at
-the top-level of the directory. Session and hit metadata need to be in the same
+the top-level of the directory. Session/hit metadata need to be in the same
 folder as the sound files they refer to. Nested directories are allowed to
 introduce a hierarchy for ease of viewing - POSD loaders should visit all
 sub-directories of a dataset to look for session data. For example, one could
@@ -269,20 +271,18 @@ create a folder for each instrument class.
 Dataset folder
 - instruments.json
 - session1.json
-- session1_hits.json
 - session1_SP.wav
 - session1_OP.wav
 - session2.json
-- session2_hits.json
 - session2_SP.wav
 - session2_OP.wav
 #+end_example
 
 *** Instrument class
 
-The purpose of this file 
-
-TODO: Add isolated to conditions?
+The purpose of this file is to define what types of instruments are present in
+the dataset, and what zones as well additional data/conditions are available.
+One can load this ahead of time to know what to expect of the dataset.
 
 ~instruments.json~
 #+begin_src json
@@ -294,6 +294,7 @@ TODO: Add isolated to conditions?
         },
         "conditions": 
             {
+            "isolated": [true, false],
             "wires": [
                 "on",
                 "off"
@@ -311,10 +312,6 @@ TODO: Add isolated to conditions?
 #+end_src
 
 *** TODO Sessions
-Instead of having one session per file, we could have one large file containing
-a list of all sessions. Each session should then have a name, where name +
-channel + .wav should then exist somewhere in the folder structure to load.
-
 In this example there are two sessions, one recording the snare, one the kick.
 These JSON files will accompany .wav files, namely one for each channel, in the
 same folder. Note: all data and metadata will share the same name. WAV files
@@ -324,129 +321,77 @@ in the session metadata!
 ~session1.json~
 #+begin_src json
 {
-    "sampling_rate": 96000,
-    "channels": {
-        "SP": {
-            "location": [0.95, 0],
-            "distance": 10
+    "meta":
+    {
+        "sampling_rate": 96000,
+        "channels": {
+            "SP": {
+                "location": [0.95, 0],
+                "distance": 10
+            },
+            "OP": {
+                "location": [0.95, 30],
+                "distance": 8
+            }
         },
-        "OP": {
-            "location": [0.95, 30],
-            "distance": 8
-        }
+        "instrument": "snare",
+        "manufacturer": "sonor",
+        "model": "BG SDW 2.0",
+        "size": "13x5.75",    
+        "head_top": "ambassador",
+        "head_bottom": "ambassador_ss",
+        "rim": "3f",
+        "tuning": "low",
+        "player": "rodrigo",
+        "context": "full kit"
     },
-    "instrument": "snare",
-    "manufacturer": "sonor",
-    "model": "BG SDW 2.0",
-    "size": "13x5.75",    
-    "head_top": "ambassador",
-    "head_bottom": "ambassador_ss",
-    "rim": "3f",
-    "tuning": "low",
-    "player": "rodrigo",
-    "context": "full kit"
+    "hits":
+    {
+        "zone": ["center", "center", "edge", "edge"],
+        "onset_start": [0, 48000, 96000, 144000],
+        "velocity": [0.0, 1.0, 0.0, 1.0],
+        "isolated": [true, true, true, true],
+        "pitch": [220, 220, 219, 219],
+        "wires": ["on", "on", "off", "off"]
+    }
 }
 #+end_src
 
 ~session2.json~
 #+begin_src json
 {
-    "sampling_rate": 96000,
-    "channels": {
-        "SP": {
-            "location": [0.98, 45],
-            "distance": 10
+    "meta":
+    {
+        "sampling_rate": 96000,
+        "channels": {
+            "SP": {
+                "location": [0.98, 45],
+                "distance": 10
+            },
+            "OP": {
+                "location": [0.98, 60],
+                "distance": 8
+            }
         },
-        "OP": {
-            "location": [0.98, 60],
-            "distance": 8
-        }
+        "instrument": "kick",
+        "manufacturer": "sonor",
+        "model": "SQ2",
+        "size": "20x14",
+        "head_front": "powerstroke-p3",
+        "head_back": "ambassador-fiberskin",
+        "rim": "wood",
+        "player": "rodrigo",
+        "context": "full kit"
     },
-    "instrument": "kick",
-    "manufacturer": "sonor",
-    "model": "SQ2",
-    "size": "20x14",
-    "head_front": "powerstroke-p3",
-    "head_back": "ambassador-fiberskin",
-    "rim": "wood",
-    "player": "rodrigo",
-    "context": "full kit"
+    "hits":
+    {
+        "zone": ["press", "press", "release", "release"],
+        "onset_start": [0, 48000, 96000, 144000],
+        "velocity": [0.5, 1.0, 0.5, 1.0],
+        "isolated": [true, true, true, true]
+    }
 }
 #+end_src
-
-*** Hits
-
-~session1_hits.json~
-
-Conditions are added flat to keep things simple. Note how this adds additional
-data about the pitch of each hit.
-#+begin_src json
-[
-    {
-    "zone":"center",
-    "onset_start":0,
-    "velocity":0.0,
-    "isolated":true,
-    "pitch":220,
-    "wires":"on"
-},
-    {
-    "zone":"center",
-    "onset_start":48000,
-    "velocity":1.0,
-    "isolated":true,
-    "pitch":220,
-    "wires":"on"
-},
-    {
-    "zone":"edge",
-    "onset_start":96000,
-    "velocity":0.0,
-    "isolated":true,
-    "pitch":219,
-    "wires":"off"
-},
-    {
-    "zone":"edge",
-    "onset_start":144000,
-    "velocity":1.0,
-    "isolated":true,
-    "pitch":219,
-    "wires":"off"
-}
-]
-#+end_src
-
-~session2_hits.json~
-#+begin_src json
-[
-    {
-    "zone":"press",
-    "onset_start":0,
-    "velocity":0.5,
-    "isolated":true
-},
-    {
-    "zone":"press",
-    "onset_start":48000,
-    "velocity":1.0,
-    "isolated":true
-},
-    {
-    "zone":"release",
-    "onset_start":96000,
-    "velocity":0.5,
-    "isolated":true
-},
-    {
-    "zone":"release",
-    "onset_start":144000,
-    "velocity":1.0,
-    "isolated":true
-}
-]
-#+end_src
-
 
 * Conventions
 POSD can refer to any dataset which adhers to the specification described in
