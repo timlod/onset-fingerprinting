@@ -126,19 +126,17 @@ def set_selected(line: LineMeta | None):
 
 def on_click(event):
     global selected_line, moving, new_on_release
-    clicked_line = select(event, vlines)
+    clicked_line = select_close_line(event)
 
     if event.button is MouseButton.LEFT:
         if (selected_line is not None) and (clicked_line == selected_line):
-            print(f"C = S {clicked_line.line.get_xdata()}")
-            # click again - TODO
             moving = True
-        elif clicked_line is not None:
-            print(f"Selected line, set moving {clicked_line.line.get_xdata()}")
+        elif (clicked_line is not None) and (
+            toolbar.mode is toolbar_mode.NONE
+        ):
             set_selected(clicked_line)
             moving = True
         else:
-            print(f"Setting new on release {event.xdata}")
             new_on_release = True
 
 
@@ -171,13 +169,24 @@ def on_key(event):
             if selected_line is not None:
                 x = int(selected_line.line.get_xdata()[0])
                 sd.play(audio[x : x + int(sr / 2)], samplerate=sr)
+        case "z":
+            if selected_line is not None:
+                onset = selected_line.meta["onset_start"]
+                ax.set_xlim((onset - sr // 4, onset + sr * 2))
+                fig.canvas.toolbar.push_current()
+                fig.canvas.draw()
+        case "f":
+            xlims = ax.get_xlim()
+            ax.set_xlim((xlims[0] + sr // 8, xlims[1] + sr // 8))
+            fig.canvas.toolbar.push_current()
+            fig.canvas.draw()
 
 
 def on_motion(event):
     global selected_line, new_on_release
     new_on_release = False
     if event.xdata is not None:
-        text_var.set(round(event.xdata))
+        current_pointer.set(round(event.xdata))
         # If we're panning or zooming we don't want to move a line
         if (
             moving
