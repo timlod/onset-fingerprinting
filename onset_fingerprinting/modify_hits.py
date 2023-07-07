@@ -183,7 +183,8 @@ def on_key(event):
             out = []
             for line in lines:
                 out.append(line.export_meta())
-            with open(data_dir / f"{session_name}-mod.json", "w") as f:
+            out = sorted(out, key=lambda x: x["onset_start"])
+            with open(args.data_dir / f"{args.session}-mod.json", "w") as f:
                 json.dump(dict_long_to_wide(out), f)
 
 
