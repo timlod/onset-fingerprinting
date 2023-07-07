@@ -203,7 +203,9 @@ Required:
    - use something informative, like 'snare' or 'kick'
 
 Optional:
-1. Additional session-level instrument metadata like the following:
+1. =isolated=
+   - A boolean flag specifying whether the hit is isolated or in-context
+2. Additional session-level instrument metadata like the following:
    - =tuning=
    - =pitch=
    - =manufacturer=
@@ -233,12 +235,6 @@ Required:
    - Hit zone matching those defined in [[*Instrument class][Instrument class]], if present
 2. =onset_start=
    - integer index into the paired audio file
-3. =velocity=
-   - value between 0 and 1 (approximately) noting the strength of the hit, e.g.
-     0 for the most silent possible hit, and 1 for the hardest possible hit
-   - ?should we make this optional?
-4. =isolated=
-   - A boolean flag specifying whether the hit is isolated or in-context
 
 Optional:
 1. =location=
@@ -248,8 +244,12 @@ Optional:
 2. =pitch=
    - more fine-grained pitch information (in Hz) than that recorded per
      session, useful for pitched instruments like timpani
-3. Hit conditions
+3. =velocity=
+   - value between 0 and 1 (approximately) noting the strength of the hit, e.g.
+     0 for the most silent possible hit, and 1 for the hardest possible hit
+4. Hit conditions
    - has to match those specified in [[*Instrument class][Instrument class]], if present
+      
 
 ** TODO Example
 
