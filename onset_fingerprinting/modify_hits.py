@@ -1,3 +1,4 @@
+import json
 import tkinter as tk
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -197,27 +198,84 @@ def on_motion(event):
             fig.canvas.draw()
 
 
-# Connect the events to the event handlers
-fig.canvas.mpl_connect("button_press_event", on_click)
-fig.canvas.mpl_connect("button_release_event", on_release)
-fig.canvas.mpl_connect("motion_notify_event", on_motion)
-fig.canvas.mpl_connect("key_press_event", on_key)
+def dict_wide_to_long(input_dict: dict) -> list:
+    """Transform a 'wide' dictionary of lists to a list of dictionaries with
+    keys duplicated for each observation.
 
-# create tkinter window
-root = tk.Tk()
-canvas = FigureCanvasTkAgg(fig, master=root)
-canvas.draw()
-canvas.get_tk_widget().pack()
+    :param input_dict: input dictionary in list format
+    """
 
-# Show sample index at pointer
-text_var = tk.StringVar()
-text_entry = tk.Label(root, textvariable=text_var)
-text_entry.pack()
-opt.setup_tk(root)
+    # Get the length of the lists by taking the length of the values of the first key
+    list_len = len(next(iter(input_dict.values())))
 
-toolbar = NavigationToolbar2Tk(canvas, root)
-toolbar.update()
-canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+    # Initialize an empty list to hold the output dictionaries
+    output_list = []
+
+    # Iterate over the range of the list length
+    for i in range(list_len):
+        # Create a new dictionary for each index,
+        # mapping each key in the input_dict to the corresponding value at the current index
+        output_dict = {key: input_dict[key][i] for key in input_dict.keys()}
+        # Add the new dictionary to the output list
+        output_list.append(output_dict)
+
+    return output_list
 
 
-tk.mainloop()
+if __name__ == "__main__":
+    instrument = "snare"
+    data_dir = Path("../data/test/rodrigo0")
+
+    with open(data_dir / "instruments.json") as f:
+        inst = json.load(f)[instrument]
+    opt = MetaBoxes(inst)
+
+    with open(data_dir / "rodrigo0.json") as f:
+        session = json.load(f)
+        hits = session["hits"]
+
+    audio, sr = sf.read(data_dir / "rodrigo0_DPA.wav")
+    n = len(audio)
+    # Use this when plotting longer files and experiencing slowdown
+    subsampling = 2
+
+    fig, ax = plt.subplots()
+    (line,) = ax.plot(
+        range(0, n, subsampling), audio[:n:subsampling], picker=5
+    )
+
+    vlines = [ax.axvline(x, color="green") for x in hits["onset_start"]]
+    hits = dict_wide_to_long(hits)
+    lines = [LineMeta(line, meta) for line, meta in zip(vlines, hits)]
+
+    # Global variables
+    selected_line: LineMeta | None = None
+    # last_meta = metas[0]
+    last_meta = hits[0]
+    new_on_release = False
+    moving = False
+
+    # Connect events to event handlers
+    fig.canvas.mpl_connect("button_press_event", on_click)
+    fig.canvas.mpl_connect("button_release_event", on_release)
+    fig.canvas.mpl_connect("motion_notify_event", on_motion)
+    fig.canvas.mpl_connect("key_press_event", on_key)
+
+    # Create tkinter window
+    root = tk.Tk()
+    canvas = FigureCanvasTkAgg(fig, master=root)
+    canvas.draw()
+    canvas.get_tk_widget().pack()
+
+    # Show sample index at pointer
+    current_pointer = tk.StringVar()
+    text_entry = tk.Label(root, textvariable=current_pointer)
+    text_entry.pack()
+    opt.setup_tk(root)
+
+    toolbar = NavigationToolbar2Tk(canvas, root)
+    toolbar.update()
+    fig.canvas.toolbar.push_current()
+    canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+    tk.mainloop()
