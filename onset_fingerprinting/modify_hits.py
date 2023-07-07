@@ -168,6 +168,10 @@ def on_key(event):
                 selected_line.line.remove()
                 lines.remove(selected_line)
                 set_selected(None)
+        case " ":
+            if selected_line is not None:
+                x = int(selected_line.line.get_xdata()[0])
+                sd.play(audio[x : x + int(sr / 2)], samplerate=sr)
 
 
 def on_motion(event):
