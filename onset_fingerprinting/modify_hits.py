@@ -5,10 +5,13 @@ from tkinter import ttk
 
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.backend_bases import MouseButton
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import sounddevice as sd
 import soundfile as sf
+from matplotlib.backend_bases import MouseButton, _Mode as toolbar_mode
+from matplotlib.backends.backend_tkagg import (
+    FigureCanvasTkAgg,
+    NavigationToolbar2Tk,
+)
 from matplotlib.lines import Line2D
 
 data_dir = Path("../data")
@@ -149,7 +152,7 @@ def on_release(event):
     global selected_line, new_on_release, moving
     moving = False
     if event.button is MouseButton.LEFT:
-        if new_on_release:
+        if new_on_release and (toolbar.mode is toolbar_mode.NONE):
             print("New line on release")
             new_line = LineMeta(
                 ax.axvline(event.xdata, color="red"), last_meta
@@ -181,7 +184,12 @@ def on_motion(event):
     new_on_release = False
     if event.xdata is not None:
         text_var.set(round(event.xdata))
-        if moving and selected_line is not None:
+        # If we're panning or zooming we don't want to move a line
+        if (
+            moving
+            and (toolbar.mode is toolbar_mode.NONE)
+            and (selected_line is not None)
+        ):
             selected_line.line.set_xdata([event.xdata, event.xdata])
             fig.canvas.draw()
 
@@ -203,5 +211,10 @@ text_var = tk.StringVar()
 text_entry = tk.Label(root, textvariable=text_var)
 text_entry.pack()
 opt.setup_tk(root)
+
+toolbar = NavigationToolbar2Tk(canvas, root)
+toolbar.update()
+canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
 
 tk.mainloop()
