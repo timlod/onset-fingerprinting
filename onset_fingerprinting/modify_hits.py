@@ -1,3 +1,4 @@
+import argparse
 import json
 import tkinter as tk
 from dataclasses import dataclass, field
@@ -5,7 +6,6 @@ from pathlib import Path
 from tkinter import ttk
 
 import matplotlib.pyplot as plt
-import numpy as np
 import sounddevice as sd
 import soundfile as sf
 from matplotlib.backend_bases import MouseButton, _Mode as toolbar_mode
@@ -241,21 +241,47 @@ def dict_wide_to_long(input_dict: dict) -> list:
 
 
 if __name__ == "__main__":
-    instrument = "snare"
-    session_name = "rodrigo0"
-    channel = "OP"
+    parser = argparse.ArgumentParser(
+        description="Modify detected onset metadata."
+    )
+    parser.add_argument(
+        "data_dir",
+        type=Path,
+        help="The data directory containing both .wav and .json files",
+    )
+    parser.add_argument(
+        "session",
+        type=str,
+        help="Name of the session (<session>.json needs to exist in data_dir)",
+    )
+    parser.add_argument(
+        "--instrument",
+        "-i",
+        default="snare",
+        required=False,
+        type=str,
+        help="Name of instrument used in instrument.json (default snare)",
+    )
+    parser.add_argument(
+        "--channel",
+        "-c",
+        default="OP",
+        required=False,
+        type=str,
+        help="Name of channel to load for visualization. (default OP)",
+    )
 
-    data_dir = Path("../data/test/rodrigo0")
+    args = parser.parse_args()
 
-    with open(data_dir / "instruments.json") as f:
-        inst = json.load(f)[instrument]
+    with open(args.data_dir / "instruments.json") as f:
+        inst = json.load(f)[args.instrument]
     opt = MetaBoxes(inst)
 
-    with open(data_dir / f"{session_name}.json") as f:
-        session = json.load(f)
-        hits = session["hits"]
+    with open(args.data_dir / f"{args.session}.json") as f:
+        sess = json.load(f)
+        hits = sess["hits"]
 
-    audio, sr = sf.read(data_dir / f"{session_name}_{channel}.wav")
+    audio, sr = sf.read(args.data_dir / f"{args.session}_{args.channel}.wav")
     n = len(audio)
     # Use this when plotting longer files and experiencing slowdown
     subsampling = 2
