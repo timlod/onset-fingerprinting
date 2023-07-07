@@ -146,7 +146,6 @@ def on_release(event):
     moving = False
     if event.button is MouseButton.LEFT:
         if new_on_release and (toolbar.mode is toolbar_mode.NONE):
-            print("New line on release")
             new_line = LineMeta(
                 ax.axvline(event.xdata, color="red"), last_meta
             )
@@ -162,7 +161,6 @@ def on_key(event):
     match event.key:
         case "d":
             if selected_line is not None:
-                print("Removing selected line")
                 selected_line.line.remove()
                 lines.remove(selected_line)
                 set_selected(None)
