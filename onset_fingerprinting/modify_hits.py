@@ -179,6 +179,12 @@ def on_key(event):
             ax.set_xlim((xlims[0] + sr // 8, xlims[1] + sr // 8))
             fig.canvas.toolbar.push_current()
             fig.canvas.draw()
+        case "q":
+            out = []
+            for line in lines:
+                out.append(line.export_meta())
+            with open(data_dir / f"{session_name}-mod.json", "w") as f:
+                json.dump(dict_long_to_wide(out), f)
 
 
 def on_motion(event):
@@ -194,6 +200,20 @@ def on_motion(event):
         ):
             selected_line.line.set_xdata([event.xdata, event.xdata])
             fig.canvas.draw()
+
+
+def dict_long_to_wide(input_list: list) -> dict:
+    """Transform a list of dictionaries to a dictionary of lists.
+
+    :param input_dict: input dictionary
+    """
+    output: dict[str, list] = {}
+    for item in input_list:
+        for key, value in item.items():
+            if key not in output:
+                output[key] = []
+            output[key].append(value)
+    return output
 
 
 def dict_wide_to_long(input_dict: dict) -> list:
