@@ -14,66 +14,6 @@ from matplotlib.backends.backend_tkagg import (
 )
 from matplotlib.lines import Line2D
 
-data_dir = Path("../data")
-audio, sr = sf.read(data_dir / "test.wav")
-n = 88200
-
-
-fig, ax = plt.subplots()
-(line,) = ax.plot(range(n), audio[:n], picker=5)
-# plt.autoscale(tight=True)
-
-
-def on_combobox_select(event):
-    global selected_line
-    selected_line.meta[event.widget.widgetname] = event.widget.get()
-
-
-@dataclass
-class Options:
-    meta: dict
-    zones: list = field(init=False)
-    conditions: list = field(init=False)
-    combos: dict = field(init=False)
-
-    def __post_init__(self):
-        self.zones = self.meta["zones"]
-        self.conditions = self.meta["conditions"]
-        self.combos = {}
-
-    def setup_tk(self, frame):
-        label = tk.Label(frame, text="Zone")
-        label.pack()
-
-        cb = ttk.Combobox(
-            frame, name="zone", values=self.zones, state="readonly"
-        )
-        cb.bind("<<ComboboxSelected>>", on_combobox_select)
-        cb.pack()
-        self.combos["zone"] = cb
-
-        for condition in self.conditions:
-            label = tk.Label(frame, text=condition)
-            label.pack()
-            cb = ttk.Combobox(
-                frame,
-                name=str(condition),
-                values=self.conditions[condition],
-                state="readonly",
-            )
-            cb.bind("<<ComboboxSelected>>", on_combobox_select)
-            cb.pack()
-            self.combos[condition] = cb
-
-    def set_meta(self, line):
-        if line is None:
-            for x in self.combos:
-                self.combos[x].set("")
-        else:
-            for x in line.meta:
-                print(line.meta, x, self.combos)
-                self.combos[x].set(line.meta[x])
-
 
 @dataclass
 class LineMeta:
@@ -87,36 +27,90 @@ class LineMeta:
         return meta
 
 
-meta = {"zones": ["a", "b"], "conditions": {"isolated": ["true", "false"]}}
-opt = Options(meta)
+@dataclass
+class MetaBoxes:
+    meta: dict
+    combos: dict = field(init=False)
 
-# indices for vertical lines
-vlines_indices = [2, 4, 6, 8]
-vlines = [ax.axvline(x, color="green") for x in vlines_indices]
-metas = [
-    {"zone": "a", "isolated": "true"},
-    {"zone": "b", "isolated": "true"},
-    {"zone": "b", "isolated": "false"},
-    {"zone": "a", "isolated": "false"},
-]
+    def __post_init__(self):
+        self.combos = {}
 
-lines = [LineMeta(line, meta) for line, meta in zip(vlines, metas)]
+    def setup_tk(self, frame):
+        """Setup the combobox objects and pack them onto the frame.
 
-# Global variables
-selected_line = None
-last_meta = metas[0]
-new_on_release = False
-moving = False
+        :param frame: top-level TK widget
+        """
+        label = tk.Label(frame, text="Zone")
+        label.pack()
+        cb = ttk.Combobox(
+            frame,
+            name="zone",
+            values=[x for x in self.meta["zones"]],
+            state="readonly",
+        )
+        cb.bind("<<ComboboxSelected>>", on_combobox_select)
+        cb.pack()
+        self.combos["zone"] = cb
+
+        for condition in self.meta["conditions"]:
+            label = tk.Label(frame, text=condition)
+            label.pack()
+            cb = ttk.Combobox(
+                frame,
+                name=str(condition),
+                values=self.meta["conditions"][condition],
+                state="readonly",
+            )
+            cb.bind("<<ComboboxSelected>>", on_combobox_select)
+            cb.pack()
+            self.combos[condition] = cb
+
+        onset_start = tk.StringVar()
+        os = tk.Label(root, textvariable=onset_start)
+        os.pack()
+        self.combos["onset_start"] = onset_start
+
+    def set_meta(self, line: LineMeta | None):
+        """Set the combobox contents accordign to a line's metadata.
+
+        :param line: LineMeta object
+        """
+        if line is None:
+            for x in self.combos:
+                self.combos[x].set("")
+        else:
+            for x in line.meta:
+                if x in self.combos:
+                    self.combos[x].set(line.meta[x])
 
 
-def select(event, vlines):
+def on_combobox_select(event):
+    """Sets the metadata of an onset if it was changed in the widget.
+
+    :param event: combobox widget change event
+    """
+    global selected_line
+    # This will only be called if selected_line is not None, so this is fine
+    selected_line.meta[event.widget.widgetname] = event.widget.get()
+
+
+def select_close_line(event) -> LineMeta | None:
+    """Select the first close line to event according to the picker radius of
+    the figure. Returns None if none found.
+
+    :param event: click event
+    """
     for lm in lines:
         if lm.line.contains(event)[0]:
             return lm
     return None
 
 
-def set_selected(line):
+def set_selected(line: LineMeta | None):
+    """Visually select a line and redraw.
+
+    :param line: line to mark or None to stop a visual selection
+    """
     global selected_line, last_meta
     # Unmark previous selection
     if selected_line is not None:
