@@ -1,22 +1,24 @@
 import tkinter as tk
 from dataclasses import dataclass, field
+from pathlib import Path
 from tkinter import ttk
 
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.backend_bases import MouseButton
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import sounddevice as sd
+import soundfile as sf
 from matplotlib.lines import Line2D
 
-# Create the figure
+data_dir = Path("../data")
+audio, sr = sf.read(data_dir / "test.wav")
+n = 88200
+
+
 fig, ax = plt.subplots()
-
-
-x = np.linspace(0, 10, 1000)
-y = np.sin(x)
-
-# plot waveform
-(line,) = ax.plot(x, y, picker=5)
+(line,) = ax.plot(range(n), audio[:n], picker=5)
+# plt.autoscale(tight=True)
 
 
 def on_combobox_select(event):
