@@ -222,17 +222,20 @@ def dict_wide_to_long(input_dict: dict) -> list:
 
 if __name__ == "__main__":
     instrument = "snare"
+    session_name = "rodrigo0"
+    channel = "OP"
+
     data_dir = Path("../data/test/rodrigo0")
 
     with open(data_dir / "instruments.json") as f:
         inst = json.load(f)[instrument]
     opt = MetaBoxes(inst)
 
-    with open(data_dir / "rodrigo0.json") as f:
+    with open(data_dir / f"{session_name}.json") as f:
         session = json.load(f)
         hits = session["hits"]
 
-    audio, sr = sf.read(data_dir / "rodrigo0_DPA.wav")
+    audio, sr = sf.read(data_dir / f"{session_name}_{channel}.wav")
     n = len(audio)
     # Use this when plotting longer files and experiencing slowdown
     subsampling = 2
