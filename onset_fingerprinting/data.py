@@ -101,13 +101,19 @@ class POSD(Dataset):
         """
         # go into path, recursively load all matching files
         path = Path(path)
-        hit_meta_files = list(path.rglob("*_hits.json"))
-        session_meta_files = [x.with_stem(x.stem[:-5]) for x in hit_meta_files]
-        self.sessions = [read_json(x) for x in session_meta_files]
+        session_files = list(path.rglob("*.json"))
+        # sessions will include instrument meta and potentially other jsons
+        sessions = [read_json(x) for x in session_files]
+        session_files = [
+            f for x, f in zip(sessions, session_files) if "meta" in x
+        ]
+        sessions = list(filter(lambda x: "meta" in x, sessions))
+
+        self.sessions = [x["meta"] for x in sessions]
+        self.hits = [parse_hits(x["hits"]) for x in sessions]
         assert all(channel in x["channels"] for x in self.sessions)
-        self.hits = [parse_hits(read_json(x)) for x in hit_meta_files]
         self.files = [
-            x.with_name(x.stem + f"_{channel}.wav") for x in session_meta_files
+            x.with_name(x.stem + f"_{channel}.wav") for x in session_files
         ]
 
         self.frame_length = frame_length
