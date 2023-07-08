@@ -103,9 +103,8 @@ class POSD(Dataset):
         path = Path(path)
         hit_meta_files = list(path.rglob("*_hits.json"))
         session_meta_files = [x.with_stem(x.stem[:-5]) for x in hit_meta_files]
-        sessions = [read_json(x) for x in session_meta_files]
-        assert all(channel in x["channels"] for x in sessions)
-        self.sessions = sessions
+        self.sessions = [read_json(x) for x in session_meta_files]
+        assert all(channel in x["channels"] for x in self.sessions)
         self.hits = [parse_hits(read_json(x)) for x in hit_meta_files]
         self.files = [
             x.with_name(x.stem + f"_{channel}.wav") for x in session_meta_files
