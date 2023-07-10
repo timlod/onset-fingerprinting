@@ -51,6 +51,67 @@ def parse_hits(d: dict) -> pd.DataFrame:
     return pd.DataFrame(d)
 
 
+class FrameExtractor:
+    """
+    Given a full audio waveform and onsets of interest, select for each onset
+    the frame of interest.
+    """
+
+    def __init__(self, frame_length: int, pre_samples: int):
+        self.frame_length = frame_length
+        self.pre_samples = pre_samples
+
+    def __call__(self, audio: np.ndarray, onsets: np.ndarray):
+        view = np.lib.stride_tricks.sliding_window_view(
+            audio, window_shape=(self.frame_length + self.pre_samples)
+        )
+        return view[onsets - self.pre_samples]
+
+
+class SampleShiftFrameExtractor(FrameExtractor):
+    def __init__(self, frame_length: int, pre_samples: int, max_shift: int):
+        super().__init__(frame_length, pre_samples)
+        self.max_shift = max_shift
+
+    def __call__(self, audio: np.ndarray, onsets: np.ndarray):
+        shifts = np.random.randint(1, self.max_shift, len(onsets))
+        np.negative(
+            shifts,
+            out=shifts,
+            where=np.random.randint(2, size=len(shifts), dtype=bool),
+        )
+        view = np.lib.stride_tricks.sliding_window_view(
+            audio, window_shape=(self.frame_length + self.pre_samples)
+        )
+        return view[onsets + shifts - self.pre_samples]
+
+
+class StretchFrameExtractor(FrameExtractor):
+    def __init__(
+        self, frame_length: int, pre_samples: int, max_stretch: float = 0.03
+    ):
+        super().__init__(frame_length, pre_samples)
+        self.max_shift = int((frame_length + pre_samples) * max_stretch)
+        self.full_length = frame_length + pre_samples
+
+    def __call__(self, audio, onsets):
+        shifts = np.random.randint(1, self.max_shift, len(onsets))
+        np.negative(
+            shifts,
+            out=shifts,
+            where=np.random.randint(2, size=len(shifts), dtype=bool),
+        )
+        out = np.empty((len(onsets), self.full_length), dtype=np.float32)
+        for i, (onset, shift) in enumerate(
+            zip(onsets - self.pre_samples, shifts)
+        ):
+            out[i] = resample(
+                audio[onset : onset + self.full_length + shift],
+                self.full_length,
+            )
+        return out
+
+
 class POSD(Dataset):
     """PyTorch onset audio classification dataset."""
 
@@ -169,65 +230,6 @@ class POSD(Dataset):
             i += len(hits)
 
 
-class FrameExtractor:
-    """
-    Given a full audio waveform and onsets of interest, select for each onset
-    the frame of interest.
-    """
-
-    def __init__(self, frame_length: int, pre_samples: int):
-        self.frame_length = frame_length
-        self.pre_samples = pre_samples
-
-    def __call__(self, audio: np.ndarray, onsets: np.ndarray):
-        view = np.lib.stride_tricks.sliding_window_view(
-            audio, window_shape=(self.frame_length + self.pre_samples)
-        )
-        return view[onsets - self.pre_samples]
-
-
-class SampleShiftFrameExtractor(FrameExtractor):
-    def __init__(self, frame_length: int, pre_samples: int, max_shift: int):
-        super().__init__(frame_length, pre_samples)
-        self.max_shift = max_shift
-
-    def __call__(self, audio: np.ndarray, onsets: np.ndarray):
-        shifts = np.random.randint(1, self.max_shift, len(onsets))
-        np.negative(
-            shifts,
-            out=shifts,
-            where=np.random.randint(2, size=len(shifts), dtype=bool),
-        )
-        view = np.lib.stride_tricks.sliding_window_view(
-            audio, window_shape=(self.frame_length + self.pre_samples)
-        )
-        return view[onsets + shifts - self.pre_samples]
-
-
-class StretchFrameExtractor(FrameExtractor):
-    def __init__(
-        self, frame_length: int, pre_samples: int, max_stretch: float = 0.03
-    ):
-        super().__init__(frame_length, pre_samples)
-        self.max_shift = int((frame_length + pre_samples) * max_stretch)
-        self.full_length = frame_length + pre_samples
-
-    def __call__(self, audio, onsets):
-        shifts = np.random.randint(1, self.max_shift, len(onsets))
-        np.negative(
-            shifts,
-            out=shifts,
-            where=np.random.randint(2, size=len(shifts), dtype=bool),
-        )
-        out = np.empty((len(onsets), self.full_length), dtype=np.float32)
-        for i, (onset, shift) in enumerate(
-            zip(onsets - self.pre_samples, shifts)
-        ):
-            out[i] = resample(
-                audio[onset : onset + self.full_length + shift],
-                self.full_length,
-            )
-        return out
 
 
 def window_contribution_weights(window, hop_length, hop_edge_padding: False):
