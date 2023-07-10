@@ -123,6 +123,7 @@ class POSD(Dataset):
         # e.g. lambda x, posd: cspec_to_mfcc(stft(x, posd.pre_samples), sr=sr)
         transform: Callable | None = None,
         pre_samples: int = 0,
+        extra_extractors: list = [],
         augmentations: list = AUGMENTATIONS,
         n_rounds_aug: int = 5,
     ):
@@ -140,13 +141,13 @@ class POSD(Dataset):
         Idea: extract slightly larger window than frame around each onset to
         use in transformations.  This way we don't need to keep the entire
         audio file, but can still use the neighborhood of the onset to do data
-        augmentation.  Alternatively, pre-compute a sane number of
+        audiomentations.  Alternatively, pre-compute a sane number of
         augmentations beforehand using aug_transform - these will be done while
         loading the original file to keep memory use to a minimum.  The
-        reasoning here is that computing full augmentation and transformation
-        for single 256 sample bits is going to be the bottleneck in training.
-        With this approach, we don't add randomness at every epoch, but just
-        increase the dataset size usable.
+        reasoning here is that computing full audiomentations and
+        transformation for single 256 sample bits is going to be the bottleneck
+        in training.  With this approach, we don't add randomness at every
+        epoch, but just increase the dataset size usable.
 
         :param path: path to folder containing the dataset
         :param channel: name of channel to load
@@ -179,57 +180,57 @@ class POSD(Dataset):
 
         self.frame_length = frame_length
         self.pre_samples = pre_samples
+
+        # Data augmentation
         self.frame_extractor = FrameExtractor(frame_length, pre_samples)
-        self.extra_extractors = [
-            self.frame_extractor,
-            SampleShiftFrameExtractor(frame_length, pre_samples, 6),
-            StretchFrameExtractor(frame_length, pre_samples, 0.06),
-        ]
+        self.extra_extractors = [self.frame_extractor] + extra_extractors
         self.aug = audiomentations.SomeOf((0, 3), augmentations, p=1)
         self.n_rounds_aug = n_rounds_aug
 
-        self.transform = transform
-        self.load_files()
-        if self.transform is not None:
-            self.audio = self.transform(self.audio, self)
+        self.load_audio()
 
-    def load_files(self):
-        files, sessions, hits_per_session = (
-            self.files,
-            self.sessions,
-            self.hits,
-        )
+        if transform is not None:
+            self.audio = transform(self.audio, self)
+
+    def load_audio(self):
+        n_per_sess = 1 + len(self.extra_extractors) * self.n_rounds_aug
         self.audio = np.empty(
             (
-                (1 + len(self.extra_extractors) * self.n_rounds_aug)
-                * sum(len(h) for h in hits_per_session),
+                n_per_sess * sum(len(h) for h in self.hits),
                 self.frame_length + self.pre_samples,
             ),
             dtype=np.float32,
         )
+        # instead of labels, repeat session/hits metadata according to number
+        # of augmentation rounds
         self.labels = []
         i = 0
-        for file, session, hits in zip(files, sessions, hits_per_session):
-            self.labels.extend(hits.zone)
+        for file, session, hits in zip(self.files, self.sessions, self.hits):
+            i = len(self.labels)
+            self.labels.append(hits)
             audio, sr = sf.read(file, dtype=np.float32)
             # This is the raw data
             self.audio[i : i + len(hits)] = self.frame_extractor(
                 audio, hits.onset_start
             )
-            # Everything here will be augmented
-            if self.n_rounds_aug > 0:
-                for extractor in self.extra_extractors:
-                    aug_audio = extractor(audio, hits.onset_start)
-                    for _ in range(self.n_rounds_aug):
-                        self.labels.extend(hits.zone)
-                        i += len(hits)
-                        self.audio[i : i + len(hits)] = self.aug(
-                            aug_audio.T, sr
-                        ).T
+            self.augment(audio, hits, sr)
 
-            i += len(hits)
+        self.labels = pd.concat(self.labels, ignore_index=True)
 
+    def augment(self, audio, hits, sr):
+        """Run data augmentation for a session.
 
+        :param audio: session audio array to augment
+        :param hits: hit metadata of this session
+        :param sr: sampling rate
+        :param i: current index into self.audio/labels
+        """
+        for extractor in self.extra_extractors:
+            aug_audio = extractor(audio, hits.onset_start)
+            for _ in range(self.n_rounds_aug):
+                i = len(self.labels)
+                self.labels.append(hits)
+                self.audio[i : i + len(hits)] = self.aug(aug_audio.T, sr).T
 
 
 def window_contribution_weights(window, hop_length, hop_edge_padding: False):
