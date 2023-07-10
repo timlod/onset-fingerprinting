@@ -150,7 +150,7 @@ class POSD(Dataset):
         i = 0
         for file, session, hits in zip(files, sessions, hits_per_session):
             self.labels.extend(hits.zone)
-            audio, sr = sf.read(file)
+            audio, sr = sf.read(file, dtype=np.float32)
             # This is the raw data
             self.audio[i : i + len(hits)] = self.frame_extractor(
                 audio, hits.onset_start
