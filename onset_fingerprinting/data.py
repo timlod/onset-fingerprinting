@@ -232,6 +232,28 @@ class POSD(Dataset):
                 self.labels.append(hits)
                 self.audio[i : i + len(hits)] = self.aug(aug_audio.T, sr).T
 
+    @classmethod
+    def from_subset(cls, audio, labels):
+        posd = cls.__new__(cls)
+        posd.audio = audio
+        posd.labels = labels
+        return posd
+
+    def query(self, query):
+        # Use conditioning on labels to return a sub-dataset containing only
+        # parts
+        # Should we reset index and use .loc for indexing?
+        new_labels = self.labels.query(query)
+        # Should we copy this?
+        new_audio = self.audio[[new_labels.index]]
+        return POSD.from_subset(new_audio, new_labels)
+
+    def __getitem__(self, index):
+        return self.audio[index], self.labels.iloc[index]
+
+    def __len__(self):
+        return self.audio.shape[0]
+
 
 def window_contribution_weights(window, hop_length, hop_edge_padding: False):
     """Create an array of stft frame weights which corresponds to the amount of
