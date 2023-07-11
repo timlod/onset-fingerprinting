@@ -8,6 +8,7 @@ import librosa
 import numpy as np
 import pandas as pd
 import soundfile as sf
+import torch
 from scipy.signal import resample
 from torch.utils.data import Dataset
 
@@ -126,6 +127,7 @@ class POSD(Dataset):
         extra_extractors: list = [],
         augmentations: list = AUGMENTATIONS,
         n_rounds_aug: int = 5,
+        pytorch=False,
     ):
         """Initialize POSD.
 
@@ -191,6 +193,9 @@ class POSD(Dataset):
 
         if transform is not None:
             self.audio = transform(self.audio, self)
+
+        if pytorch:
+            self.audio = torch.tensor(self.audio)
 
     def load_audio(self):
         n_per_sess = 1 + len(self.extra_extractors) * self.n_rounds_aug
