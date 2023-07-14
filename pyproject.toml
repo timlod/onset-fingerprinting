@@ -17,6 +17,8 @@ classifiers = [
 "Programming Language :: Python :: 3",
 ]
 dependencies = [
+# For fast continuous wavelet transforms
+"fctw",
 # For MIR
 "librosa",
 # For plotting
@@ -28,6 +30,7 @@ dependencies = [
 "scikit_learn",
 "scipy",
 # For audio file loading
+"sounddevice",
 "soundfile"
 ]
 
