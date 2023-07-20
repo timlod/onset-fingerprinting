@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import ttk
 
-import matplotlib.pyplot as plt
+
 import sounddevice as sd
 import soundfile as sf
 from matplotlib.backend_bases import MouseButton, _Mode as toolbar_mode
@@ -14,6 +14,10 @@ from matplotlib.backends.backend_tkagg import (
     NavigationToolbar2Tk,
 )
 from matplotlib.lines import Line2D
+import matplotlib
+
+matplotlib.use("TkAgg")
+import matplotlib.pyplot as plt
 
 
 @dataclass
