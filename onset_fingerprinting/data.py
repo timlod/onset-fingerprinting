@@ -127,7 +127,7 @@ class POSD(Dataset):
         extra_extractors: list = [],
         augmentations: list = AUGMENTATIONS,
         n_rounds_aug: int = 5,
-        pytorch=False,
+        pytorch: bool = False,
     ):
         """Initialize POSD.
 
@@ -152,16 +152,21 @@ class POSD(Dataset):
         epoch, but just increase the dataset size usable.
 
         :param path: path to folder containing the dataset
+        :param frame_length: desired frame length of final audio snippets
         :param channel: name of channel to load
         :param transform: function which takes as input an array of audio and a
             sequence of onset start indexes, and returns an array of
             transformed data
-        :param aug_transform: function which takes as input an array of audio
-            and a sequence of onset start indexes, and returns modified audio
         :param pre_samples: take this many samples from before the onset
+        :param extra_extractors: list of different FrameExtractors which will
+            act as further audio augmentations
+        :param augmentations: audio augmentations (from audiomentations) to
+            apply
         :param n_rounds_aug: how many times to duplicate training data under a
             different set of augmentations.  This is done for each frame
             extractor
+        :param pytorch: flag whether to convert to torch.Tensor objects (use
+            for training pytorch models vs scikit-learn)
         """
         # go into path, recursively load all matching files
         path = Path(path)
