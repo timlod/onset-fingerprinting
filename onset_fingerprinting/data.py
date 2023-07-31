@@ -304,9 +304,10 @@ class POSD(Dataset):
         )
         posd.labels = []
 
-        for i, (audio, onset) in enumerate(zip(audios, onsets)):
-            hits = pd.DataFrame({"onset_start": onset, "class": i})
+        for audio, onset in zip(audios, onsets):
+            i = sum([len(x) for x in posd.labels])
             posd.audio[i : i + len(onset)] = posd.frame_extractor(audio, onset)
+            hits = pd.DataFrame({"onset_start": onset, "class": i})
             posd.labels.append(hits)
             posd.augment(audio, hits, sr)
 
