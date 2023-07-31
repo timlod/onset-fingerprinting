@@ -246,6 +246,75 @@ class POSD(Dataset):
                 i += len(hits)
 
     @classmethod
+    def from_audio_onsets(
+        cls,
+        audios: list[np.array],
+        onsets: list[list[int]],
+        sr: int,
+        frame_length: int,
+        # e.g. lambda x, posd: cspec_to_mfcc(stft(x, posd.pre_samples), sr=sr)
+        transform: Callable | None = None,
+        pre_samples: int = 0,
+        extra_extractors: list = [],
+        augmentations: list = AUGMENTATIONS,
+        n_rounds_aug: int = 5,
+        pytorch: bool = False,
+    ):
+        """
+        Create POSD from audio and onset indices in memory.
+
+        :param audios: list of arrays, each containing audio data for a
+            specific class
+        :param onsets: list of lists, each containing the onset indices for a
+            specific class
+        :param sr: sampling rate
+        :param frame_length: desired frame length of final audio snippets
+        :param sr: sampling rate
+        :param pre_samples: take this many samples from before the onset
+        :param extra_extractors: list of different FrameExtractors which will
+            act as further audio augmentations
+        :param augmentations: audio augmentations (from audiomentations) to
+            apply
+        :param n_rounds_aug: how many times to duplicate training data under a
+            different set of augmentations.  This is done for each frame
+            extractor
+        :param pytorch: flag whether to convert to torch.Tensor objects (use
+            for training pytorch models vs scikit-learn)
+        """
+        assert len(audios) == len(
+            onsets
+        ), "Mismatch between audio data and onset indices."
+
+        posd = cls.__new__(cls)
+        posd.frame_length = frame_length
+        posd.pre_samples = pre_samples
+        posd.frame_extractor = FrameExtractor(frame_length, pre_samples)
+        posd.extra_extractors = [posd.frame_extractor] + extra_extractors
+        posd.aug = audiomentations.SomeOf((0, 3), augmentations, p=1)
+        posd.n_rounds_aug = n_rounds_aug
+
+        n_per_sess = 1 + len(posd.extra_extractors) * posd.n_rounds_aug
+        total_onsets = sum([len(onset) for onset in onsets])
+        posd.audio = np.empty(
+            (
+                n_per_sess * total_onsets,
+                posd.frame_length + posd.pre_samples,
+            ),
+            dtype=np.float32,
+        )
+        posd.labels = []
+
+        for i, (audio, onset) in enumerate(zip(audios, onsets)):
+            hits = pd.DataFrame({"onset_start": onset, "class": i})
+            posd.audio[i : i + len(onset)] = posd.frame_extractor(audio, onset)
+            posd.labels.append(hits)
+            posd.augment(audio, hits, sr)
+
+        if transform is not None:
+            posd.audio = transform(posd.audio, posd)
+        return posd
+
+    @classmethod
     def from_subset(cls, audio, labels):
         posd = cls.__new__(cls)
         posd.audio = audio
