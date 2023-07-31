@@ -211,7 +211,7 @@ class POSD(Dataset):
         self.labels = []
         i = 0
         for file, session, hits in zip(self.files, self.sessions, self.hits):
-            i = len(self.labels)
+            i = sum([len(x) for x in self.labels])
             self.labels.append(hits)
             audio, sr = sf.read(file, dtype=np.float32)
             # This is the raw data
@@ -230,12 +230,15 @@ class POSD(Dataset):
         :param sr: sampling rate
         :param i: current index into self.audio/labels
         """
+        i = sum([len(x) for x in self.labels])
         for extractor in self.extra_extractors:
             aug_audio = extractor(audio, hits.onset_start)
             for _ in range(self.n_rounds_aug):
-                i = len(self.labels)
                 self.labels.append(hits)
-                self.audio[i : i + len(hits)] = self.aug(aug_audio.T, sr).T
+                # self.audio[i : i + len(hits)] = self.aug(aug_audio.T, sr).T
+                for j in range(aug_audio.shape[0]):
+                    self.audio[i + j] = self.aug(aug_audio[j], sr)
+                i += len(hits)
 
     @classmethod
     def from_subset(cls, audio, labels):
