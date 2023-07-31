@@ -307,12 +307,14 @@ class POSD(Dataset):
         for audio, onset in zip(audios, onsets):
             i = sum([len(x) for x in posd.labels])
             posd.audio[i : i + len(onset)] = posd.frame_extractor(audio, onset)
-            hits = pd.DataFrame({"onset_start": onset, "class": i})
+            hits = pd.DataFrame({"onset_start": onset, "zone": i})
             posd.labels.append(hits)
             posd.augment(audio, hits, sr)
 
         if transform is not None:
             posd.audio = transform(posd.audio, posd)
+
+        posd.labels = pd.concat(posd.labels, ignore_index=True)
         return posd
 
     @classmethod
