@@ -48,7 +48,7 @@ def parse_hits(d: dict) -> pd.DataFrame:
     if "conditions" in d:
         for cond in d["conditions"]:
             d[cond] = d["conditions"][cond]
-        del d["conditions"]
+            del d["conditions"]
     return pd.DataFrame(d)
 
 
