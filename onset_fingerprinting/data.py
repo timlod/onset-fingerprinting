@@ -263,7 +263,9 @@ class POSD(Dataset):
         return self.audio.shape[0]
 
 
-def window_contribution_weights(window, hop_length, hop_edge_padding: False):
+def window_contribution_weights(
+    window: np.ndarray, hop_length: int, hop_edge_padding: bool = False
+):
     """Create an array of stft frame weights which corresponds to the amount of
     the signal of interest which contributed to the frame due to windowing.
 
