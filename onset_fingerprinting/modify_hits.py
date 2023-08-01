@@ -28,7 +28,6 @@ class LineMeta:
 
     def export_meta(self):
         meta = self.meta.copy()
-        meta["onset_start"] = round(self.line.get_xdata()[0])
         for condition in inst["conditions"]:
             if condition not in meta:
                 meta[condition] = None
@@ -207,6 +206,7 @@ def on_motion(event):
             and (selected_line is not None)
         ):
             selected_line.line.set_xdata([event.xdata, event.xdata])
+            selected_line.meta["onset_start"] = round(event.xdata)
             fig.canvas.draw()
 
 
