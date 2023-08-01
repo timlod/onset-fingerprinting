@@ -104,7 +104,7 @@ def on_combobox_select(event):
     """
     global selected_line
     # This will only be called if selected_line is not None, so this is fine
-    selected_line.meta[event.widget.widgetname] = event.widget.get()
+    selected_line.meta[event.widget._name] = event.widget.get()
 
 
 def select_close_line(event) -> LineMeta | None:
