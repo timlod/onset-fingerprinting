@@ -72,10 +72,9 @@ class MetaBoxes:
             cb.pack()
             self.combos[condition] = cb
 
-        onset_start = tk.StringVar()
-        os = tk.Label(root, textvariable=onset_start)
+        os = tk.Label(root, text="")
         os.pack()
-        self.combos["onset_start"] = onset_start
+        self.combos["onset_start"] = os
 
     def set_meta(self, line: LineMeta | None):
         """Set the combobox contents accordign to a line's metadata.
@@ -84,11 +83,18 @@ class MetaBoxes:
         """
         if line is None:
             for x in self.combos:
-                self.combos[x].set("")
+                if x == "onset_start":
+                    self.combos[x].config(text="")
+                else:
+                    self.combos[x].set("")
         else:
             for x in line.meta:
                 if x in self.combos:
-                    self.combos[x].set(line.meta[x])
+                    if x == "onset_start":
+                        print(f"{self.combos[x]=}, {line.meta[x]=}")
+                        self.combos[x].config(text=line.meta[x])
+                    else:
+                        self.combos[x].set(line.meta[x])
 
 
 def on_combobox_select(event):
@@ -190,15 +196,16 @@ def on_key(event):
             for line in lines:
                 out.append(line.export_meta())
             out = sorted(out, key=lambda x: x["onset_start"])
+            sess["hits"] = dict_long_to_wide(out)
             with open(args.data_dir / f"{args.session}-mod.json", "w") as f:
-                json.dump(dict_long_to_wide(out), f)
+                json.dump(sess, f)
 
 
 def on_motion(event):
     global selected_line, new_on_release
     new_on_release = False
     if event.xdata is not None:
-        current_pointer.set(round(event.xdata))
+        current_x_label.config(text=round(event.xdata))
         # If we're panning or zooming we don't want to move a line
         if (
             moving
@@ -324,8 +331,8 @@ if __name__ == "__main__":
 
     # Show sample index at pointer
     current_pointer = tk.StringVar()
-    text_entry = tk.Label(root, textvariable=current_pointer)
-    text_entry.pack()
+    current_x_label = tk.Label(root, text="")
+    current_x_label.pack()
     opt.setup_tk(root)
 
     toolbar = NavigationToolbar2Tk(canvas, root)
