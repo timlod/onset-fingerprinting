@@ -91,7 +91,6 @@ class MetaBoxes:
             for x in line.meta:
                 if x in self.combos:
                     if x == "onset_start":
-                        print(f"{self.combos[x]=}, {line.meta[x]=}")
                         self.combos[x].config(text=line.meta[x])
                     else:
                         self.combos[x].set(line.meta[x])
@@ -105,6 +104,8 @@ def on_combobox_select(event):
     global selected_line
     # This will only be called if selected_line is not None, so this is fine
     selected_line.meta[event.widget._name] = event.widget.get()
+    # Set focus back to plot so we can use keyboard shortcuts again
+    canvas.get_tk_widget().focus_set()
 
 
 def select_close_line(event) -> LineMeta | None:
