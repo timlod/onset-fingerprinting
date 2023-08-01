@@ -29,6 +29,9 @@ class LineMeta:
     def export_meta(self):
         meta = self.meta.copy()
         meta["onset_start"] = round(self.line.get_xdata()[0])
+        for condition in inst["conditions"]:
+            if condition not in meta:
+                meta[condition] = None
         return meta
 
 
