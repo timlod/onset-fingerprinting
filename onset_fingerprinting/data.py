@@ -258,6 +258,7 @@ class POSD(Dataset):
         extra_extractors: list = [],
         augmentations: list = AUGMENTATIONS,
         n_rounds_aug: int = 5,
+        zone_names: list | None = None,
         pytorch: bool = False,
     ):
         """
@@ -292,6 +293,10 @@ class POSD(Dataset):
         posd.extra_extractors = [posd.frame_extractor] + extra_extractors
         posd.aug = audiomentations.SomeOf((0, 3), augmentations, p=1)
         posd.n_rounds_aug = n_rounds_aug
+        if zone_names is None:
+            zone_names = list(range(len(audios)))
+        else:
+            assert len(zone_names) == len(audios)
 
         n_per_sess = 1 + len(posd.extra_extractors) * posd.n_rounds_aug
         total_onsets = sum([len(onset) for onset in onsets])
@@ -304,10 +309,10 @@ class POSD(Dataset):
         )
         posd.labels = []
 
-        for audio, onset in zip(audios, onsets):
+        for audio, onset, zone in zip(audios, onsets, zone_names):
             i = sum([len(x) for x in posd.labels])
             posd.audio[i : i + len(onset)] = posd.frame_extractor(audio, onset)
-            hits = pd.DataFrame({"onset_start": onset, "zone": i})
+            hits = pd.DataFrame({"onset_start": onset, "zone": zone})
             posd.labels.append(hits)
             posd.augment(audio, hits, sr)
 
