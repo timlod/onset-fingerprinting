@@ -205,8 +205,9 @@ def attenuate_intensity(
 
     # Compute the attenuation factor
     A = (
-        intensity_at_source,
-        *(1 + reflectivity * (1 - np.abs(np.cos(thetas)))) / (distance),
+        intensity_at_source
+        * (1 + reflectivity * (1 - np.abs(np.cos(thetas))))
+        / (distance)
     )
     return A, np.degrees(thetas)
 

@@ -52,7 +52,7 @@ def plot_lags_2D(mic_a, mic_b, d=14 * 2.54, sr=96000):
     plt.legend()
 
 
-def plot_lags_3d(mic_a, mic_b, d=14 * 2.54, sr=96000):
+def plot_lags_3d(mic_a, mic_b, reflectivity=0.5, d=14 * 2.54, sr=96000):
     n = int(np.round(d, 1) * 10)
     r = n // 2
     mic_a_cart = echolocation.spherical_to_cartesian(
@@ -61,7 +61,9 @@ def plot_lags_3d(mic_a, mic_b, d=14 * 2.54, sr=96000):
     mic_b_cart = echolocation.spherical_to_cartesian(
         mic_b[0] * r, mic_b[1], mic_b[2]
     )
-    lags, sa, sb = echolocation.sim_3d(mic_a_cart, mic_b_cart, d, sr)
+    lags, sa, sb = echolocation.sim_3d(
+        mic_a_cart, mic_b_cart, reflectivity, d=d, sr=sr
+    )
     plot_heatmap(lags, r, mic_a_cart, mic_b_cart, "Samples difference")
     plot_heatmap(sa, r, mic_a_cart, mic_b_cart, "dB")
     plot_heatmap(sb, r, mic_a_cart, mic_b_cart, "dB")
