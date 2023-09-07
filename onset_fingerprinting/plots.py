@@ -62,15 +62,15 @@ def plot_lags_3d(mic_a, mic_b, d=14 * 2.54, sr=96000):
         mic_b[0] * r, mic_b[1], mic_b[2]
     )
     lags, sa, sb = echolocation.sim_3d(mic_a_cart, mic_b_cart, d, sr)
-    plot_heatmap(lags, r, mic_a_cart, mic_b_cart)
-    plot_hm(sa, r, mic_a_cart, mic_b_cart)
-    plot_hm(sb, r, mic_a_cart, mic_b_cart)
+    plot_heatmap(lags, r, mic_a_cart, mic_b_cart, "Samples difference")
+    plot_heatmap(sa, r, mic_a_cart, mic_b_cart, "dB")
+    plot_heatmap(sb, r, mic_a_cart, mic_b_cart, "dB")
 
 
-def plot_heatmap(x, r, mic_a_cart, mic_b_cart):
+def plot_heatmap(x, r, mic_a_cart, mic_b_cart, cb_label=""):
     plt.figure()
     plt.imshow(x, cmap="RdYlGn", extent=[-r, r, -r, r])
-    plt.colorbar()
+    plt.colorbar(label=cb_label)
     plt.scatter(
         mic_a_cart[0],
         -mic_a_cart[1],
