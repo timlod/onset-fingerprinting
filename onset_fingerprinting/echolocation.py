@@ -37,20 +37,18 @@ def detect_onset_region(
     :param threshold_factor: threshold the median filtered absolute signal
         above this value to separate loud and quiet parts
     """
-    # 1. Select n samples around the detected onset
     start_idx = max(detected_onset - n // 2, 0)
     end_idx = min(detected_onset + n // 2, len(audio))
     region = audio[start_idx:end_idx]
 
-    # 2. Compute a rolling median filter over the absolute value of the signal
+    # Compute a rolling median filter over the absolute value of the signal
     absolute_region = np.abs(region)
     filtered_signal = medfilt(absolute_region, kernel_size=median_filter_size)
 
-    # 3. Threshold the signal
     threshold = threshold_factor * np.max(filtered_signal)
     binary_signal = filtered_signal > threshold
 
-    # 4. Apply binary morphology and find the first True index
+    # Apply binary morphology and find the first True index
     binary_signal_morphed = binary_opening(binary_signal, structure=np.ones(5))
     onset_idx_in_region = np.argmax(binary_signal_morphed)
 
@@ -59,24 +57,6 @@ def detect_onset_region(
 
     return onset_idx_in_audio
 
-
-def sim_centered(n, mic_a: tuple[int, int], mic_b: tuple[int, int]):
-    assert n % 2 != 0, f"n needs to be odd! {n=}"
-    r = n // 2
-    i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
-    # compute distances from each potential location to microphones
-    dist_a = np.sqrt((i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2)
-    dist_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2)
-    return dist_b - dist_a
-
-
-def sim(n, mic_a: tuple[int, int], mic_b: tuple[int, int]):
-    assert n % 2 != 0, f"n needs to be odd! {n=}"
-    i, j = np.meshgrid(range(n), range(n))
-    # compute distances from each potential location to microphones
-    dist_a = np.sqrt((i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2)
-    dist_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2)
-    return dist_b - dist_a
 
 
 def sim_lag_centered(
