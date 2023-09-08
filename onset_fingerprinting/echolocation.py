@@ -234,7 +234,7 @@ def attenuate_intensity(
 def lag_intensity_map(
     mic_a: tuple[int, int, int],
     mic_b: tuple[int, int, int],
-    reflectivity=0.5,
+    reflectivity: float = 0.5,
     d: int = DIAMETER,
     sr: int = 96000,
     scale: float = 1,
@@ -247,6 +247,8 @@ def lag_intensity_map(
 
     :param mic_a: location of microphone A, in cartesian coordinates
     :param mic_b: location of microphone A, in cartesian coordinates
+    :param reflectivity: reflectivity parameter for attenuate_intensity() - the
+        larger, the lower the attenuation
     :param d: diameter of the drum, in centimeters
     :param sr: sampling rate
     :param scale: scale to increase/decrease precision originally in
