@@ -231,15 +231,30 @@ def attenuate_intensity(
     return A, np.degrees(thetas)
 
 
-def sim_3d(
+def lag_intensity_map(
     mic_a: tuple[int, int, int],
     mic_b: tuple[int, int, int],
     reflectivity=0.5,
-    d=14 * 2.54,
-    sr=96000,
+    d: int = DIAMETER,
+    sr: int = 96000,
+    scale: float = 1,
+    medium: str = MEDIUM,
 ):
-    # Diameter in millimeters
-    d = int(np.round(d, 1) * 10)
+    """Compute lag and sound intensity maps for 3D microphone locations.
+
+    NOTE: sound intensity dropoff through membrane/drumhead not yet computed
+    correctly.
+
+    :param mic_a: location of microphone A, in cartesian coordinates
+    :param mic_b: location of microphone A, in cartesian coordinates
+    :param d: diameter of the drum, in centimeters
+    :param sr: sampling rate
+    :param scale: scale to increase/decrease precision originally in
+        centimeters.  For example, for millimeters, scale should be 10
+    :param medium: the medium the sound travels through.  One of 'air' or
+        'drumhead', the latter for optical/magnetic measurements
+    """
+    d = int(np.round(d, 1) * scale)
     r = d // 2
     i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
 
@@ -258,26 +273,14 @@ def sim_3d(
         return A.reshape(i.shape)
 
     # Compute lag and signal strength
-    lags_a = (
-        np.sqrt(
-            (i - mic_a[0]) ** 2
-            + (j - mic_a[1]) ** 2
-            + (z_surface - mic_a[2]) ** 2
-        )
-        / C
-    )
-    lags_b = (
-        np.sqrt(
-            (i - mic_b[0]) ** 2
-            + (j - mic_b[1]) ** 2
-            + (z_surface - mic_b[2]) ** 2
-        )
-        / C
-    )
+    lags_a = np.sqrt(
+        (i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2 + (z_surface - mic_a[2]) ** 2
+    ) / speed_of_sound(100 * scale, medium=medium)
+    lags_b = np.sqrt(
+        (i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2 + (z_surface - mic_b[2]) ** 2
+    ) / speed_of_sound(100 * scale, medium=medium)
     lag_difference = np.round((lags_a - lags_b) * sr)
     signal_strengths_a = 10 * np.log10(sound_intensity_at_mic(mic_a))
     signal_strengths_b = 10 * np.log10(sound_intensity_at_mic(mic_b))
-    # signal_strengths_a = sound_intensity_at_mic(mic_a)
-    # signal_strengths_b = sound_intensity_at_mic(mic_b)
 
     return lag_difference, signal_strengths_a, signal_strengths_b
