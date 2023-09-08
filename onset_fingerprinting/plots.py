@@ -30,7 +30,7 @@ def plot_lags_2D(mic_a, mic_b, d=14 * 2.54, sr=96000):
     lags = echolocation.sim_lag_centered(mic_a, mic_b, d, sr)
 
     plt.imshow(lags, cmap="RdYlGn", extent=[-r, r, -r, r])
-    plt.colorbar()
+    plt.colorbar(label="Samples difference")
     plt.scatter(
         mic_a[0],
         -mic_a[1],
