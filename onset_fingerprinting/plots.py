@@ -5,12 +5,12 @@ import numpy as np
 
 def plot_around(x, peaks, i, n=256, hop=32):
     peak = peaks[i]
-    l = peak - n // 2
-    r = peak + n // 2
-    plt.plot(x[l:r])
-    plt.vlines(peak - l, 0, x[l:r].max(), "r")
-    plt.vlines(peak - l + n // 2, 0, x[l:r].max(), "g")
-    plt.vlines(peak - l + n // 2 - hop, 0, x[l:r].max(), "y")
+    left = peak - n // 2
+    right = peak + n // 2
+    plt.plot(x[left:right])
+    plt.vlines(peak - left + hop, 0, x[left:right].max(), "r")
+    plt.vlines(peak - left + n // 2, 0, x[left:right].max(), "g")
+    plt.vlines(peak - left + n // 2 - hop, 0, x[left:right].max(), "y")
 
 
 def plot_lags_2D(
