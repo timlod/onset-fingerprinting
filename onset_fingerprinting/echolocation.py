@@ -1,7 +1,5 @@
 import numpy as np
-from scipy.signal import medfilt
-from scipy.ndimage import maximum_filter1d
-from scipy.ndimage import binary_opening
+from scipy.signal import find_peaks
 import math
 
 # Constants
@@ -13,50 +11,28 @@ C_drumhead = 82.0
 MEDIUM = "air"
 
 
-def find_lag(signal1: np.ndarray, signal2: np.ndarray):
+def find_lag(a: np.ndarray, b: np.ndarray):
     """Find the lag in number of samples between two audio signals.
 
-    :param signal1: 1D array containing audio signal
-    :param signal2: 1D array containing audio signal
+    :param a: 1D array containing audio signal
+    :param b: 1D array containing audio signal
     """
-    cross_corr = np.correlate(signal1, signal2, mode="full")
-    lag = np.argmax(cross_corr) - (len(signal1) - 1)
+    cross_corr = np.correlate(a, b, mode="full")
+    lag = np.argmax(cross_corr) - (len(a) - 1)
     return lag
 
 
-def detect_onset_region(
-    audio, detected_onset, n=256, median_filter_size=5, threshold_factor=0.5
-):
-    """In an audio signal around the onset, select the region likely containing
-    the onset (removing the relatively quiet part before).
+def find_lag_multi(a, b, top_n=3):
+    """Find n most likely lags in number of samples between two audio signals
 
-    :param audio: 1D array containing audio signal
-    :param detected_onset: index of detected onset inside audio
-    :param n: number of samples to look at around the onset
-    :param median_filter_size: size of the median filter used before
-        thresholding
-    :param threshold_factor: threshold the median filtered absolute signal
-        above this value to separate loud and quiet parts
+    :param a: 1D array containing audio signal
+    :param b: 1D array containing audio signal
+    :param top_n: Number of likely lags to select
     """
-    start_idx = max(detected_onset - n // 2, 0)
-    end_idx = min(detected_onset + n // 2, len(audio))
-    region = audio[start_idx:end_idx]
-
-    # Compute a rolling median filter over the absolute value of the signal
-    absolute_region = np.abs(region)
-    filtered_signal = medfilt(absolute_region, kernel_size=median_filter_size)
-
-    threshold = threshold_factor * np.max(filtered_signal)
-    binary_signal = filtered_signal > threshold
-
-    # Apply binary morphology and find the first True index
-    binary_signal_morphed = binary_opening(binary_signal, structure=np.ones(5))
-    onset_idx_in_region = np.argmax(binary_signal_morphed)
-
-    # Translate back to the original audio array index
-    onset_idx_in_audio = start_idx + onset_idx_in_region
-
-    return onset_idx_in_audio
+    cross_corr = np.correlate(a, b, mode="full")
+    peaks, _ = find_peaks(cross_corr)
+    peaks = peaks[np.argsort(-cross_corr[peaks])][:top_n]
+    return peaks - len(a) + 1, cross_corr[peaks] ** 2
 
 
 def lag_map_2d(
@@ -91,7 +67,7 @@ def lag_map_2d(
     lag_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2) / (
         speed_of_sound(100 * scale, medium=medium)
     )
-    return np.round((lag_a - lag_b) * sr)
+    return np.round((lag_a - lag_b) * sr).astype(np.float32)
 
 
 def lag_map_3d(
@@ -129,7 +105,7 @@ def lag_map_3d(
         (i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2 + (z_surface - mic_b[2]) ** 2
     ) / speed_of_sound(100 * scale, medium=medium)
 
-    return np.round((lag_a - lag_b) * sr)
+    return np.round((lag_a - lag_b) * sr).astype(np.float32)
 
 
 def polar_to_cartesian(r, theta):
@@ -285,4 +261,8 @@ def lag_intensity_map(
     signal_strengths_a = 10 * np.log10(sound_intensity_at_mic(mic_a))
     signal_strengths_b = 10 * np.log10(sound_intensity_at_mic(mic_b))
 
-    return lag_difference, signal_strengths_a, signal_strengths_b
+    return (
+        lag_difference.astype(np.float32),
+        signal_strengths_a.astype(np.float32),
+        signal_strengths_b.astype(np.float32),
+    )
