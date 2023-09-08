@@ -9,7 +9,8 @@ TEMPERATURE = 20.0  # Celsius
 HUMIDITY = 50.0  # percentage
 DIAMETER = 14 * 2.54  # centimeters
 STRIKE_FORCE = 1.0  # arbitrary units
-C = 340.29 * 100
+C_drumhead = 82.0
+MEDIUM = "air"
 
 
 def find_lag(signal1: np.ndarray, signal2: np.ndarray):
@@ -58,29 +59,62 @@ def detect_onset_region(
     return onset_idx_in_audio
 
 
-
-def sim_lag_centered(
-    mic_a: tuple[int, int], mic_b: tuple[int, int], d=DIAMETER, sr=96000
+def lag_map_2d(
+    mic_a: tuple[int, int],
+    mic_b: tuple[int, int],
+    d: int = DIAMETER,
+    sr: int = 96000,
+    scale: float = 1,
+    medium: str = MEDIUM,
 ):
+    """Compute lag map for 2D microphone locations.
+
+    :param mic_a: location of microphone A, in cartesian coordinates
+    :param mic_b: location of microphone A, in cartesian coordinates
+    :param d: diameter of the drum, in centimeters
+    :param sr: sampling rate
+    :param scale: scale to increase/decrease precision originally in
+        centimeters.  For example, for millimeters, scale should be 10
+    :param medium: the medium the sound travels through.  One of 'air' or
+        'drumhead', the latter for optical/magnetic measurements
+    """
     # This will give us a diameter to use which we can sample at millimeter
     # precision
-    n = int(np.round(d, 1) * 10)
+    n = int(np.round(d, 1) * scale)
     r = n // 2
     i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
 
     # compute lag in seconds from each potential location to microphones
-    lag_a = np.sqrt((i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2) / C
-    lag_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2) / C
+    lag_a = np.sqrt((i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2) / (
+        speed_of_sound(100 * scale, medium=medium)
+    )
+    lag_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2) / (
+        speed_of_sound(100 * scale, medium=medium)
+    )
     return np.round((lag_a - lag_b) * sr)
 
 
-def sim_lag_3d(
+def lag_map_3d(
     mic_a: tuple[int, int, int],
     mic_b: tuple[int, int, int],
-    d=DIAMETER,
-    sr=96000,
+    d: int = DIAMETER,
+    sr: int = 96000,
+    scale: float = 1,
+    medium: str = MEDIUM,
 ):
-    n = int(np.round(d, 1) * 10)  # Diameter in millimeters
+    """Compute lag map for 3D microphone locations.
+
+    :param mic_a: location of microphone A, in cartesian coordinates
+    :param mic_b: location of microphone A, in cartesian coordinates
+    :param d: diameter of the drum, in centimeters
+    :param sr: sampling rate
+    :param scale: scale to increase/decrease precision originally in
+        centimeters.  For example, for millimeters, scale should be 10
+    :param medium: the medium the sound travels through.  One of 'air' or
+        'drumhead', the latter for optical/magnetic measurements
+    """
+
+    n = int(np.round(d, 1) * scale)
     r = n // 2
     i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
 
@@ -88,22 +122,12 @@ def sim_lag_3d(
     z_surface = 0
 
     # compute lag in seconds from each potential location to microphones
-    lag_a = (
-        np.sqrt(
-            (i - mic_a[0]) ** 2
-            + (j - mic_a[1]) ** 2
-            + (z_surface - mic_a[2]) ** 2
-        )
-        / C
-    )
-    lag_b = (
-        np.sqrt(
-            (i - mic_b[0]) ** 2
-            + (j - mic_b[1]) ** 2
-            + (z_surface - mic_b[2]) ** 2
-        )
-        / C
-    )
+    lag_a = np.sqrt(
+        (i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2 + (z_surface - mic_a[2]) ** 2
+    ) / speed_of_sound(100 * scale, medium=medium)
+    lag_b = np.sqrt(
+        (i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2 + (z_surface - mic_b[2]) ** 2
+    ) / speed_of_sound(100 * scale, medium=medium)
 
     return np.round((lag_a - lag_b) * sr)
 
@@ -147,8 +171,23 @@ def cartesian_to_spherical(x, y, z):
     return r, np.degrees(theta_radians), np.degrees(phi_radians)
 
 
-def speed_of_sound(temperature=TEMPERATURE, humidity=HUMIDITY) -> float:
-    return 331.5 + 0.6 * temperature + 0.012 * humidity
+def speed_of_sound(
+    scale: int = 1,
+    temperature: float = TEMPERATURE,
+    humidity: float = HUMIDITY,
+    medium=MEDIUM,
+) -> float:
+    """Compute the speed of sound, default in m/s
+
+    :param scale: change scale from m/s. mm/s would require scale=10
+    :param temperature: temperature
+    :param humidity: humidity
+    :param medium: 'air' or 'drumhead'
+    """
+    if medium == "air":
+        return scale * 331.5 + 0.6 * temperature + 0.012 * humidity
+    else:
+        return scale * C_drumhead
 
 
 def sound_intensity_at_source(
