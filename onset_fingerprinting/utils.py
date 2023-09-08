@@ -1,3 +1,4 @@
+from scipy import signal
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -267,3 +268,17 @@ def plot_misclf(
 
     handles = [plt.Rectangle((0, 0), 1, 1, color=cp[i]) for i in range(n)]
     fig.legend(handles, [m for m in model_names], title="Model")
+
+
+# https://stackoverflow.com/questions/39032325/python-high-pass-filter
+def butter_highpass(cutoff, fs, order=5):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = signal.butter(order, normal_cutoff, btype="high", analog=False)
+    return b, a
+
+
+def butter_highpass_filter(data, cutoff, fs, order=5):
+    b, a = butter_highpass(cutoff, fs, order=order)
+    y = signal.filtfilt(b, a, data)
+    return y
