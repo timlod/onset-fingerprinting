@@ -13,21 +13,30 @@ def plot_around(x, peaks, i, n=256, hop=32):
     plt.vlines(peak - l + n // 2 - hop, 0, x[l:r].max(), "y")
 
 
-def plot_lags_2D(mic_a, mic_b, d=14 * 2.54, sr=96000):
-    """Plot
+def plot_lags_2D(
+    mic_a: tuple[int, int],
+    mic_b: tuple[int, int],
+    d: int = echolocation.DIAMETER,
+    sr: int = 96000,
+    scale: float = 1,
+    medium: str = echolocation.MEDIUM,
+):
+    """Plot lag map for 2D mic locations.
 
-    :param mic_a:
-    :param mic_b:
-    :param d:
-    :param sr:
-    :returns:
-
+    :param mic_a: location of microphone A, in cartesian coordinates
+    :param mic_b: location of microphone A, in cartesian coordinates
+    :param d: diameter of the drum, in centimeters
+    :param sr: sampling rate
+    :param scale: scale to increase/decrease precision originally in
+        centimeters.  For example, for millimeters, scale should be 10
+    :param medium: the medium the sound travels through.  One of 'air' or
+        'drumhead', the latter for optical/magnetic measurements
     """
     n = int(np.round(d, 1) * 10)
     r = n // 2
     mic_a = echolocation.polar_to_cartesian(mic_a[0] * r, mic_a[1])
     mic_b = echolocation.polar_to_cartesian(mic_b[0] * r, mic_b[1])
-    lags = echolocation.sim_lag_centered(mic_a, mic_b, d, sr)
+    lags = echolocation.lag_map_2d(mic_a, mic_b, d, sr, scale, medium)
 
     plt.imshow(lags, cmap="RdYlGn", extent=[-r, r, -r, r])
     plt.colorbar(label="Samples difference")
@@ -52,8 +61,32 @@ def plot_lags_2D(mic_a, mic_b, d=14 * 2.54, sr=96000):
     plt.legend()
 
 
-def plot_lags_3d(mic_a, mic_b, reflectivity=0.5, d=14 * 2.54, sr=96000):
-    n = int(np.round(d, 1) * 10)
+def plot_lags_3d(
+    mic_a,
+    mic_b,
+    reflectivity: float = 0.5,
+    d: int = echolocation.DIAMETER,
+    sr: int = 96000,
+    scale: float = 1,
+    medium: str = "air",
+):
+    """Plot lags and sound intensities dropoffs for 3D mic locations.
+
+    NOTE: sound intensity dropoff through membrane/drumhead not yet computed
+    correctly.
+
+    :param mic_a: location of microphone A, in cartesian coordinates
+    :param mic_b: location of microphone A, in cartesian coordinates
+    :param reflectivity: reflectivity parameter for attenuate_intensity() - the
+        larger, the lower the attenuation
+    :param d: diameter of the drum, in centimeters
+    :param sr: sampling rate
+    :param scale: scale to increase/decrease precision originally in
+        centimeters.  For example, for millimeters, scale should be 10
+    :param medium: the medium the sound travels through.  One of 'air' or
+        'drumhead', the latter for optical/magnetic measurements
+    """
+    n = int(np.round(d, 1) * scale)
     r = n // 2
     mic_a_cart = echolocation.spherical_to_cartesian(
         mic_a[0] * r, mic_a[1], mic_a[2]
@@ -61,8 +94,8 @@ def plot_lags_3d(mic_a, mic_b, reflectivity=0.5, d=14 * 2.54, sr=96000):
     mic_b_cart = echolocation.spherical_to_cartesian(
         mic_b[0] * r, mic_b[1], mic_b[2]
     )
-    lags, sa, sb = echolocation.sim_3d(
-        mic_a_cart, mic_b_cart, reflectivity, d=d, sr=sr
+    lags, sa, sb = echolocation.lag_intensity_map(
+        mic_a_cart, mic_b_cart, reflectivity, d, sr, scale, medium
     )
     plot_heatmap(lags, r, mic_a_cart, mic_b_cart, "Samples difference")
     plot_heatmap(sa, r, mic_a_cart, mic_b_cart, "dB")
