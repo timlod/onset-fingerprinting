@@ -12,6 +12,25 @@ C_drumhead = 82.0
 MEDIUM = "air"
 
 
+def speed_of_sound(
+    scale: int = 1,
+    temperature: float = TEMPERATURE,
+    humidity: float = HUMIDITY,
+    medium=MEDIUM,
+) -> float:
+    """Compute the speed of sound, default in m/s
+
+    :param scale: change scale from m/s. mm/s would require scale=10
+    :param temperature: temperature
+    :param humidity: humidity
+    :param medium: 'air' or 'drumhead'
+    """
+    if medium == "air":
+        return scale * 331.5 + 0.6 * temperature + 0.012 * humidity
+    else:
+        return scale * C_drumhead
+
+
 def polar_to_cartesian(r: float, theta: float):
     """Convert 2D polar coordinates to cartesian coordinates.
 
@@ -175,25 +194,6 @@ def lag_map_3d(
     return np.round((lag_a - lag_b) * sr).astype(np.float32)
 
 
-def speed_of_sound(
-    scale: int = 1,
-    temperature: float = TEMPERATURE,
-    humidity: float = HUMIDITY,
-    medium=MEDIUM,
-) -> float:
-    """Compute the speed of sound, default in m/s
-
-    :param scale: change scale from m/s. mm/s would require scale=10
-    :param temperature: temperature
-    :param humidity: humidity
-    :param medium: 'air' or 'drumhead'
-    """
-    if medium == "air":
-        return scale * 331.5 + 0.6 * temperature + 0.012 * humidity
-    else:
-        return scale * C_drumhead
-
-
 def sound_intensity_at_source(
     strike_location, strike_force=STRIKE_FORCE, diameter=DIAMETER
 ) -> float:
@@ -212,8 +212,6 @@ def attenuate_intensity(
     source_loc, mic_loc, reflectivity, intensity_at_source
 ):
     direction_vectors = vec_sub(mic_loc, source_loc)
-    # Vectorized version of the above
-    # direction_vectors = mic - sources
     distance = np.linalg.norm(direction_vectors, axis=-1)
 
     # Compute the normal vector to the drumhead
