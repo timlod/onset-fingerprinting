@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.signal import find_peaks
+from onset_fingerprinting import detection
 import math
 
 TEMPERATURE = 20.0
@@ -95,6 +96,154 @@ def cartesian_to_spherical(x: float, y: float, z: float):
     phi_radians = phi_radians % (2 * np.pi)
 
     return r, np.degrees(theta_radians), np.degrees(phi_radians)
+
+
+class Multilaterate:
+    # TODO: if predicted location falls outside of circle, reject (includes [0,
+    # 0], where failures would end up)
+
+    # TODO: currently, since argmax is used to get the final location, it will
+    # take the upper left value of potential matching locations, which is a
+    # bias on the final result. It would be more accurate to return the center
+    # binary match of potential locations
+    def __init__(
+        self,
+        sensor_locations: list[tuple[float, float]],
+        drum_diameter: float = DIAMETER,
+        scale: float = 10,
+        tolerance: int = 2,
+        medium: str = "drumhead",
+        sr: int = 44100,
+    ):
+        """Initialize multilateration onset locator.
+
+        This pre-computes maps of theoretical arrival time offsets ('lags')
+        between different sensors placed on a drum given the sensor locations,
+        the drums diameter and a model of how quickly a drum onset sound should
+        travel from the onset location towards each sensor.
+
+        Given 'live' onset sample data of each sensor, or lags in number of
+        samples between when an onset sound reached each sensor, it returns the
+        most likely strike location of the onset.  It does this by simply
+        checking which locations in each lag map are potential matches, and
+        adding up matches of each map.  The index with the highest value (most
+        matches) will be the predicted location.
+
+        :param sensor_locations: list of sensor location tuples in relative
+            polar coordinates, with first index of the location tuple being the
+            radius (usually in [0, 1], although e.g. a microphone could be
+            placed outside of the drumhead, i.e. 1.1) and the second being the
+            angle in degrees, with 0/360 being the top/north location of the
+            drum.
+
+            For example, [(0.9, 0), (0.9, 90)] defines two sensors placed
+            towards the outer edge of the drum, at the north and east locations
+            of the drumhead
+
+        :param drum_diameter: diameter in cm of the drum
+        :param scale: scale to use for accuracy of results.  scale 1 would use
+            a centimeter grid, default uses millimeters.
+        :param medium: 'drumhead' for vibration/optical sensors, 'air' for
+            microphones
+        :param sr: sampling rate
+        """
+        self.radius = int(np.round(drum_diameter * scale / 2, 1))
+        self.sensor_locs = [
+            polar_to_cartesian(x[0] * self.radius, x[1])
+            for x in sensor_locations
+        ]
+
+        self.lag_maps = [{} for _ in range(len(self.sensor_locs))]
+        for i in range(len(self.sensor_locs)):
+            for k in [-1, 1]:
+                # Wrap around to first/last mic_loc
+                j = (i + k) % len(self.sensor_locs)
+                self.lag_maps[i][j] = echolocation.lag_map_2d(
+                    self.sensor_locs[i],
+                    self.sensor_locs[j],
+                    d=d,
+                    sr=sr,
+                    scale=scale,
+                    medium="drumhead",
+                )
+        # Pre-allocating results array - possibly useless optimization
+        self.res = np.zeros_like(self.lag_maps[0][1])
+
+    def locate(
+        self,
+        x: np.ndarray,
+        onset_idx: int,
+        i: int,
+        tol: int = 2,
+        left: int = 0,
+        right: int = 256,
+    ):
+        """Locate where an onset was generated.
+
+        :param x: array of shape (N, C) containing sensor values for all C
+                  sensors.  Should ideally containg right number of samples
+                  before the onset
+        :param onset_idx: onset index in [0, N)
+        :param i: index (in [0, C)) of sensor where the onset was detected
+                  first.  This should be the sensor closest to the onset
+                  location.
+        :param tol: tolerance used - when potential matches in lateration are
+            computed, allows each match to be off by this many locations.
+        :param left: number of samples before detected onset to use in
+            cross-correlation computation (advised to leave at 0).  Will only
+            work if onset_idx - left >= 0
+        :param right: number of samples after detected onset to use in
+            cross-correlation computation.  Around 5ms of samples are useful.
+            If x contains <= this many samples, this setting won't do anything
+        """
+        onset_idx = detection.detect_onset_region(
+            x[:, i], onset_idx, right, threshold_factor=0.2
+        )
+        self.res[:] = 0
+        for j in self.lag_maps[i]:
+            lag = find_lag(
+                x[onset_idx - left : onset_idx + right, i],
+                x[onset_idx - left : onset_idx + right, j],
+            )
+            self.res += (self.lag_maps[i][j] < lag + tol) & (
+                self.lag_maps[i][j] > lag - tol
+            )
+
+        # Convert x/y coordinate to polar coordinate
+        coord = np.unravel_index(np.argmax(self.res), self.res.shape)
+        x = coord[1] - (self.res.shape[1] - 1) / 2
+        y = (self.res.shape[0] - 1) / 2 - coord[0]
+        return cartesian_to_polar(x, y, self.radius)
+
+    def locate_given_lags(self, lags: list[int], i: int, tol: int = 2):
+        """Locate where an onset was generated given lags between sensors
+        computed elsewhere.
+
+        :param lags: lags between sensor closest to onset (should be the sensor
+            on whose data the onset was first detected) and the two closest
+            sensors, left-to-right.  For example, if the 'north' sensor
+            triggers an onset, this should contain a list of lags for the
+            'east' and 'west' sensors, in that order
+        :param i: index (in [0, C)) of sensor where the onset was detected
+                  first.  This should be the sensor closest to the onset
+                  location.
+        :param tol: grid tolerance - when potential matches in lateration are
+            computed, allows each match to be off by this many locations.
+            Default of 2 means that for millimeter resolution, a 5mm region
+            around the potential onset locations are considered.  Higher
+            tolerance
+        """
+        self.res[:] = 0
+        for j, lag in zip(self.lag_maps[i], lags):
+            self.res += (self.lag_maps[i][j] < lag + tol) & (
+                self.lag_maps[i][j] > lag - tol
+            )
+
+        # Convert x/y coordinate to polar coordinate
+        coord = np.unravel_index(np.argmax(self.res), self.res.shape)
+        x = coord[1] - (self.res.shape[1] - 1) / 2
+        y = (self.res.shape[0] - 1) / 2 - coord[0]
+        return cartesian_to_polar(x, y, self.radius)
 
 
 def find_lag(a: np.ndarray, b: np.ndarray):
