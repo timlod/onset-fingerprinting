@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from onset_fingerprinting import echolocation
+from onset_fingerprinting import multilateration
 import numpy as np
 
 
@@ -16,10 +16,10 @@ def plot_around(x, peaks, i, n=256, hop=32):
 def plot_lags_2D(
     mic_a: tuple[int, int],
     mic_b: tuple[int, int],
-    d: int = echolocation.DIAMETER,
+    d: int = multilateration.DIAMETER,
     sr: int = 96000,
     scale: float = 1,
-    medium: str = echolocation.MEDIUM,
+    medium: str = multilateration.MEDIUM,
 ):
     """Plot lag map for 2D mic locations.
 
@@ -34,9 +34,9 @@ def plot_lags_2D(
     """
     n = int(np.round(d, 1) * 10)
     r = n // 2
-    mic_a = echolocation.polar_to_cartesian(mic_a[0] * r, mic_a[1])
-    mic_b = echolocation.polar_to_cartesian(mic_b[0] * r, mic_b[1])
-    lags = echolocation.lag_map_2d(mic_a, mic_b, d, sr, scale, medium)
+    mic_a = multilateration.polar_to_cartesian(mic_a[0] * r, mic_a[1])
+    mic_b = multilateration.polar_to_cartesian(mic_b[0] * r, mic_b[1])
+    lags = multilateration.lag_map_2d(mic_a, mic_b, d, sr, scale, medium)
 
     plt.imshow(lags, cmap="RdYlGn", extent=[-r, r, -r, r])
     plt.colorbar(label="Samples difference")
@@ -65,7 +65,7 @@ def plot_lags_3d(
     mic_a,
     mic_b,
     reflectivity: float = 0.5,
-    d: int = echolocation.DIAMETER,
+    d: int = multilateration.DIAMETER,
     sr: int = 96000,
     scale: float = 1,
     medium: str = "air",
@@ -88,13 +88,13 @@ def plot_lags_3d(
     """
     n = int(np.round(d, 1) * scale)
     r = n // 2
-    mic_a_cart = echolocation.spherical_to_cartesian(
+    mic_a_cart = multilateration.spherical_to_cartesian(
         mic_a[0] * r, mic_a[1], mic_a[2]
     )
-    mic_b_cart = echolocation.spherical_to_cartesian(
+    mic_b_cart = multilateration.spherical_to_cartesian(
         mic_b[0] * r, mic_b[1], mic_b[2]
     )
-    lags, sa, sb = echolocation.lag_intensity_map(
+    lags, sa, sb = multilateration.lag_intensity_map(
         mic_a_cart, mic_b_cart, reflectivity, d, sr, scale, medium
     )
     plot_heatmap(lags, r, mic_a_cart, mic_b_cart, "Samples difference")
