@@ -2,12 +2,13 @@ import numpy as np
 from scipy.signal import find_peaks
 import math
 
-# Constants
-TEMPERATURE = 20.0  # Celsius
-HUMIDITY = 50.0  # percentage
-DIAMETER = 14 * 2.54  # centimeters
-STRIKE_FORCE = 1.0  # arbitrary units
+TEMPERATURE = 20.0
+HUMIDITY = 50.0
+DIAMETER = 14 * 2.54
+STRIKE_FORCE = 1.0
+# speed in m/s of sound through drumhead membrane
 C_drumhead = 82.0
+# medium used in sound propagation equations (air or drumhead)
 MEDIUM = "air"
 
 
