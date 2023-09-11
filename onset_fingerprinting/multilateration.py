@@ -111,7 +111,6 @@ class Multilaterate:
         sensor_locations: list[tuple[float, float]],
         drum_diameter: float = DIAMETER,
         scale: float = 10,
-        tolerance: int = 2,
         medium: str = "drumhead",
         sr: int = 44100,
     ):
