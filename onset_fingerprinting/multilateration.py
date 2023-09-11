@@ -11,6 +11,72 @@ C_drumhead = 82.0
 MEDIUM = "air"
 
 
+def polar_to_cartesian(r: float, theta: float):
+    """Convert 2D polar coordinates to cartesian coordinates.
+
+    :param r: radius
+    :param theta: angle in degrees
+    """
+    theta_radians = math.radians(theta) - np.pi / 2
+    x = r * math.cos(theta_radians)
+    y = r * math.sin(theta_radians)
+    return x, y
+
+
+def cartesian_to_polar(x: float, y: float, r: float = None):
+    """Convert 2D cartesian coordinates to polar coordinates.
+
+    :param x: x coordinate
+    :param y: y coordinate
+    :param r: radius unit-normalize returned radius
+    """
+    if r is None:
+        r = np.sqrt(x**2 + y**2)
+    else:
+        r = np.sqrt(x**2 + y**2) / r
+
+    theta_radians = np.arctan2(y, x) + np.pi / 2
+
+    # Adjust theta to be in the range [0, 2 * pi)
+    theta_radians = theta_radians % (2 * np.pi)
+
+    return r, theta_radians * 180 / np.pi
+
+
+def spherical_to_cartesian(r: float, theta: float, phi: float):
+    """Convert 3D spherical/polar coordinates to cartesian coordinates
+
+    :param r: radius
+    :param theta: vertical angle (along z-axis) in degrees
+    :param phi: horizontal angle (along x-axis) in degrees
+    """
+    theta_radians = np.radians(theta)
+    phi_radians = np.radians(phi)
+
+    x = r * np.sin(theta_radians) * np.cos(phi_radians)
+    y = r * np.sin(theta_radians) * np.sin(phi_radians)
+    z = r * np.cos(theta_radians)
+
+    return x, y, z
+
+
+def cartesian_to_spherical(x: float, y: float, z: float):
+    """Convert 3D cartesian coordinates to spherical/polar coordinates.
+
+    :param x: x coordinate
+    :param y: y coordinate
+    :param z: z coordinate
+    """
+    r = np.sqrt(x**2 + y**2 + z**2)
+    theta_radians = np.arccos(z / r)
+    phi_radians = np.arctan2(y, x)
+
+    # Adjust phi to be in the range [0, 2 * pi)
+    phi_radians = phi_radians % (2 * np.pi)
+
+    return r, np.degrees(theta_radians), np.degrees(phi_radians)
+
+
 def find_lag(a: np.ndarray, b: np.ndarray):
     """Find the lag in number of samples between two audio signals.
 
@@ -106,45 +172,6 @@ def lag_map_3d(
     ) / speed_of_sound(100 * scale, medium=medium)
 
     return np.round((lag_a - lag_b) * sr).astype(np.float32)
-
-
-def polar_to_cartesian(r, theta):
-    theta_radians = math.radians(theta) - np.pi / 2
-    x = r * math.cos(theta_radians)
-    y = r * math.sin(theta_radians)
-    return x, y
-
-
-def cartesian_to_polar(x, y, r=None):
-    r = np.sqrt(x**2 + y**2)
-    theta_radians = np.arctan2(y, x) + np.pi / 2
-
-    # Adjust theta to be in the range [0, 2 * pi)
-    theta_radians = theta_radians % (2 * np.pi)
-
-    return r, theta_radians * 180 / np.pi
-
-
-def spherical_to_cartesian(r, theta, phi):
-    theta_radians = np.radians(theta)
-    phi_radians = np.radians(phi)
-
-    x = r * np.sin(theta_radians) * np.cos(phi_radians)
-    y = r * np.sin(theta_radians) * np.sin(phi_radians)
-    z = r * np.cos(theta_radians)
-
-    return x, y, z
-
-
-def cartesian_to_spherical(x, y, z):
-    r = np.sqrt(x**2 + y**2 + z**2)
-    theta_radians = np.arccos(z / r)
-    phi_radians = np.arctan2(y, x)
-
-    # Adjust phi to be in the range [0, 2 * pi)
-    phi_radians = phi_radians % (2 * np.pi)
-
-    return r, np.degrees(theta_radians), np.degrees(phi_radians)
 
 
 def speed_of_sound(
