@@ -74,10 +74,6 @@ def detect_onset_region(
     binary_signal = filtered_signal > threshold
 
     # Apply binary morphology and find the first True index
-    binary_signal_morphed = binary_opening(binary_signal, structure=np.ones(5))
-    onset_idx_in_region = np.argmax(binary_signal_morphed)
-
-    # Translate back to the original audio array index
-    onset_idx_in_audio = start_idx + onset_idx_in_region
-
-    return onset_idx_in_audio
+    binary_signal = binary_opening(binary_signal, structure=np.ones(5))
+    onset_idx = np.argmax(binary_signal)
+    return start_idx + onset_idx
