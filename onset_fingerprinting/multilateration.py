@@ -102,10 +102,6 @@ class Multilaterate:
     # TODO: if predicted location falls outside of circle, reject (includes [0,
     # 0], where failures would end up)
 
-    # TODO: currently, since argmax is used to get the final location, it will
-    # take the upper left value of potential matching locations, which is a
-    # bias on the final result. It would be more accurate to return the center
-    # binary match of potential locations
     def __init__(
         self,
         sensor_locations: list[tuple[float, float]],
@@ -237,11 +233,48 @@ class Multilaterate:
             self.res += (self.lag_maps[i][j] < lag + tol) & (
                 self.lag_maps[i][j] > lag - tol
             )
-
         # Convert x/y coordinate to polar coordinate
         coord = np.unravel_index(np.argmax(self.res), self.res.shape)
         x = coord[1] - (self.res.shape[1] - 1) / 2
         y = (self.res.shape[0] - 1) / 2 - coord[0]
+        return cartesian_to_polar(x, y, self.radius)
+
+    def locate_given_lags_accurate(
+        self, lags: list[int], i: int, tol: int = 2
+    ):
+        """Locate where an onset was generated given lags between sensors
+        computed elsewhere.  Instead of taking the max, it indexes the centroid
+        of the blob that matches.  Returns None if no match, as opposed to [0,
+        0] for the other methods.
+
+        :param lags: lags between sensor closest to onset (should be the sensor
+            on whose data the onset was first detected) and the two closest
+            sensors, left-to-right.  For example, if the 'north' sensor
+            triggers an onset, this should contain a list of lags for the
+            'east' and 'west' sensors, in that order
+        :param i: index (in [0, C)) of sensor where the onset was detected
+                  first.  This should be the sensor closest to the onset
+                  location.
+        :param tol: grid tolerance - when potential matches in lateration are
+            computed, allows each match to be off by this many locations.
+            Default of 2 means that for millimeter resolution, a 5mm region
+            around the potential onset locations are considered.  Higher
+            tolerance
+        """
+        js = list(self.lag_maps[i].keys())
+        res = (
+            (self.lag_maps[i][js[0]] < (lags[0] + tol))
+            & (self.lag_maps[i][js[0]] > (lags[0] - tol))
+            & (self.lag_maps[i][js[1]] < (lags[1] + tol))
+            & (self.lag_maps[i][js[1]] > (lags[1] - tol))
+        )
+        row, col = np.where(res)
+        if len(row) == 0:
+            return None
+        # Had to swap them here, haven't taken time to check why
+        x, y = col.mean(), row.mean()
+        x -= (self.res.shape[1] - 1) / 2
+        y = (self.res.shape[0] - 1) / 2 - y
         return cartesian_to_polar(x, y, self.radius)
 
 
