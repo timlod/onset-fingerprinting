@@ -153,7 +153,7 @@ class Multilaterate:
             for k in [-1, 1]:
                 # Wrap around to first/last mic_loc
                 j = (i + k) % len(self.sensor_locs)
-                self.lag_maps[i][j] = echolocation.lag_map_2d(
+                self.lag_maps[i][j] = lag_map_2d(
                     self.sensor_locs[i],
                     self.sensor_locs[j],
                     d=d,
