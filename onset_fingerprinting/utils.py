@@ -282,3 +282,46 @@ def butter_highpass_filter(data, cutoff, fs, order=5):
     b, a = butter_highpass(cutoff, fs, order=order)
     y = signal.filtfilt(b, a, data)
     return y
+
+
+def wave_speed(T0: float, rho0: float):
+    """
+    Calculate the wave speed in a vibrating membrane.
+
+    Reference: Fletcher, N.  H., & Rossing, T.  D.  (1998).  The Physics of
+    Musical Instruments (2nd ed.).  Springer.
+
+    :param T0: Tension in the membrane in N/m.
+    :param rho0: Areal density of the membrane in kg/m^2.
+
+    :returns: Speed of wave propagation in m/s.
+    """
+    return np.sqrt(T0 / rho0)
+
+
+def drum_frequency(diameter_m: float, T0: float, rho0: float, m: int, n: int):
+    """
+    Calculate the frequency of a specific mode of a circular drum.
+
+    Reference: Fletcher, N.  H., & Rossing, T.  D.  (1998).  The Physics of
+    Musical Instruments (2nd ed.).  Springer.
+
+    According to TPoMI, where they measured a 32cm Tom Ambassador drumhead to
+    weigh 50g, Ambassador drumheads would sit at an areal density of around
+    0.05kg/m^2.  It also states that 351N/m would be a low value of tension for
+    a 32cm tom.
+
+    :param diameter_m: Diameter of the drum in meters.
+    :param T0: Tension in the membrane in N/m.
+    :param rho0: Areal density of the membrane in kg/m^2.
+    :param m: Radial mode number.
+    :param n: Azimuthal mode number.
+
+    :returns: Frequency of the drum for the given mode in Hz.
+    """
+    D = diameter_m
+    v = wave_speed(T0, rho0)
+    # Wavenumber in 1/m
+    k = np.sqrt(m**2 + n**2) * np.pi / D
+
+    return v * k / (2 * np.pi)
