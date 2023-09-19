@@ -224,10 +224,10 @@ class AmplitudeOnsetDetector:
             attack parameter)
         """
         if self.hp is not None:
-            samples = self.hp(x)
+            x = self.hp(x)
         # Compute floor-clipped, rectified dB
-        samples = np.maximum(20 * np.log10(np.abs(samples)), self.floor)
         values = self.fast_slide(x) - self.slow_slide(x)
+        x = np.maximum(20 * np.log10(np.abs(x)), self.floor)
 
         # Logic for detection
         crossed_on_threshold = (
