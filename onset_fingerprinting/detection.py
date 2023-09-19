@@ -143,6 +143,24 @@ class AmplitudeOnsetDetector:
 
     Mostly matches FluCoMa's AmpSlice object:
     https://learn.flucoma.org/reference/ampslice/
+
+    Example usage::
+
+
+        block_size = 32
+        od = AmplitudeOnsetDetector(4)
+        num_blocks = len(audio) // block_size
+        channels, onsets = [], []
+        for i in range(num_blocks):
+            start_idx = i * block_size
+            end_idx = (i + 1) * block_size
+            samples = audio[start_idx:end_idx]
+            c, d = od(samples)
+            if len(c) > 0:
+                channels.append(c)
+                onsets.append([start_idx + x for x in d])
+        channels = [x for y in channels for x in y]
+        onsets = [x for y in onsets for x in y]
     """
 
     def __init__(
