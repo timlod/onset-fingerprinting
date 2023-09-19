@@ -3,14 +3,36 @@ from onset_fingerprinting import multilateration
 import numpy as np
 
 
-def plot_around(x, peaks, i, n=256, hop=32):
+def plot_around(x, peaks, i, n=256, hop=32, only_peak=True):
     peak = peaks[i]
     left = peak - n // 2
     right = peak + n // 2
     plt.plot(x[left:right])
-    plt.vlines(peak - left + hop, 0, x[left:right].max(), "r")
-    plt.vlines(peak - left + n // 2, 0, x[left:right].max(), "g")
-    plt.vlines(peak - left + n // 2 - hop, 0, x[left:right].max(), "y")
+    plt.vlines(
+        peak - left,
+        x[left:right].min(),
+        x[left:right].max(),
+        "r",
+        label=f"Peak {i}",
+    )
+    if not only_peak:
+        plt.vlines(
+            peak - left + hop,
+            0,
+            x[left:right].min(),
+            x[left:right].max(),
+            "orange",
+            label=f"Peak {i} + hop ({hop})",
+        )
+        plt.vlines(
+            peak - left + n // 2, x[left:right].min(), x[left:right].max(), "g"
+        )
+        plt.vlines(
+            peak - left + n // 2 - hop,
+            x[left:right].min(),
+            x[left:right].max(),
+            "y",
+        )
 
 
 def plot_lags_2D(
