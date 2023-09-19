@@ -1,0 +1,22 @@
+#+TITLE: Onset fingerprinting
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Tuesday, 19 September 2023
+#+STARTUP: showall
+#+PROPERTY: header-args :exports both :session of :kernel lm :cache no
+
+This repository is concerned with developing novel ways to computationally work
+with musical, especially percussive, sound onsets.
+
+Currently several items are developed concurrently:
+- Percussive Onset Sound Dataset specification (POSD)
+  - an open dataset specification to methodically work with audio onset data
+  - see [[file:notebooks/dataset_spec_draft.org]]
+- Multilateration algorithms to locate where sounds were generated based on
+  multiple sensors
+  - e.g. when striking a drumhead, use several sensors to get precise
+    coordinates of where the strike landed
+- Onset fingerprinting/classification algorithms
+  - given a percussive onset, classify it as being a specific sound, under
+    real-time constraints
+  - used for example to electronically augment live playing
