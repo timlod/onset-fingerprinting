@@ -265,112 +265,14 @@ class AmplitudeOnsetDetector:
         self.state[on] = True
         self.debounce_count[on] = self.cooldown
         self.debounce_count[self.debounce_count > 0] -= self.block_size
-        # This would be more accurate but is probably not necessary
-        # deb = np.array([block_size] * n_signals)
-        # deb[on] -= on_indices[on]
-        # debounce_count -= deb
 
         # Update states for off_threshold crossing
         # only check for off_threshold after detection to turn off
         crossed_off_threshold = relative_envelope < self.off_threshold
 
-        # Again, this is more accurate, but it's quicker to use the max
-        # for i, ind in enumerate(on_indices):
-        #     crossed_off_threshold[:ind, i] = False
         crossed_off_threshold[: on_indices.max(), :] = False
         self.state[np.any(crossed_off_threshold, axis=0)] = False
         self.prev_values[:] = relative_envelope[-1, :]
 
-        # if any(on_indices > 0):
-        #     print(np.where(on)[0], on_indices[on])
-
         # Channels and deltas
         return np.where(on)[0], on_indices[on]
-
-
-def setup(audio, block_size=32):
-    floor = params["floor"]
-    hi_pass_freq = params["hi_pass_freq"]
-    sample_rate = params["sample_rate"]
-    hi_pass_freq = min(hi_pass_freq / sample_rate, 0.5)
-    sample_rate = None  # otherwise we get wrong hpf if switching
-    fast_ramp_up = params["fast_ramp_up"]
-    slow_ramp_up = params["slow_ramp_up"]
-    fast_ramp_down = params["fast_ramp_down"]
-    slow_ramp_down = params["slow_ramp_down"]
-    on_threshold = params["on_threshold"]
-    off_threshold = params["off_threshold"]
-    debounce = params["debounce"]
-
-    n_signals = audio.shape[1]
-    hp1 = ButterworthFilter(hi_pass_freq, n_signals, 4, sample_rate, "high")
-    fast_slide = AREnvelopeFollower(
-        np.full((block_size, n_signals), floor, dtype=np.float32),
-        fast_ramp_up,
-        fast_ramp_down,
-    )
-    slow_slide = AREnvelopeFollower(
-        np.full((block_size, n_signals), floor, dtype=np.float32),
-        slow_ramp_up,
-        slow_ramp_down,
-    )
-
-    state = np.zeros(n_signals, dtype=bool)
-    prev_values = np.zeros(n_signals)
-    debounce_count = np.zeros(n_signals, dtype=int)
-    num_samples, n_signals = audio.shape
-    output = np.zeros((num_samples, n_signals), dtype=int)
-
-    num_blocks = len(audio) // block_size
-    for i in range(num_blocks):
-        start_idx = i * block_size
-        end_idx = (i + 1) * block_size
-        samples = audio[start_idx:end_idx]
-
-        values = pe(samples, floor, fast_slide, slow_slide, hp1, hp2)
-
-        # Logic for detection
-        crossed_on_threshold = (
-            (values > on_threshold) & (~state) & (debounce_count < 1)
-        )
-        crossed_on_threshold[0] &= prev_values < on_threshold
-        crossed_on_threshold[1:] &= values[:-1] < on_threshold
-
-        # Find the first index where the on_threshold is crossed & adjust for
-        # first row
-        on_indices = np.argmax(crossed_on_threshold, axis=0)
-        on = (on_indices > 0) | crossed_on_threshold[0, :]
-
-        # Update debounce_count and state for channels that detected an onset
-        state[on] = True
-        debounce_count[on] = debounce
-        debounce_count[debounce_count > 0] -= block_size
-        # This would be more accurate but is probably not necessary
-        # deb = np.array([block_size] * n_signals)
-        # deb[on] -= on_indices[on]
-        # debounce_count -= deb
-
-        # if any(on_indices > 0):
-        #     print(np.where(on)[0], on_indices[on])
-        output[start_idx:end_idx][on_indices[on], np.where(on)[0]] = 1
-
-        # Update states for off_threshold crossing
-        # only check for off_threshold after detection to turn off
-        crossed_off_threshold = values < off_threshold
-
-        # Again, this is more accurate, but it's quicker to use the max
-        # for i, ind in enumerate(on_indices):
-        #     crossed_off_threshold[:ind, i] = False
-        crossed_off_threshold[: on_indices.max(), :] = False
-        state[np.any(crossed_off_threshold, axis=0)] = False
-        prev_values[:] = values[-1, :]
-
-    return output
-
-
-def pe(samples, floor, fast_slide, slow_slide, hp=None):
-    if hp is not None:
-        samples = hp(samples)
-    # Compute floor-clipped, rectified dB
-    samples = np.maximum(20 * np.log10(np.abs(samples)), floor)
-    return fast_slide(samples) - slow_slide(samples)
