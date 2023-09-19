@@ -213,7 +213,11 @@ class AmplitudeOnsetDetector:
         self.cooldown = cooldown
         self.sr = sr
 
-        self.hp = ButterworthFilter(hipass_freq, n_signals, 4, sr, "high")
+        self.hp = (
+            ButterworthFilter(hipass_freq, n_signals, 4, sr, "high")
+            if hipass_freq != 0
+            else None
+        )
         self.fast_slide = AREnvelopeFollower(
             np.full((block_size, n_signals), floor, dtype=np.float32), *fast_ar
         )
