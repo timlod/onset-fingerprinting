@@ -1,3 +1,8 @@
+### Interactively plot POSD onsets, to manually verify/fix
+# Opens an interactive matplotlib plot
+#
+# Usage: See python modify_hits.py --help
+
 import argparse
 import json
 import tkinter as tk
@@ -172,26 +177,31 @@ def on_release(event):
 def on_key(event):
     global selected_line
     match event.key:
+        # Delete selected line
         case "d":
             if selected_line is not None:
                 selected_line.line.remove()
                 lines.remove(selected_line)
                 set_selected(None)
+        # Play audio at selection
         case " ":
             if selected_line is not None:
                 x = int(selected_line.line.get_xdata()[0])
                 sd.play(audio[x : x + int(sr / 2)], samplerate=sr)
+        # Zoom in around selected onset
         case "z":
             if selected_line is not None:
                 onset = selected_line.meta["onset_start"]
                 ax.set_xlim((onset - sr // 4, onset + sr * 2))
                 fig.canvas.toolbar.push_current()
                 fig.canvas.draw()
+        # Move the plot forward by 1/8 of the sample rate
         case "f":
             xlims = ax.get_xlim()
             ax.set_xlim((xlims[0] + sr // 8, xlims[1] + sr // 8))
             fig.canvas.toolbar.push_current()
             fig.canvas.draw()
+        # Save modified onsets
         case "q":
             out = []
             for line in lines:
