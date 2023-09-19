@@ -226,17 +226,17 @@ class AmplitudeOnsetDetector:
         if self.hp is not None:
             x = self.hp(x)
         # Compute floor-clipped, rectified dB
-        values = self.fast_slide(x) - self.slow_slide(x)
         x = np.maximum(20 * np.log10(np.abs(x)), self.floor)
+        relative_envelope = self.fast_slide(x) - self.slow_slide(x)
 
         # Logic for detection
         crossed_on_threshold = (
-            (values > self.on_threshold)
+            (relative_envelope > self.on_threshold)
             & (~self.state)
             & (self.debounce_count < 1)
         )
         crossed_on_threshold[0] &= self.prev_values < self.on_threshold
-        crossed_on_threshold[1:] &= values[:-1] < self.on_threshold
+        crossed_on_threshold[1:] &= relative_envelope[:-1] < self.on_threshold
 
         # Find the first index where the on_threshold is crossed & adjust for
         # first row
@@ -254,20 +254,20 @@ class AmplitudeOnsetDetector:
 
         # Update states for off_threshold crossing
         # only check for off_threshold after detection to turn off
-        crossed_off_threshold = values < self.off_threshold
+        crossed_off_threshold = relative_envelope < self.off_threshold
 
         # Again, this is more accurate, but it's quicker to use the max
         # for i, ind in enumerate(on_indices):
         #     crossed_off_threshold[:ind, i] = False
         crossed_off_threshold[: on_indices.max(), :] = False
         self.state[np.any(crossed_off_threshold, axis=0)] = False
-        self.prev_values[:] = values[-1, :]
+        self.prev_values[:] = relative_envelope[-1, :]
 
         # if any(on_indices > 0):
         #     print(np.where(on)[0], on_indices[on])
 
         # Channels and deltas
-        return on_indices[on], np.where(on)[0]
+        return np.where(on)[0], on_indices[on]
 
 
 def setup(audio, block_size=32):
