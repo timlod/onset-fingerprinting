@@ -156,7 +156,7 @@ class Multilaterate:
                 self.lag_maps[i][j] = lag_map_2d(
                     self.sensor_locs[i],
                     self.sensor_locs[j],
-                    d=d,
+                    d=drum_diameter,
                     sr=sr,
                     scale=scale,
                     medium="drumhead",
