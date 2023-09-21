@@ -341,7 +341,7 @@ def lag_map_2d(
         speed_of_sound(100 * scale, medium=medium)
     )
     lag_map = np.round((lag_a - lag_b) * sr).astype(np.float32)
-    lag_map[circular_mask] = np.float32(np.nan)
+    lag_map[circular_mask] = np.nan
     return lag_map
 
 
@@ -387,7 +387,7 @@ def lag_map_3d(
     ) / speed_of_sound(100 * scale, medium=medium)
 
     lag_map = np.round((lag_a - lag_b) * sr).astype(np.float32)
-    lag_map[circular_mask] = np.float32(np.nan)
+    lag_map[circular_mask] = np.nan
     return lag_map
 
 
