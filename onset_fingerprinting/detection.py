@@ -111,7 +111,7 @@ class AREnvelopeFollower:
         self.attack = np.float32(1 / attack)
         self.release = np.float32(1 / release)
         self.y = x0
-        self.c_ar_env = ctypes.CDLL(Path(__file__) / "ARenvelope.so")
+        self.c_ar_env = ctypes.CDLL(Path(__file__).parent / "ARenvelope.so")
         self.c_ar_env.process.argtypes = [
             np.ctypeslib.ndpointer(
                 dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"
