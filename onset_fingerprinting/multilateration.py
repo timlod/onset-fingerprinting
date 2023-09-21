@@ -309,6 +309,7 @@ def lag_map_2d(
     sr: int = 96000,
     scale: float = 1,
     medium: str = MEDIUM,
+    tol: int = 1,
 ):
     """Compute lag map for 2D microphone locations.
 
@@ -320,12 +321,17 @@ def lag_map_2d(
         centimeters.  For example, for millimeters, scale should be 10
     :param medium: the medium the sound travels through.  One of 'air' or
         'drumhead', the latter for optical/magnetic measurements
+    :param tol: lags outside the drum are replaced with np.nan - within some
+        tolerance (in centimeters) at the edges.  Note that the
+        top/bottom/left/right/edges are naturally at the edge of the matrix,
+        tolerance doesn't increase legality there
     """
     # This will give us a diameter to use which we can sample at millimeter
     # precision
     n = int(np.round(d, 1) * scale)
     r = n // 2
     i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
+    circular_mask = i**2 + j**2 > ((r + tol * scale) ** 2)
 
     # compute lag in seconds from each potential location to microphones
     lag_a = np.sqrt((i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2) / (
@@ -334,7 +340,9 @@ def lag_map_2d(
     lag_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2) / (
         speed_of_sound(100 * scale, medium=medium)
     )
-    return np.round((lag_a - lag_b) * sr).astype(np.float32)
+    lag_map = np.round((lag_a - lag_b) * sr).astype(np.float32)
+    lag_map[circular_mask] = np.float32(np.nan)
+    return lag_map
 
 
 def lag_map_3d(
@@ -344,6 +352,7 @@ def lag_map_3d(
     sr: int = 96000,
     scale: float = 1,
     medium: str = MEDIUM,
+    tol: int = 1,
 ):
     """Compute lag map for 3D microphone locations.
 
@@ -355,11 +364,16 @@ def lag_map_3d(
         centimeters.  For example, for millimeters, scale should be 10
     :param medium: the medium the sound travels through.  One of 'air' or
         'drumhead', the latter for optical/magnetic measurements
+    :param tol: lags outside the drum are replaced with np.nan - within some
+        tolerance (in centimeters) at the edges.  Note that the
+        top/bottom/left/right/edges are naturally at the edge of the matrix,
+        tolerance doesn't increase legality there
     """
 
     n = int(np.round(d, 1) * scale)
     r = n // 2
     i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
+    circular_mask = i**2 + j**2 > ((r + tol * scale) ** 2)
 
     # Z-coordinate of the playing surface
     z_surface = 0
@@ -372,7 +386,9 @@ def lag_map_3d(
         (i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2 + (z_surface - mic_b[2]) ** 2
     ) / speed_of_sound(100 * scale, medium=medium)
 
-    return np.round((lag_a - lag_b) * sr).astype(np.float32)
+    lag_map = np.round((lag_a - lag_b) * sr).astype(np.float32)
+    lag_map[circular_mask] = np.float32(np.nan)
+    return lag_map
 
 
 def sound_intensity_at_source(
