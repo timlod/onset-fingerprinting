@@ -1,14 +1,16 @@
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks
 from onset_fingerprinting import detection
 import math
+from scipy.optimize import minimize, fsolve
 
 TEMPERATURE = 20.0
 HUMIDITY = 50.0
 DIAMETER = 14 * 2.54
 STRIKE_FORCE = 1.0
 # speed in m/s of sound through drumhead membrane
-C_drumhead = 82.0
+C_drumhead = 140
 # medium used in sound propagation equations (air or drumhead)
 MEDIUM = "air"
 
@@ -267,8 +269,8 @@ class M:
                             # if it succeeds? print(group, sensor_index,
                             # onset_index, lag)
                             res = self.trilaterate(group, res)
-                            if res is not None:
-                                new_groups = remove_seed(new_groups, group)
+                            # if res is not None:
+                            #     new_groups = remove_seed(new_groups, group)
                             self.ongoing = new_groups
                             return res
                     new_groups.append(group)
@@ -277,8 +279,6 @@ class M:
             if lag <= self.max_max_lags[group[0][0]]:
                 new_groups.append(group)
         new_groups.append(([sensor_index], [onset_index]))
-        # Update ongoing groups
-
         self.ongoing = new_groups
         return None
 
@@ -413,9 +413,6 @@ def solve_trilateration(
 
 
 class Multilaterate:
-    # TODO: if predicted location falls outside of circle, reject (includes [0,
-    # 0], where failures would end up)
-
     def __init__(
         self,
         sensor_locations: list[tuple[float, float]],
@@ -461,6 +458,9 @@ class Multilaterate:
             polar_to_cartesian(x[0] * self.radius, x[1])
             for x in sensor_locations
         ]
+        self.scale = scale
+        self.medium = medium
+        self.sr = sr
 
         self.lag_maps = [{} for _ in range(len(self.sensor_locs))]
         for i in range(len(self.sensor_locs)):
@@ -477,6 +477,75 @@ class Multilaterate:
                 )
         # Pre-allocating results array - possibly useless optimization
         self.res = np.zeros_like(self.lag_maps[0][1])
+
+    def locate_analytical_fsolve(
+        self, lags: list[int], i: int
+    ) -> tuple[float, float]:
+        js = [(i - 1) % len(self.sensor_locs), (i + 1) % len(self.sensor_locs)]
+        sensor_a = self.sensor_locs[js[0]]
+        sensor_b = self.sensor_locs[js[1]]
+        sensor_origin = self.sensor_locs[i]
+
+        c = speed_of_sound(100 * self.scale, medium=self.medium)
+
+        d_a1 = lags[0] * c / self.sr
+        d_b1 = lags[1] * c / self.sr
+
+        weight_a = abs(d_a1) / (self.radius)
+        weight_b = abs(d_b1) / (self.radius)
+        weight_o = abs(d_a1 + d_b1) / (2 * self.radius)
+
+        initial_guess = np.array(
+            [
+                sensor_a[0] * weight_a
+                + sensor_b[0] * weight_b
+                + sensor_origin[0] * weight_o,
+                sensor_a[1] * weight_a
+                + sensor_b[1] * weight_b
+                + sensor_origin[1] * weight_o,
+            ]
+        )
+
+        x, y = solve_trilateration_fsolve(
+            sensor_a, sensor_b, sensor_origin, d_a1, d_b1, initial_guess
+        )
+
+        return cartesian_to_polar(x, y, self.radius)
+
+    def locate_analytical(
+        self, lags: list[int], i: int
+    ) -> tuple[float, float]:
+        js = [(i - 1) % len(self.sensor_locs), (i + 1) % len(self.sensor_locs)]
+        sensor_a = self.sensor_locs[js[0]]
+        sensor_b = self.sensor_locs[js[1]]
+        sensor_origin = self.sensor_locs[i]
+
+        c = speed_of_sound(100 * self.scale, medium=self.medium)
+
+        d_a1 = lags[0] * c / self.sr
+        d_b1 = lags[1] * c / self.sr
+
+        # Use trilateration to find most likely strike point
+        # Equations are (x - x_a)^2 + (y - y_a)^2 = d_a1^2 and similar for d_b1
+
+        weight_a = abs(d_a1) / (self.radius)
+        weight_b = abs(d_b1) / (self.radius)
+        weight_o = abs(d_a1 + d_b1) / (2 * self.radius)
+
+        initial_guess = np.array(
+            [
+                sensor_a[0] * weight_a
+                + sensor_b[0] * weight_b
+                + sensor_origin[0] * weight_o,
+                sensor_a[1] * weight_a
+                + sensor_b[1] * weight_b
+                + sensor_origin[1] * weight_o,
+            ]
+        )
+        x, y = solve_trilateration(
+            sensor_a, sensor_b, sensor_origin, d_a1, d_b1, initial_guess
+        )
+        return cartesian_to_polar(x, y, self.radius)
 
     def locate(
         self,
