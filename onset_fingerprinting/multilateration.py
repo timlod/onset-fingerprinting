@@ -253,40 +253,37 @@ class M:
             lag = onset_index - group[1][0]
             if sensor_index not in group[0]:
                 if self.is_legal(group[0][0], sensor_index, lag):
-                    if len(group[0]) == 2:
-                        # Should we try again if trilaterate fails? Should we
-                        # purge everything with the same first element if it
-                        # succeeds?
-                        print(group, sensor_index, onset_index, lag)
-                        res = self.trilaterate(
-                            (
-                                group[0] + [sensor_index],
-                                group[1] + [onset_index],
-                            )
-                        )
-                        if res is not None:
-                            new_groups = remove_seed(new_groups, group)
-                        self.ongoing = new_groups
-                        return res
-                    else:
-                        new_groups.append(
-                            (
-                                group[0] + [sensor_index],
-                                group[1] + [onset_index],
-                            )
-                        )
+                    group = (
+                        group[0] + [sensor_index],
+                        group[1] + [onset_index],
+                    )
+                    if len(group[0]) == 3:
+                        res = self.is_legal_3d(group)
+                        if res != (0, 0):
+                            res = np.array(res) - self.radius
+                            # print(group, res, res == (0, 0))
+                            # Should we try again if trilaterate fails? Should
+                            # we purge everything with the same first element
+                            # if it succeeds? print(group, sensor_index,
+                            # onset_index, lag)
+                            res = self.trilaterate(group, res)
+                            if res is not None:
+                                new_groups = remove_seed(new_groups, group)
+                            self.ongoing = new_groups
+                            return res
+                    new_groups.append(group)
             # Not reached maximum possible lag (and didn't return during
             # trilaterate), so keep this group for now
             if lag <= self.max_max_lags[group[0][0]]:
                 new_groups.append(group)
         new_groups.append(([sensor_index], [onset_index]))
         # Update ongoing groups
-        self.ongoing = new_groups
 
+        self.ongoing = new_groups
         return None
 
     def trilaterate(
-        self, group: tuple[list[int], list[int]]
+        self, group: tuple[list[int], list[int]], initial_guess
     ) -> tuple[float, float]:
         sensors, onsets = group[0], group[1]
         sensor_a = self.sensor_locs[sensors[1]]
@@ -295,23 +292,25 @@ class M:
 
         c = speed_of_sound(100, medium=self.medium)
 
-        d_a1 = (onsets[0] - onsets[1]) * c / self.sr
-        d_b1 = (onsets[0] - onsets[2]) * c / self.sr
+        d_a1 = (onsets[1] - onsets[0]) * c / self.sr
+        d_b1 = (onsets[2] - onsets[0]) * c / self.sr
 
-        weight_a = abs(d_a1) / (self.radius)
-        weight_b = abs(d_b1) / (self.radius)
-        weight_o = abs(d_a1 + d_b1) / (2 * self.radius)
+        # print(initial_guess)
+        # weight_a = abs(d_a1) / (self.radius)
+        # weight_b = abs(d_b1) / (self.radius)
+        # weight_o = abs(d_a1 + d_b1) / (2 * self.radius)
 
-        initial_guess = np.array(
-            [
-                sensor_a[0] * weight_a
-                + sensor_b[0] * weight_b
-                + sensor_origin[0] * weight_o,
-                sensor_a[1] * weight_a
-                + sensor_b[1] * weight_b
-                + sensor_origin[1] * weight_o,
-            ]
-        )
+        # initial_guess = np.array(
+        #     [
+        #         sensor_a[0] * weight_a
+        #         + sensor_b[0] * weight_b
+        #         + sensor_origin[0] * weight_o,
+        #         sensor_a[1] * weight_a
+        #         + sensor_b[1] * weight_b
+        #         + sensor_origin[1] * weight_o,
+        #     ]
+        # )
+        # print(initial_guess)
 
         res = solve_trilateration_fsolve(
             sensor_a, sensor_b, sensor_origin, d_a1, d_b1, initial_guess
