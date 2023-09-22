@@ -144,6 +144,7 @@ class M:
         ]
         self.medium = medium
         self.sr = sr
+        self.samples_per_cm = sr / speed_of_sound(100, medium=medium)
 
         # Create small lag maps (centimeter resolution) just to determine
         # whether a given lag is feasible, quickly
@@ -163,9 +164,12 @@ class M:
                     sr=sr,
                     scale=1,
                     medium="drumhead",
+                    # 2cm tolerance around edge of drum
                     tol=2,
                 )
-                lm[lm < 1] = np.nan
+                # Allow some negative values, specifically to allow some slack
+                # in the the center region if sensors are placed circularly
+                lm[lm < -self.samples_per_cm * 1] = np.nan
                 self.lag_maps[i][j] = lm
                 self.max_lags[i][j] = np.nanmax(lm)
                 self.min_lags[i][j] = np.nanmin(lm)
@@ -190,6 +194,54 @@ class M:
             < lag
             < self.max_lags[first_sensor][later_sensor]
         )
+
+    def is_legal_3d(self, group, tolerance=1):
+        # We take a tolerance of Xcm around the target - fine location is done
+        # during fsolve trilateration
+        tolerance *= self.samples_per_cm
+        sensors, onsets = group[0], group[1]
+        lag1 = onsets[1] - onsets[0]
+        lag2 = onsets[2] - onsets[0]
+        lm1 = self.lag_maps[sensors[0]][sensors[1]]
+        lm2 = self.lag_maps[sensors[0]][sensors[2]]
+
+        legal = (lm1 < lag1 + tolerance) & (lm1 > lag1 - tolerance)
+        legal &= (lm2 < lag2 + tolerance) & (lm2 > lag2 - tolerance)
+        res = np.unravel_index(np.argmax(legal > 0), legal.shape, "F")
+        return res
+
+    def is_legal_3d_plot(self, group, tolerance=2):
+        # We take a tolerance of 2cm around the target for this
+        if tolerance is None:
+            tolerance = self.samples_per_cm * 1
+        else:
+            tolerance *= self.samples_per_cm
+        sensors, onsets = group[0], group[1]
+        lag1 = onsets[1] - onsets[0]
+        lag2 = onsets[2] - onsets[0]
+        lag3 = onsets[2] - onsets[1]
+        print(tolerance, self.samples_per_cm, lag1, lag2)
+        lm1 = self.lag_maps[sensors[0]][sensors[1]]
+        lm2 = self.lag_maps[sensors[0]][sensors[2]]
+        lm3 = self.lag_maps[sensors[1]][sensors[2]]
+        plt.imshow(lm1)
+        plt.colorbar()
+        plt.figure()
+        plt.imshow(lm2)
+        plt.colorbar()
+        plt.figure()
+        plt.imshow(lm3)
+        plt.colorbar()
+        plt.figure()
+        legal = (lm1 < lag1 + tolerance) & (lm1 > lag1 - tolerance)
+        plt.imshow(legal)
+        legal &= (lm2 < lag2 + tolerance) & (lm2 > lag2 - tolerance)
+        plt.figure()
+        plt.imshow(legal)
+        legal &= (lm3 < lag3 + tolerance) & (lm3 > lag3 - tolerance)
+        plt.figure()
+        plt.imshow(legal)
+        return np.unravel_index(np.argmax(legal > 0), legal.shape, "F")
 
     def locate(
         self, sensor_index: int, onset_index: int
