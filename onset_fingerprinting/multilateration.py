@@ -105,13 +105,48 @@ def remove_seed(groups, group):
     seed_onset = group[1][0]
     new_groups = []
     for group in groups:
-        print(f"{seed_index=}, {seed_onset=}, {group[0][0]=}, {group[1][0]=}")
         if not ((group[0][0] == seed_index) and (group[1][0] == seed_onset)):
             new_groups.append(group)
     return new_groups
 
 
-class M:
+def solve_trilateration(
+    sensor_a: tuple[float, float],
+    sensor_b: tuple[float, float],
+    sensor_origin: tuple[float, float],
+    delta_d_a: float,
+    delta_d_b: float,
+    initial_guess: np.ndarray,
+) -> tuple[float, float]:
+    """
+    Solve the trilateration problem using fsolve.
+    """
+
+    def equations(point: np.ndarray) -> np.ndarray:
+        x, y = point
+        d_a = np.sqrt((x - sensor_a[0]) ** 2 + (y - sensor_a[1]) ** 2)
+        d_b = np.sqrt((x - sensor_b[0]) ** 2 + (y - sensor_b[1]) ** 2)
+        d_o = np.sqrt(
+            (x - sensor_origin[0]) ** 2 + (y - sensor_origin[1]) ** 2
+        )
+
+        eq1 = d_a - d_o - delta_d_a
+        eq2 = d_b - d_o - delta_d_b
+
+        return np.array([eq1, eq2])
+
+    root, info, ier, msg = fsolve(equations, initial_guess, full_output=True)
+
+    if ier == 1:
+        return tuple(root)
+    else:
+        # print(
+        #     f"Solving ({sensor_origin}, {sensor_a}, {sensor_b} failed: {msg}"
+        # )
+        return None
+
+
+class Multilaterate:
     def __init__(
         self,
         sensor_locations: list[tuple[float, float]],
@@ -212,39 +247,6 @@ class M:
         res = np.unravel_index(np.argmax(legal > 0), legal.shape, "F")
         return res
 
-    def is_legal_3d_plot(self, group, tolerance=2):
-        # We take a tolerance of 2cm around the target for this
-        if tolerance is None:
-            tolerance = self.samples_per_cm * 1
-        else:
-            tolerance *= self.samples_per_cm
-        sensors, onsets = group[0], group[1]
-        lag1 = onsets[1] - onsets[0]
-        lag2 = onsets[2] - onsets[0]
-        lag3 = onsets[2] - onsets[1]
-        print(tolerance, self.samples_per_cm, lag1, lag2)
-        lm1 = self.lag_maps[sensors[0]][sensors[1]]
-        lm2 = self.lag_maps[sensors[0]][sensors[2]]
-        lm3 = self.lag_maps[sensors[1]][sensors[2]]
-        plt.imshow(lm1)
-        plt.colorbar()
-        plt.figure()
-        plt.imshow(lm2)
-        plt.colorbar()
-        plt.figure()
-        plt.imshow(lm3)
-        plt.colorbar()
-        plt.figure()
-        legal = (lm1 < lag1 + tolerance) & (lm1 > lag1 - tolerance)
-        plt.imshow(legal)
-        legal &= (lm2 < lag2 + tolerance) & (lm2 > lag2 - tolerance)
-        plt.figure()
-        plt.imshow(legal)
-        legal &= (lm3 < lag3 + tolerance) & (lm3 > lag3 - tolerance)
-        plt.figure()
-        plt.imshow(legal)
-        return np.unravel_index(np.argmax(legal > 0), legal.shape, "F")
-
     def locate(
         self, sensor_index: int, onset_index: int
     ) -> None | tuple[float, float]:
@@ -295,24 +297,7 @@ class M:
         d_a1 = (onsets[1] - onsets[0]) * c / self.sr
         d_b1 = (onsets[2] - onsets[0]) * c / self.sr
 
-        # print(initial_guess)
-        # weight_a = abs(d_a1) / (self.radius)
-        # weight_b = abs(d_b1) / (self.radius)
-        # weight_o = abs(d_a1 + d_b1) / (2 * self.radius)
-
-        # initial_guess = np.array(
-        #     [
-        #         sensor_a[0] * weight_a
-        #         + sensor_b[0] * weight_b
-        #         + sensor_origin[0] * weight_o,
-        #         sensor_a[1] * weight_a
-        #         + sensor_b[1] * weight_b
-        #         + sensor_origin[1] * weight_o,
-        #     ]
-        # )
-        # print(initial_guess)
-
-        res = solve_trilateration_fsolve(
+        res = solve_trilateration(
             sensor_a, sensor_b, sensor_origin, d_a1, d_b1, initial_guess
         )
         if res is not None:
@@ -321,43 +306,7 @@ class M:
             return None
 
 
-def solve_trilateration_fsolve(
-    sensor_a: tuple[float, float],
-    sensor_b: tuple[float, float],
-    sensor_origin: tuple[float, float],
-    delta_d_a: float,
-    delta_d_b: float,
-    initial_guess: np.ndarray,
-) -> tuple[float, float]:
-    """
-    Solve the trilateration problem using fsolve.
-    """
-
-    def equations(point: np.ndarray) -> np.ndarray:
-        x, y = point
-        d_a = np.sqrt((x - sensor_a[0]) ** 2 + (y - sensor_a[1]) ** 2)
-        d_b = np.sqrt((x - sensor_b[0]) ** 2 + (y - sensor_b[1]) ** 2)
-        d_o = np.sqrt(
-            (x - sensor_origin[0]) ** 2 + (y - sensor_origin[1]) ** 2
-        )
-
-        eq1 = d_a - d_o - delta_d_a
-        eq2 = d_b - d_o - delta_d_b
-
-        return np.array([eq1, eq2])
-
-    root, info, ier, msg = fsolve(equations, initial_guess, full_output=True)
-
-    if ier == 1:
-        return tuple(root)
-    else:
-        # print(
-        #     f"Solving ({sensor_origin}, {sensor_a}, {sensor_b} failed: {msg}"
-        # )
-        return None
-
-
-class Multilaterate:
+class MultilateratePaired:
     def __init__(
         self,
         sensor_locations: list[tuple[float, float]],
@@ -449,7 +398,7 @@ class Multilaterate:
             ]
         )
 
-        x, y = solve_trilateration_fsolve(
+        x, y = solve_trilateration(
             sensor_a, sensor_b, sensor_origin, d_a1, d_b1, initial_guess
         )
 

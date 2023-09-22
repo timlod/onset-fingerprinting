@@ -29,6 +29,40 @@ def polar_circle(polar_coords: list[tuple[float, float]]) -> None:
     plt.title("Circle and Scatter Plot")
 
 
+def is_legal_3d_plot(m, group, tolerance=2):
+    # We take a tolerance of 2cm around the target for this
+    if tolerance is None:
+        tolerance = m.samples_per_cm * 1
+    else:
+        tolerance *= m.samples_per_cm
+    sensors, onsets = group[0], group[1]
+    lag1 = onsets[1] - onsets[0]
+    lag2 = onsets[2] - onsets[0]
+    lag3 = onsets[2] - onsets[1]
+    print(tolerance, m.samples_per_cm, lag1, lag2)
+    lm1 = m.lag_maps[sensors[0]][sensors[1]]
+    lm2 = m.lag_maps[sensors[0]][sensors[2]]
+    lm3 = m.lag_maps[sensors[1]][sensors[2]]
+    plt.imshow(lm1)
+    plt.colorbar()
+    plt.figure()
+    plt.imshow(lm2)
+    plt.colorbar()
+    plt.figure()
+    plt.imshow(lm3)
+    plt.colorbar()
+    plt.figure()
+    legal = (lm1 < lag1 + tolerance) & (lm1 > lag1 - tolerance)
+    plt.imshow(legal)
+    legal &= (lm2 < lag2 + tolerance) & (lm2 > lag2 - tolerance)
+    plt.figure()
+    plt.imshow(legal)
+    legal &= (lm3 < lag3 + tolerance) & (lm3 > lag3 - tolerance)
+    plt.figure()
+    plt.imshow(legal)
+    return np.unravel_index(np.argmax(legal > 0), legal.shape, "F")
+
+
 def plot_around(x, peaks, i, n=256, hop=32, only_peak=True):
     peak = peaks[i]
     left = peak - n // 2
