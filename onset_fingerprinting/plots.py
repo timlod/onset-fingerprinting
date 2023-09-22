@@ -3,6 +3,32 @@ from onset_fingerprinting import multilateration
 import numpy as np
 
 
+def polar_circle(polar_coords: list[tuple[float, float]]) -> None:
+    """
+    Plot a unit circle and scatter a list of polar coordinates on it.
+
+    :param polar_coords: List of tuples, each containing radius and angle in degrees.
+    """
+    # Plot unit circle
+    theta = np.linspace(0, 2 * np.pi, 100)
+    x_circle = np.sin(theta)
+    y_circle = np.cos(theta)
+    plt.plot(x_circle, y_circle, label="Unit Circle")
+
+    # Scatter polar coordinates
+    for r, angle in polar_coords:
+        x = r * np.sin(np.radians(angle))
+        y = r * np.cos(np.radians(angle))
+        plt.scatter(x, y)
+
+    # Set aspect ratio and labels
+    plt.axis("equal")
+    plt.xlabel("X-axis")
+    plt.ylabel("Y-axis")
+    plt.legend()
+    plt.title("Circle and Scatter Plot")
+
+
 def plot_around(x, peaks, i, n=256, hop=32, only_peak=True):
     peak = peaks[i]
     left = peak - n // 2
