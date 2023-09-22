@@ -357,61 +357,6 @@ def solve_trilateration_fsolve(
         return None
 
 
-def solve_trilateration(
-    sensor_a: tuple[float, float],
-    sensor_b: tuple[float, float],
-    sensor_origin: tuple[float, float],
-    delta_d_a: float,
-    delta_d_b: float,
-    initial_guess,
-) -> tuple[float, float]:
-    """
-    Solve the trilateration problem.
-    """
-
-    def error_function(point: np.ndarray) -> float:
-        x, y = point
-        d_a = np.sqrt((x - sensor_a[0]) ** 2 + (y - sensor_a[1]) ** 2)
-        d_b = np.sqrt((x - sensor_b[0]) ** 2 + (y - sensor_b[1]) ** 2)
-        d_o = np.sqrt(
-            (x - sensor_origin[0]) ** 2 + (y - sensor_origin[1]) ** 2
-        )
-        return (d_a - d_o - delta_d_a) ** 2 + (d_b - d_o - delta_d_b) ** 2
-
-    def jacobian(point: np.ndarray) -> np.ndarray:
-        x, y = point
-        d_a = np.sqrt((x - sensor_a[0]) ** 2 + (y - sensor_a[1]) ** 2)
-        d_b = np.sqrt((x - sensor_b[0]) ** 2 + (y - sensor_b[1]) ** 2)
-        d_o = np.sqrt(
-            (x - sensor_origin[0]) ** 2 + (y - sensor_origin[1]) ** 2
-        )
-
-        dx = 2 * (
-            (d_a - d_o - delta_d_a)
-            * ((x - sensor_a[0]) / d_a - (x - sensor_origin[0]) / d_o)
-            + (d_b - d_o - delta_d_b)
-            * ((x - sensor_b[0]) / d_b - (x - sensor_origin[0]) / d_o)
-        )
-        dy = 2 * (
-            (d_a - d_o - delta_d_a)
-            * ((y - sensor_a[1]) / d_a - (y - sensor_origin[1]) / d_o)
-            + (d_b - d_o - delta_d_b)
-            * ((y - sensor_b[1]) / d_b - (y - sensor_origin[1]) / d_o)
-        )
-
-        return np.array([dx, dy])
-
-    method = "L-BFGS-B"
-    result = minimize(
-        error_function, initial_guess, jac=jacobian, method=method
-    )
-
-    if result.success:
-        return tuple(result.x)
-    else:
-        raise Exception("Optimization failed.")
-
-
 class Multilaterate:
     def __init__(
         self,
@@ -478,9 +423,7 @@ class Multilaterate:
         # Pre-allocating results array - possibly useless optimization
         self.res = np.zeros_like(self.lag_maps[0][1])
 
-    def locate_analytical_fsolve(
-        self, lags: list[int], i: int
-    ) -> tuple[float, float]:
+    def locate(self, lags: list[int], i: int) -> tuple[float, float]:
         js = [(i - 1) % len(self.sensor_locs), (i + 1) % len(self.sensor_locs)]
         sensor_a = self.sensor_locs[js[0]]
         sensor_b = self.sensor_locs[js[1]]
@@ -512,42 +455,7 @@ class Multilaterate:
 
         return cartesian_to_polar(x, y, self.radius)
 
-    def locate_analytical(
-        self, lags: list[int], i: int
-    ) -> tuple[float, float]:
-        js = [(i - 1) % len(self.sensor_locs), (i + 1) % len(self.sensor_locs)]
-        sensor_a = self.sensor_locs[js[0]]
-        sensor_b = self.sensor_locs[js[1]]
-        sensor_origin = self.sensor_locs[i]
-
-        c = speed_of_sound(100 * self.scale, medium=self.medium)
-
-        d_a1 = lags[0] * c / self.sr
-        d_b1 = lags[1] * c / self.sr
-
-        # Use trilateration to find most likely strike point
-        # Equations are (x - x_a)^2 + (y - y_a)^2 = d_a1^2 and similar for d_b1
-
-        weight_a = abs(d_a1) / (self.radius)
-        weight_b = abs(d_b1) / (self.radius)
-        weight_o = abs(d_a1 + d_b1) / (2 * self.radius)
-
-        initial_guess = np.array(
-            [
-                sensor_a[0] * weight_a
-                + sensor_b[0] * weight_b
-                + sensor_origin[0] * weight_o,
-                sensor_a[1] * weight_a
-                + sensor_b[1] * weight_b
-                + sensor_origin[1] * weight_o,
-            ]
-        )
-        x, y = solve_trilateration(
-            sensor_a, sensor_b, sensor_origin, d_a1, d_b1, initial_guess
-        )
-        return cartesian_to_polar(x, y, self.radius)
-
-    def locate(
+    def locate_cc(
         self,
         x: np.ndarray,
         onset_idx: int,
@@ -591,73 +499,6 @@ class Multilaterate:
         coord = np.unravel_index(np.argmax(self.res), self.res.shape)
         x = coord[1] - (self.res.shape[1] - 1) / 2
         y = (self.res.shape[0] - 1) / 2 - coord[0]
-        return cartesian_to_polar(x, y, self.radius)
-
-    def locate_given_lags(self, lags: list[int], i: int, tol: int = 2):
-        """Locate where an onset was generated given lags between sensors
-        computed elsewhere.
-
-        :param lags: lags between sensor closest to onset (should be the sensor
-            on whose data the onset was first detected) and the two closest
-            sensors, left-to-right.  For example, if the 'north' sensor
-            triggers an onset, this should contain a list of lags for the
-            'east' and 'west' sensors, in that order
-        :param i: index (in [0, C)) of sensor where the onset was detected
-                  first.  This should be the sensor closest to the onset
-                  location.
-        :param tol: grid tolerance - when potential matches in lateration are
-            computed, allows each match to be off by this many locations.
-            Default of 2 means that for millimeter resolution, a 5mm region
-            around the potential onset locations are considered.  Higher
-            tolerance
-        """
-        self.res[:] = 0
-        for j, lag in zip(self.lag_maps[i], lags):
-            self.res += (self.lag_maps[i][j] < lag + tol) & (
-                self.lag_maps[i][j] > lag - tol
-            )
-        # Convert x/y coordinate to polar coordinate
-        coord = np.unravel_index(np.argmax(self.res), self.res.shape)
-        x = coord[1] - (self.res.shape[1] - 1) / 2
-        y = (self.res.shape[0] - 1) / 2 - coord[0]
-        return cartesian_to_polar(x, y, self.radius)
-
-    def locate_given_lags_accurate(
-        self, lags: list[int], i: int, tol: int = 2
-    ):
-        """Locate where an onset was generated given lags between sensors
-        computed elsewhere.  Instead of taking the max, it indexes the centroid
-        of the blob that matches.  Returns None if no match, as opposed to [0,
-        0] for the other methods.
-
-        :param lags: lags between sensor closest to onset (should be the sensor
-            on whose data the onset was first detected) and the two closest
-            sensors, left-to-right.  For example, if the 'north' sensor
-            triggers an onset, this should contain a list of lags for the
-            'east' and 'west' sensors, in that order
-        :param i: index (in [0, C)) of sensor where the onset was detected
-                  first.  This should be the sensor closest to the onset
-                  location.
-        :param tol: grid tolerance - when potential matches in lateration are
-            computed, allows each match to be off by this many locations.
-            Default of 2 means that for millimeter resolution, a 5mm region
-            around the potential onset locations are considered.  Higher
-            tolerance
-        """
-        js = list(self.lag_maps[i].keys())
-        res = (
-            (self.lag_maps[i][js[0]] < (lags[0] + tol))
-            & (self.lag_maps[i][js[0]] > (lags[0] - tol))
-            & (self.lag_maps[i][js[1]] < (lags[1] + tol))
-            & (self.lag_maps[i][js[1]] > (lags[1] - tol))
-        )
-        row, col = np.where(res)
-        if len(row) == 0:
-            return None
-        # Had to swap them here, haven't taken time to check why
-        x, y = col.mean(), row.mean()
-        x -= (self.res.shape[1] - 1) / 2
-        y = (self.res.shape[0] - 1) / 2 - y
         return cartesian_to_polar(x, y, self.radius)
 
 
