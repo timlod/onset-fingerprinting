@@ -121,21 +121,45 @@ def solve_trilateration(
     """
     Solve the trilateration problem using fsolve.
     """
+    x_o, y_o = sensor_origin
+    x_a, y_a = sensor_a
+    x_b, y_b = sensor_b
 
     def equations(point: np.ndarray) -> np.ndarray:
         x, y = point
-        d_a = np.sqrt((x - sensor_a[0]) ** 2 + (y - sensor_a[1]) ** 2)
-        d_b = np.sqrt((x - sensor_b[0]) ** 2 + (y - sensor_b[1]) ** 2)
-        d_o = np.sqrt(
-            (x - sensor_origin[0]) ** 2 + (y - sensor_origin[1]) ** 2
-        )
+        d_a = np.sqrt((x - x_a) ** 2 + (y - y_a) ** 2)
+        d_b = np.sqrt((x - x_b) ** 2 + (y - y_b) ** 2)
+        d_o = np.sqrt((x - x_o) ** 2 + (y - y_o) ** 2)
 
         eq1 = d_a - d_o - delta_d_a
         eq2 = d_b - d_o - delta_d_b
 
-        return np.array([eq1, eq2])
+        return eq1, eq2
 
-    root, info, ier, msg = fsolve(equations, initial_guess, full_output=True)
+    def jacobian(point: np.ndarray) -> np.ndarray:
+        x, y = point
+        J00 = (x - x_a) / np.sqrt((x - x_a) ** 2 + (y - y_a) ** 2) - (
+            x - x_o
+        ) / np.sqrt((x - x_o) ** 2 + (y - y_o) ** 2)
+        J01 = (y - y_a) / np.sqrt((x - x_a) ** 2 + (y - y_a) ** 2) - (
+            y - y_o
+        ) / np.sqrt((x - x_o) ** 2 + (y - y_o) ** 2)
+        J10 = (x - x_b) / np.sqrt((x - x_b) ** 2 + (y - y_b) ** 2) - (
+            x - x_o
+        ) / np.sqrt((x - x_o) ** 2 + (y - y_o) ** 2)
+        J11 = (y - y_b) / np.sqrt((x - x_b) ** 2 + (y - y_b) ** 2) - (
+            y - y_o
+        ) / np.sqrt((x - x_o) ** 2 + (y - y_o) ** 2)
+        return [[J00, J01], [J10, J11]]
+
+    root, info, ier, msg = fsolve(
+        equations,
+        initial_guess,
+        full_output=True,
+        xtol=0.01,
+        maxfev=20,
+        fprime=jacobian,
+    )
 
     if ier == 1:
         return tuple(root)
