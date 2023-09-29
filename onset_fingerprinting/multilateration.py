@@ -265,7 +265,7 @@ class Multilaterate:
                     d=drum_diameter,
                     sr=sr,
                     scale=1,
-                    medium="drumhead",
+                    medium=self.medium,
                     # 2cm tolerance around edge of drum
                     tol=2,
                 )
@@ -566,8 +566,7 @@ def lag_map_2d(
     """
     # This will give us a diameter to use which we can sample at millimeter
     # precision
-    n = int(np.round(d, 1) * scale)
-    r = n // 2
+    r = int(np.round(d * scale / 2))
     i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
     circular_mask = i**2 + j**2 > ((r + tol * scale) ** 2)
 
