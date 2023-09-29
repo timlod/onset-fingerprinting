@@ -34,15 +34,22 @@ def speed_of_sound(
         return scale * C_drumhead
 
 
-def polar_to_cartesian(r: float, theta: float):
+def polar_to_cartesian(
+    r: float, theta: float, theta_start_deg=90, theta_direction="cw"
+):
     """Convert 2D polar coordinates to cartesian coordinates.
 
     :param r: radius
     :param theta: angle in degrees
     """
-    theta_radians = math.radians(theta) - np.pi / 2
-    x = r * math.cos(theta_radians)
-    y = r * math.sin(theta_radians)
+    theta_radians = np.radians(theta)
+    if theta_direction == "ccw":
+        theta_radians += np.radians(theta_start_deg)
+    else:
+        theta_radians = np.radians(theta_start_deg) - theta_radians
+
+    x = r * np.cos(theta_radians)
+    y = r * np.sin(theta_radians)
     return x, y
 
 
@@ -66,19 +73,53 @@ def cartesian_to_polar(x: float, y: float, r: float = None):
     return r, theta_radians * 180 / np.pi
 
 
-def spherical_to_cartesian(r: float, theta: float, phi: float):
-    """Convert 3D spherical/polar coordinates to cartesian coordinates
+def spherical_to_cartesian(
+    r: float,
+    theta: float,
+    phi: float,
+    theta_start_deg: float = 90,
+    phi_start_deg: float = 90,
+    theta_direction: str = "cw",
+    phi_direction: str = "ccw",
+) -> (float, float, float):
+    """Convert 3D spherical coordinates to Cartesian coordinates.
+
+    By default, x-y rotation moves clockwise and starts at y=1 (North); and x-z
+    rotation starts at x=0 moving counter-clockwise (up).  For example,
+    increasing theta and phi from 0 would start at [0, 1, 0], and move
+    clockwise in an upwards spiral.
 
     :param r: radius
-    :param theta: vertical angle (along z-axis) in degrees
-    :param phi: horizontal angle (along x-axis) in degrees
+    :param theta: angle in the x-y plane in degrees
+    :param phi: angle between the x-axis and the z-axis in degrees
+    :param theta_start_deg: starting angle in degrees for theta rotation,
+        relative to right-up x-y coordinate system
+    :param phi_start_deg: starting angle in degrees for phi rotation, measured
+        in right-up x-z coordinate system
+    :param theta_direction: rotation direction for theta ('cw' for clockwise,
+        'ccw' for counter-clockwise)
+    :param phi_direction: rotation direction for phi ('cw' for clockwise, 'ccw'
+        for counter-clockwise)
+
+    :return: Cartesian coordinates as (x, y, z)
     """
     theta_radians = np.radians(theta)
     phi_radians = np.radians(phi)
 
-    x = r * np.sin(theta_radians) * np.cos(phi_radians)
-    y = r * np.sin(theta_radians) * np.sin(phi_radians)
-    z = r * np.cos(theta_radians)
+    if theta_direction == "ccw":
+        theta_radians += np.radians(theta_start_deg)
+    else:
+        theta_radians = np.radians(theta_start_deg) - theta_radians
+
+    # This is a little confusing - the logic is reversed to rotate ccw around x
+    if phi_direction == "cw":
+        phi_radians += np.radians(phi_start_deg)
+    else:
+        phi_radians = np.radians(phi_start_deg) - phi_radians
+
+    x = r * np.sin(phi_radians) * np.cos(theta_radians)
+    y = r * np.sin(phi_radians) * np.sin(theta_radians)
+    z = r * np.cos(phi_radians)
 
     return x, y, z
 
