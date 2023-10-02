@@ -1,3 +1,4 @@
+from loopmate.circular_array import CircularArray
 import ctypes
 from pathlib import Path
 import numpy as np
@@ -174,6 +175,9 @@ class AmplitudeOnsetDetector:
         on_threshold: float = 19.0,
         off_threshold: float = 8.0,
         cooldown: int = 1323,
+        backtrack: bool = False,
+        backtrack_buffer_size: int = 80,
+        backtrack_smooth_size: int = 7,
         sr: int = 44100,
     ):
         """
@@ -229,6 +233,18 @@ class AmplitudeOnsetDetector:
         self.prev_values = np.zeros(n_signals)
         self.debounce_count = np.zeros(n_signals, dtype=int)
 
+        self.backtrack = backtrack
+        if backtrack:
+            assert (
+                block_size < backtrack_buffer_size
+            ), "backtrack_buffer_size should be at least block_size!"
+            self.buffer = CircularArray(
+                np.empty((backtrack_buffer_size, n_signals), dtype=np.float32)
+            )
+            self.smoother = np.ones(
+                (backtrack_smooth_size, 1), dtype=np.float32
+            )
+
     def __call__(self, x: np.ndarray) -> tuple[list[int], list[int]]:
         """
         Detect onsets for new samples.
@@ -250,6 +266,8 @@ class AmplitudeOnsetDetector:
         # Compute floor-clipped, rectified dB
         x = np.maximum(20 * np.log10(np.abs(x)), self.floor)
         relative_envelope = self.fast_slide(x) - self.slow_slide(x)
+        if self.backtrack:
+            self.buffer.write(relative_envelope)
 
         # Logic for detection
         crossed_on_threshold = (
@@ -279,4 +297,23 @@ class AmplitudeOnsetDetector:
         self.prev_values[:] = relative_envelope[-1, :]
 
         # Channels and deltas
-        return np.where(on)[0], on_indices[on]
+        channels, deltas = np.where(on)[0], on_indices[on]
+        if self.backtrack and len(channels) > 0:
+            deltas = self.backtrack_onsets(channels, deltas)
+        return channels, deltas, relative_envelope
+
+    def backtrack_onsets(self, channels, deltas):
+        # Do some smoothing to allow to 'roll over' plateaus
+        buffer = sig.convolve(self.buffer[-self.buffer.N :], self.smoother)
+        new_deltas = []
+        for channel, delta in zip(channels, deltas):
+            i = self.block_size - delta
+            prev = buffer[-i - 1, channel]
+            current = buffer[-i, channel]
+            while (i + 1 < self.buffer.N) and (current > prev):
+                delta -= 1
+                i += 1
+                current = prev
+                prev = buffer[-i - 1, channel]
+            new_deltas.append(delta)
+        return new_deltas
