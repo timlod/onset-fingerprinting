@@ -15,11 +15,16 @@ def polar_circle(polar_coords: list[tuple[float, float]]) -> None:
     y_circle = np.cos(theta)
     plt.plot(x_circle, y_circle, label="Unit Circle")
 
-    # Scatter polar coordinates
-    for r, angle in polar_coords:
-        x = r * np.sin(np.radians(angle))
-        y = r * np.cos(np.radians(angle))
-        plt.scatter(x, y)
+    x_values = np.zeros(len(polar_coords))
+    y_values = np.zeros(len(polar_coords))
+    for i, (r, angle) in enumerate(polar_coords):
+        x_values[i] = r * np.sin(np.radians(angle))
+        y_values[i] = r * np.cos(np.radians(angle))
+
+    # Scatter plot with colormap
+    plt.scatter(
+        x_values, y_values, c=range(len(polar_coords)), cmap="coolwarm"
+    )
 
     # Set aspect ratio and labels
     plt.axis("equal")
