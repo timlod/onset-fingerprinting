@@ -119,8 +119,7 @@ def plot_lags_2D(
     :param medium: the medium the sound travels through.  One of 'air' or
         'drumhead', the latter for optical/magnetic measurements
     """
-    n = int(np.round(d, 1) * 10)
-    r = n // 2
+    r = d * scale / 2
     mic_a = multilateration.polar_to_cartesian(mic_a[0] * r, mic_a[1])
     mic_b = multilateration.polar_to_cartesian(mic_b[0] * r, mic_b[1])
     lags = multilateration.lag_map_2d(mic_a, mic_b, d, sr, scale, medium)
