@@ -211,6 +211,84 @@ def solve_trilateration(
         return None
 
 
+def solve_trilateration_3d(
+    sensor_a: tuple[float, float, float],
+    sensor_b: tuple[float, float, float],
+    sensor_c: tuple[float, float, float],
+    delta_d_a: float,
+    delta_d_b: float,
+    delta_d_c: float,
+    initial_guess: np.ndarray,
+) -> tuple[float, float, float]:
+    """
+    Solve the trilateration problem using fsolve in 3D space.
+    """
+    x_a, y_a, z_a = sensor_a
+    x_b, y_b, z_b = sensor_b
+    x_c, y_c, z_c = sensor_c
+
+    def equations(point: np.ndarray) -> np.ndarray:
+        x, y, z = point
+        d_a = np.sqrt((x - x_a) ** 2 + (y - y_a) ** 2 + (z - z_a) ** 2)
+        d_b = np.sqrt((x - x_b) ** 2 + (y - y_b) ** 2 + (z - z_b) ** 2)
+        d_c = np.sqrt((x - x_c) ** 2 + (y - y_c) ** 2 + (z - z_c) ** 2)
+
+        eq1 = d_a - delta_d_a
+        eq2 = d_b - delta_d_b
+        eq3 = d_c - delta_d_c
+
+        return eq1, eq2, eq3
+
+    def jacobian(point: np.ndarray) -> np.ndarray:
+        x, y, z = point
+
+        J00 = (x - x_a) / np.sqrt(
+            (x - x_a) ** 2 + (y - y_a) ** 2 + (z - z_a) ** 2
+        )
+        J01 = (y - y_a) / np.sqrt(
+            (x - x_a) ** 2 + (y - y_a) ** 2 + (z - z_a) ** 2
+        )
+        J02 = (z - z_a) / np.sqrt(
+            (x - x_a) ** 2 + (y - y_a) ** 2 + (z - z_a) ** 2
+        )
+
+        J10 = (x - x_b) / np.sqrt(
+            (x - x_b) ** 2 + (y - y_b) ** 2 + (z - z_b) ** 2
+        )
+        J11 = (y - y_b) / np.sqrt(
+            (x - x_b) ** 2 + (y - y_b) ** 2 + (z - z_b) ** 2
+        )
+        J12 = (z - z_b) / np.sqrt(
+            (x - x_b) ** 2 + (y - y_b) ** 2 + (z - z_b) ** 2
+        )
+
+        J20 = (x - x_c) / np.sqrt(
+            (x - x_c) ** 2 + (y - y_c) ** 2 + (z - z_c) ** 2
+        )
+        J21 = (y - y_c) / np.sqrt(
+            (x - x_c) ** 2 + (y - y_c) ** 2 + (z - z_c) ** 2
+        )
+        J22 = (z - z_c) / np.sqrt(
+            (x - x_c) ** 2 + (y - y_c) ** 2 + (z - z_c) ** 2
+        )
+
+        return [[J00, J01, J02], [J10, J11, J12], [J20, J21, J22]]
+
+    root, info, ier, msg = fsolve(
+        equations,
+        initial_guess,
+        full_output=True,
+        xtol=0.01,
+        maxfev=20,
+        fprime=jacobian,
+    )
+
+    if ier == 1:
+        return tuple(root)
+    else:
+        return None
+
+
 class Multilaterate:
     def __init__(
         self,
