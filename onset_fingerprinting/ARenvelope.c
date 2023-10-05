@@ -3,7 +3,7 @@
 
 // gcc -shared -o ARenvelope.so -fPIC -Ofast ARenvelope.c
 
-void process(float *x, float *y, float attack, float release, int size,
+void ar_envelope(float *x, float *y, float attack, float release, int size,
              int num_samples) {
     int i, j, index, prev_index;
     float xi, yi;
@@ -21,6 +21,38 @@ void process(float *x, float *y, float attack, float release, int size,
                 y[index] = yi + release * (xi - yi);
             }
         }
+    }
+}
+
+void minmax_envelope(float *x, float *min_val, float *max_val, float alpha_min,
+            float alpha_max, float minmin, int n_samples, int n_channels) {
+    int i, j, index;
+    float xi, current_min, current_max, ialpha_min, ialpha_max;
+    ialpha_min = 1.0 - alpha_min;
+    ialpha_max = 1.0 - alpha_max;
+
+    for (j = 0; j < n_channels; ++j) {
+        current_min = min_val[j];
+        current_max = max_val[j];
+        for (i = 0; i < n_samples; ++i) {
+            index = i * n_channels + j;
+            xi = x[index];
+            if (xi < minmin) {
+                current_min = minmin;
+            } else if (xi < current_min) {
+                current_min = xi;
+            } else {
+                current_min = current_min * ialpha_min + xi * alpha_min;
+            }
+
+            if (xi > current_max) {
+                current_max = xi;
+            } else {
+                current_max = current_max * ialpha_max + xi * alpha_max;
+            }
+        }
+        min_val[j] = current_min;
+        max_val[j] = current_max;
     }
 }
 
