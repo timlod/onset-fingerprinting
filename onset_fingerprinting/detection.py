@@ -112,8 +112,10 @@ class AREnvelopeFollower:
         self.attack = np.float32(1 / attack)
         self.release = np.float32(1 / release)
         self.y = x0
-        self.c_ar_env = ctypes.CDLL(Path(__file__).parent / "ARenvelope.so")
-        self.c_ar_env.process.argtypes = [
+        self.c_ar_env = ctypes.CDLL(
+            Path(__file__).parent / "envelope_follower.so"
+        )
+        self.c_ar_env.ar_envelope.argtypes = [
             np.ctypeslib.ndpointer(
                 dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"
             ),
@@ -128,10 +130,64 @@ class AREnvelopeFollower:
         self.n, self.size = np.int32(x0.shape)
 
     def __call__(self, x):
-        self.c_ar_env.process(
+        self.c_ar_env.ar_envelope(
             x, self.y, self.attack, self.release, self.size, self.n
         )
         return self.y
+
+
+class MinMaxEnvelopeFollower:
+    """EMA min/max tracker for multi-channel signals.
+
+    This class leverages a C shared library for performance.
+
+    Install the shared DLL by compiling EMA_MinMaxTracker.c, for example:
+    gcc -shared -o EMA_MinMaxTracker.so -fPIC -Ofast EMA_MinMaxTracker.c
+    """
+
+    def __init__(
+        self, x0: np.ndarray, alpha_min=1e-5, alpha_max=1e-5, minmin=0.0
+    ):
+        self.alpha_min = np.float32(alpha_min)
+        self.alpha_max = np.float32(alpha_max)
+        self.minmin = np.float32(minmin)
+        self.min_val = np.float32(np.min(x0, axis=0))
+        self.max_val = np.float32(np.max(x0, axis=0))
+
+        self.c_tracker = ctypes.CDLL(
+            Path(__file__).parent / "envelope_follower.so"
+        )
+
+        self.c_tracker.minmax_envelope.argtypes = [
+            np.ctypeslib.ndpointer(
+                dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"
+            ),
+            np.ctypeslib.ndpointer(
+                dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"
+            ),
+            np.ctypeslib.ndpointer(
+                dtype=np.float32, ndim=1, flags="C_CONTIGUOUS"
+            ),
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.c_float,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
+        self.n_samples, self.n_channels = np.int32(x0.shape)
+
+    def __call__(self, x):
+        self.c_tracker.minmax_envelope(
+            x,
+            self.min_val,
+            self.max_val,
+            self.alpha_min,
+            self.alpha_max,
+            self.minmin,
+            self.n_samples,
+            self.n_channels,
+        )
+        return self.min_val, self.max_val
 
 
 class AmplitudeOnsetDetector:
