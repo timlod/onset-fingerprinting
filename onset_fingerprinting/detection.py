@@ -241,33 +241,10 @@ class AmplitudeOnsetDetector:
             self.buffer = CircularArray(
                 np.empty((backtrack_buffer_size, n_signals), dtype=np.float32)
             )
-            self.smoother = np.ones(
-                (backtrack_smooth_size, 1), dtype=np.float32
-            )
             self.b_alpha = np.float32(2 / (backtrack_smooth_size + 1))
             self.b_tol = np.float32(
                 (1 - self.b_alpha) ** backtrack_smooth_size
             )
-            self.c_backtrack = ctypes.CDLL(
-                Path(__file__).parent / "ARenvelope.so"
-            )
-            self.c_backtrack.backtrack_onsets.argtypes = [
-                np.ctypeslib.ndpointer(
-                    dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"
-                ),
-                np.ctypeslib.ndpointer(
-                    dtype=np.int64, ndim=1, flags="C_CONTIGUOUS"
-                ),
-                np.ctypeslib.ndpointer(
-                    dtype=np.int64, ndim=1, flags="C_CONTIGUOUS"
-                ),
-                ctypes.c_float,
-                ctypes.c_float,
-                ctypes.c_long,
-                ctypes.c_long,
-                ctypes.c_long,
-                ctypes.c_long,
-            ]
 
     def __call__(self, x: np.ndarray) -> tuple[list[int], list[int]]:
         """
@@ -327,24 +304,6 @@ class AmplitudeOnsetDetector:
         return channels, deltas, relative_envelope
 
     def backtrack_onsets(self, channels, deltas):
-        buffer = self.buffer[-self.buffer.N :]
-        # Do some smoothing to allow to 'roll over' plateaus
-        if len(self.smoother) > 1:
-            buffer = sig.convolve(buffer, self.smoother)
-        new_deltas = []
-        for channel, delta in zip(channels, deltas):
-            i = self.block_size - delta
-            prev = buffer[-i - 1, channel]
-            current = buffer[-i, channel]
-            while (i + 1 < self.buffer.N) and (current > prev):
-                delta -= 1
-                i += 1
-                current = prev
-                prev = buffer[-i - 1, channel]
-            new_deltas.append(delta)
-        return new_deltas
-
-    def backtrack_onsets_exp(self, channels, deltas):
         N = self.buffer.N
         buffer = self.buffer[-N:]
         alpha = self.b_alpha
@@ -370,18 +329,4 @@ class AmplitudeOnsetDetector:
                 prev_smoothed = alpha * prev + omba * current_smoothed
         return deltas
 
-    def backtrack_onsets_c(self, channels, deltas):
-        buffer = self.buffer[-self.buffer.N :]
-        self.c_backtrack.backtrack_onsets(
-            buffer,
-            channels,
-            deltas,
-            self.b_alpha,
-            self.b_tol,
-            self.buffer.N,
-            len(channels),
-            self.n_signals,
-            self.block_size,
-        )
-        return deltas
 
