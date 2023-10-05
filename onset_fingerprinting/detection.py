@@ -236,7 +236,7 @@ class AmplitudeOnsetDetector:
         self.backtrack = backtrack
         if backtrack:
             assert (
-                block_size < backtrack_buffer_size
+                block_size <= backtrack_buffer_size
             ), "backtrack_buffer_size should be at least block_size!"
             self.buffer = CircularArray(
                 np.empty((backtrack_buffer_size, n_signals), dtype=np.float32)
@@ -303,8 +303,10 @@ class AmplitudeOnsetDetector:
         return channels, deltas, relative_envelope
 
     def backtrack_onsets(self, channels, deltas):
+        buffer = self.buffer[-self.buffer.N :]
         # Do some smoothing to allow to 'roll over' plateaus
-        buffer = sig.convolve(self.buffer[-self.buffer.N :], self.smoother)
+        if len(self.smoother) > 1:
+            buffer = sig.convolve(buffer, self.smoother)
         new_deltas = []
         for channel, delta in zip(channels, deltas):
             i = self.block_size - delta
