@@ -244,6 +244,30 @@ class AmplitudeOnsetDetector:
             self.smoother = np.ones(
                 (backtrack_smooth_size, 1), dtype=np.float32
             )
+            self.b_alpha = np.float32(2 / (backtrack_smooth_size + 1))
+            self.b_tol = np.float32(
+                (1 - self.b_alpha) ** backtrack_smooth_size
+            )
+            self.c_backtrack = ctypes.CDLL(
+                Path(__file__).parent / "ARenvelope.so"
+            )
+            self.c_backtrack.backtrack_onsets.argtypes = [
+                np.ctypeslib.ndpointer(
+                    dtype=np.float32, ndim=2, flags="C_CONTIGUOUS"
+                ),
+                np.ctypeslib.ndpointer(
+                    dtype=np.int64, ndim=1, flags="C_CONTIGUOUS"
+                ),
+                np.ctypeslib.ndpointer(
+                    dtype=np.int64, ndim=1, flags="C_CONTIGUOUS"
+                ),
+                ctypes.c_float,
+                ctypes.c_float,
+                ctypes.c_long,
+                ctypes.c_long,
+                ctypes.c_long,
+                ctypes.c_long,
+            ]
 
     def __call__(self, x: np.ndarray) -> tuple[list[int], list[int]]:
         """
@@ -319,3 +343,45 @@ class AmplitudeOnsetDetector:
                 prev = buffer[-i - 1, channel]
             new_deltas.append(delta)
         return new_deltas
+
+    def backtrack_onsets_exp(self, channels, deltas):
+        N = self.buffer.N
+        buffer = self.buffer[-N:]
+        alpha = self.b_alpha
+        omba = np.float32(1 - self.b_alpha)
+        tol = self.b_tol
+
+        for j in range(len(channels)):
+            channel, delta = channels[j], deltas[j]
+            i = self.block_size - delta
+            current_smoothed = buffer[-i, channel]
+            i += 1
+            prev = buffer[-i, channel]
+            prev_smoothed = alpha * prev + omba * current_smoothed
+            while (
+                ((current_smoothed > prev_smoothed))
+                and (abs(prev_smoothed - prev) > tol)
+                and (i + 1 < N)
+            ):
+                deltas[j] -= 1
+                i += 1
+                current_smoothed = prev_smoothed
+                prev = buffer[-i, channel]
+                prev_smoothed = alpha * prev + omba * current_smoothed
+        return deltas
+
+    def backtrack_onsets_c(self, channels, deltas):
+        buffer = self.buffer[-self.buffer.N :]
+        self.c_backtrack.backtrack_onsets(
+            buffer,
+            channels,
+            deltas,
+            self.b_alpha,
+            self.b_tol,
+            self.buffer.N,
+            len(channels),
+            self.n_signals,
+            self.block_size,
+        )
+        return deltas
+
