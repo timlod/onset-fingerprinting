@@ -1,7 +1,7 @@
 #include <math.h>
 #include <stdio.h>
 
-// gcc -shared -o ARenvelope.so -fPIC -Ofast ARenvelope.c
+// gcc -shared -o envelope_follower.so -fPIC -Ofast envelope_follower.c
 
 void ar_envelope(float *x, float *y, float attack, float release, int size,
              int num_samples) {
