@@ -198,11 +198,17 @@ class AmplitudeOnsetDetector:
     Compares two (fast & slow) amplitude envelope followers to catch large
     relative amplitude spikes as onsets.
 
-    Mostly matches FluCoMa's AmpSlice object:
+    Originally based on FluCoMa's AmpSlice object:
     https://learn.flucoma.org/reference/ampslice/
 
-    Example usage::
+    Major changes are block-wise computation of multiple signals at once,
+    addition of backtracking (different to how it's done in FluCoMa's AmpGate
+    object), and thresholds relative to the min/max envelope of the relative
+    envelope as opposed to absolute dB thresholds defined on the relative
+    envelope.  The latter is done as different signals and gain settings would
+    lead to different thresholds required (for each signal/channel).
 
+    Example usage::
 
         block_size = 32
         od = AmplitudeOnsetDetector(4)
@@ -228,12 +234,11 @@ class AmplitudeOnsetDetector:
         hipass_freq: float = 2000.0,
         fast_ar: tuple[float, float] = (3.0, 383.0),
         slow_ar: tuple[float, float] = (2205.0, 2205.0),
-        on_threshold: float = 19.0,
-        off_threshold: float = 8.0,
+        on_threshold: float = 0.5,
+        off_threshold: float = 0.1,
         cooldown: int = 1323,
         backtrack: bool = False,
         backtrack_buffer_size: int = 80,
-        backtrack_smooth_size: int = 7,
         sr: int = 44100,
     ):
         """
@@ -253,16 +258,23 @@ class AmplitudeOnsetDetector:
             Detection speed is mostly controlled by how low the fast attack
             (fast_ar[0]) is, as this controls how quickly on_threshold can be
             reached
+
         :param slow_ar: tuple of attack/release values for slow envelope
             follower.  Uses the reciprocal (1/x) of these values as the
             exponential smoothing parameter for increases/decreases in
             amplitude
-        :param on_threshold: threshold in dB above which an onset is detected
-        :param off_threshold: threshold in dB below which the signal must fall
-            before another onset can be detected
+        :param on_threshold: threshold in [0, 1] above which an onset is
+            detected.  Uses the recent range of the relative envelope to
+            compute actual thresholds
+        :param off_threshold: threshold in [0, 1] below which the signal must
+            fall before another onset can be detected.  Uses the recent range
+            of the relative envelope to compute actual thresholds
         :param cooldown: after an onset has been detected, will wait at least
             this many samples before triggering another onset, regardless of
             on/off thresholds
+        :param backtrack: if True, backtracks each onset to the likely start
+        :param backtrack_buffer_size: size of the buffer to keep for
+            backtracking onsets. Should be at least equal to block_size
         :param sr: sample rate
         """
         self.n_signals = n_signals
@@ -284,6 +296,10 @@ class AmplitudeOnsetDetector:
         self.slow_slide = AREnvelopeFollower(
             np.full((block_size, n_signals), floor, dtype=np.float32), *slow_ar
         )
+        self.minmax_tracker = MinMaxEnvelopeFollower(
+            x0=np.array([[0, 20]] * n_signals).T,
+            alpha_min=1e-4,
+        )
 
         self.state = np.zeros(n_signals, dtype=bool)
         self.prev_values = np.zeros(n_signals)
@@ -297,9 +313,9 @@ class AmplitudeOnsetDetector:
             self.buffer = CircularArray(
                 np.empty((backtrack_buffer_size, n_signals), dtype=np.float32)
             )
-            self.b_alpha = np.float32(2 / (backtrack_smooth_size + 1))
+            self.b_alpha = np.float32(2 / (backtrack_buffer_size + 1))
             self.b_tol = np.float32(
-                (1 - self.b_alpha) ** backtrack_smooth_size
+                (1 - self.b_alpha) ** backtrack_buffer_size
             )
 
     def __call__(self, x: np.ndarray) -> tuple[list[int], list[int]]:
@@ -321,19 +337,21 @@ class AmplitudeOnsetDetector:
         if self.hp is not None:
             x = self.hp(x)
         # Compute floor-clipped, rectified dB
-        x = np.maximum(20 * np.log10(np.abs(x)), self.floor)
+        x = 20 * np.log10(np.abs(x + 1e-10))
         relative_envelope = self.fast_slide(x) - self.slow_slide(x)
         if self.backtrack:
             self.buffer.write(relative_envelope)
 
+        mi, ma = self.minmax_tracker(relative_envelope)
         # Logic for detection
+        on_threshold = (ma * self.on_threshold) + mi
         crossed_on_threshold = (
-            (relative_envelope > self.on_threshold)
+            (relative_envelope > on_threshold)
             & (~self.state)
             & (self.debounce_count < 1)
         )
-        crossed_on_threshold[0] &= self.prev_values < self.on_threshold
-        crossed_on_threshold[1:] &= relative_envelope[:-1] < self.on_threshold
+        crossed_on_threshold[0] &= self.prev_values < on_threshold
+        crossed_on_threshold[1:] &= relative_envelope[:-1] < on_threshold
 
         # Find the first index where the on_threshold is crossed & adjust for
         # first row
@@ -347,7 +365,9 @@ class AmplitudeOnsetDetector:
 
         # Update states for off_threshold crossing
         # only check for off_threshold after detection to turn off
-        crossed_off_threshold = relative_envelope < self.off_threshold
+        crossed_off_threshold = relative_envelope < (
+            (ma * self.off_threshold) + mi
+        )
 
         crossed_off_threshold[: on_indices.max(), :] = False
         self.state[np.any(crossed_off_threshold, axis=0)] = False
@@ -357,7 +377,7 @@ class AmplitudeOnsetDetector:
         channels, deltas = np.where(on)[0], on_indices[on]
         if self.backtrack and len(channels) > 0:
             deltas = self.backtrack_onsets(channels, deltas)
-        return channels, deltas, relative_envelope
+        return channels, deltas
 
     def backtrack_onsets(self, channels, deltas):
         N = self.buffer.N
