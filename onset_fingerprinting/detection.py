@@ -184,7 +184,7 @@ class MinMaxEnvelopeFollower:
             self.alpha_min,
             self.alpha_max,
             self.minmin,
-            self.n_samples,
+            len(x),
             self.n_channels,
         )
         return self.min_val, self.max_val
@@ -239,6 +239,7 @@ class AmplitudeOnsetDetector:
         cooldown: int = 1323,
         backtrack: bool = False,
         backtrack_buffer_size: int = 80,
+        backtrack_smooth_size: int = 5,
         sr: int = 44100,
     ):
         """
@@ -313,7 +314,7 @@ class AmplitudeOnsetDetector:
             self.buffer = CircularArray(
                 np.empty((backtrack_buffer_size, n_signals), dtype=np.float32)
             )
-            self.b_alpha = np.float32(2 / (backtrack_buffer_size + 1))
+            self.b_alpha = np.float32(2 / (backtrack_smooth_size + 1))
             self.b_tol = np.float32(
                 (1 - self.b_alpha) ** backtrack_buffer_size
             )
