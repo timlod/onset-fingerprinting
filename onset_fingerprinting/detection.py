@@ -406,4 +406,12 @@ class AmplitudeOnsetDetector:
                 prev_smoothed = alpha * prev + omba * current_smoothed
         return deltas
 
+    def init_minmax_tracker(self, x):
+        if self.hp is not None:
+            x = self.hp(x)
+        # Compute floor-clipped, rectified dB
+        x = 20 * np.log10(np.abs(x + 1e-10))
+        for i in range(0, len(x) // self.block_size):
+            xi = x[i * self.block_size : (i + 1) * self.block_size, :]
+            self.minmax_tracker(self.fast_slide(xi) - self.slow_slide(xi))
 
