@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.signal import find_peaks
+
 from onset_fingerprinting import detection
-import math
-from scipy.optimize import minimize, fsolve
+from scipy.optimize import fsolve
 
 TEMPERATURE = 20.0
 HUMIDITY = 50.0
