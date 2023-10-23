@@ -3,6 +3,71 @@ from onset_fingerprinting import multilateration
 import numpy as np
 
 
+def plot_3d_scene(
+    ball_radius: float,
+    disk_radius: float,
+    points: list[tuple[float, float, float]],
+    azim: float,
+    elev: float,
+    labels: list[str] = None,
+    label: bool = False,
+) -> None:
+    """
+    Plot the upper half of a 3D ball as the area of interest around a drum,
+    with a filled white disk of given radius at z=0 as the drumhead of
+    interest. Overlays points representing sensor or sound sources.
+
+    :param ball_radius: The radius of the 3D ball.
+    :param disk_radius: The radius of the disk at z=0.
+    :param points: List of tuples, each containing x, y, z coordinates.
+    :param azim: Azimuthal angle for rotation.
+    :param elev: Elevation angle for rotation.
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+
+    if label and (labels is None):
+        labels = range(len(points))
+    # Plot wireframe for upper half of the ball
+    phi, theta = np.mgrid[0 : 2 * np.pi : 20j, 0 : np.pi / 2 : 10j]
+    x = ball_radius * np.sin(theta) * np.cos(phi)
+    y = ball_radius * np.sin(theta) * np.sin(phi)
+    z = ball_radius * np.cos(theta)
+    ax.plot_wireframe(x, y, z, color="gray", linewidth=0.5)
+
+    # Plot filled white disk at z=0
+    phi, r = np.mgrid[0 : 2 * np.pi : 20j, 0:disk_radius:10j]
+    x = r * np.cos(phi)
+    y = r * np.sin(phi)
+    z = np.zeros_like(r)
+    ax.plot_surface(x, y, z, color="white", shade=False)
+
+    # Plot points
+    x_values, y_values, z_values = zip(*points)
+    ax.scatter(x_values, y_values, z_values, c="red")
+    if label:
+        for i, (x, y, z) in enumerate(points):
+            ax.text(x, y, z, str(labels[i]))
+
+    # Rotate view
+    ax.view_init(elev=elev, azim=azim)
+    ax.xaxis.set_pane_color((0.97, 0.97, 0.97, 1.0))
+    ax.yaxis.set_pane_color((0.97, 0.97, 0.97, 1.0))
+    ax.zaxis.set_pane_color((0.9, 0.9, 0.9, 1.0))
+    ax.xaxis._axinfo["grid"]["color"] = (1, 1, 1, 1)
+    ax.yaxis._axinfo["grid"]["color"] = (1, 1, 1, 1)
+    ax.zaxis._axinfo["grid"]["color"] = (1, 1, 1, 1)
+    ax.set_xlim([-ball_radius, ball_radius])
+    ax.set_ylim([-ball_radius, ball_radius])
+    ax.set_zlim([0, ball_radius])
+
+    # Set aspect ratio and labels
+    ax.set_box_aspect([1, 1, 0.5])
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    ax.set_zlabel("Z-axis")
+
+
 def polar_circle(polar_coords: list[tuple[float, float]]) -> None:
     """
     Plot a unit circle and scatter a list of polar coordinates on it.
