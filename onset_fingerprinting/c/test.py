@@ -6,8 +6,9 @@ block_size = 64
 n = 512
 cc = online_cc.CrossCorrelation(n)
 
-a = np.empty(10000, dtype=np.float32)
-b = np.empty(10000, dtype=np.float32)
+n_samples = 100000
+a = np.empty(n_samples, dtype=np.float32)
+b = np.empty(n_samples, dtype=np.float32)
 
 
 t = time()
@@ -25,5 +26,5 @@ for i in range(n, len(a), block_size):
         mode="full",
     )
 
-# print("CC (np):", out)
 print(time() - t)
+# print("CC (np):", out)
