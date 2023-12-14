@@ -1,12 +1,11 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools", "setuptools-scm", "numpy"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "onset-fingerprinting"
 description = "Fingerprinting/classification of audio onsets"
 version = "0.0"
-readme = "README.org"
 requires-python = ">=3.10"
 keywords = ["audio", "onset"]
 authors = [
@@ -18,7 +17,7 @@ classifiers = [
 ]
 dependencies = [
 # For fast continuous wavelet transforms
-"fctw",
+# "fctw",
 # For MIR
 "librosa",
 # For plotting
