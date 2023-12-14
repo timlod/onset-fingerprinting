@@ -106,10 +106,11 @@ void update_cross_correlation_data(CrossCorrelationData *ccd, float *a,
 void calculate_cross_correlation(const CrossCorrelationData *ccd,
                                  float *cross_corr_result) {
     int total_rows = 2 * ccd->n - 1;
+    CircularBuffer *current_row;
 
     for (int lag = 0; lag < total_rows; ++lag) {
         cross_corr_result[lag] = 0;
-        CircularBuffer *current_row = &ccd->pyramid[lag];
+        current_row = &ccd->pyramid[lag];
 
         for (int i = 0; i < current_row->size; ++i) {
             cross_corr_result[lag] += current_row->data[i];
