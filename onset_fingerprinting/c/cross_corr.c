@@ -9,17 +9,23 @@
 
 typedef struct {
     PyObject_HEAD int n;
+    int block_size;
     CircularArray buffer1;
     CircularArray buffer2;
     CircularArray *pyramid;
     float *pyramid_data;
     PyObject *output_array;
+    // intermediate storage
+    int total_updates;
+    int row_updates;
+    int *circular_index;
+    int *data_index;
 } CrossCorrelation;
 
 static PyTypeObject CrossCorrelationType;
 
-void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
-                                   PyArrayObject *b, int block_size) {
+void update_cross_correlation_data_org(CrossCorrelation *self, PyArrayObject *a,
+                                       PyArrayObject *b, int block_size) {
     // CALLGRIND_START_INSTRUMENTATION;
 
     // There are 2 strategies here:
@@ -52,9 +58,9 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
         for (i = min(offset, block_size - 1); i >= 0; --i) {
             data = index_circular_array(&self->buffer1, offset - i) *
                    data2[block_size - i - 1];
-            // updates[j++] = data;
-            write_circular_array(current_row, data);
-            //  manually inlined
+            updates[j++] = data;
+            // write_circular_array(current_row, data);
+            //   manually inlined
             /* current_row->data[current_row->start++] = data; */
             /* if (current_row->start == current_row->size) { */
             /*     current_row->start = 0; */
@@ -75,34 +81,86 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
             data = index_circular_array(&self->buffer2,
                                         n - block_size + idx - lag) *
                    data1[idx];
-            // updates[j++] = data;
-            write_circular_array(current_row, data);
-            // manually inlined
+            updates[j++] = data;
+            // write_circular_array(current_row, data);
+            //  manually inlined
             /* current_row->data[current_row->start++] = data; */
             /* if (current_row->start == current_row->size) { */
             /*     current_row->start = 0; */
             /* } */
         }
     }
+
     // Strategy 2: batch updates
-    /* row_index = 0; */
-    /* int start, len; */
-    /* float *sub_array; */
-    /* start = 0; */
-    /* for (offset = 0; offset < self->n - 1; ++offset) { */
-    /*     current_row = &self->pyramid[row_index++]; */
-    /*     len = min(offset + 1, block_size); */
-    /*     sub_array = &updates[start]; */
-    /*     start += len; */
-    /*     write_circular_array_multi(current_row, sub_array, len); */
-    /* } */
-    /* for (offset = n; offset >= 1; --offset) { */
-    /*     current_row = &self->pyramid[row_index++]; */
-    /*     len = min(offset, block_size); */
-    /*     sub_array = &updates[start]; */
-    /*     start += len; */
-    /*     write_circular_array_multi(current_row, sub_array, len); */
-    /* } */
+    row_index = 0;
+    int start, len;
+    float *sub_array;
+    start = 0;
+    for (offset = 0; offset < self->n - 1; ++offset) {
+        current_row = &self->pyramid[row_index++];
+        len = min(offset + 1, block_size);
+        sub_array = &updates[start];
+        start += len;
+        write_circular_array_multi(current_row, sub_array, len);
+    }
+    for (offset = n; offset >= 1; --offset) {
+        current_row = &self->pyramid[row_index++];
+        len = min(offset, block_size);
+        sub_array = &updates[start];
+        start += len;
+        write_circular_array_multi(current_row, sub_array, len);
+    }
+    // CALLGRIND_STOP_INSTRUMENTATION;
+}
+
+void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
+                                   PyArrayObject *b) {
+    // CALLGRIND_START_INSTRUMENTATION;
+
+    // There are 2 strategies here:
+    // 1: Write individual values to circular arrays immediately
+    // 2: Create an intermediate array on the stack just for row updates, and
+    // then batch update those with memcpy after the fact
+    int block_size, i, row_index, total_updates, start;
+    // block_size^2 would be going up and down all the way, then we have to
+    // fill in with rows of block_size on both ends
+    total_updates = self->total_updates;
+    block_size = self->block_size;
+    // printf("Making %d updates!\n", total_updates);
+    float updates[total_updates];
+    CircularArray *current_row;
+    float *data1 = (float *)PyArray_DATA(a);
+    float *data2 = (float *)PyArray_DATA(b);
+
+    // Update buffers with new data
+    write_circular_array_multi(&self->buffer1, data1, block_size);
+    write_circular_array_multi(&self->buffer2, data2, block_size);
+
+    // Compute new multiplications of first half of data
+
+    // we could use the fact that n is a multiple of block_size to make the
+    // circularity deterministic
+    for (i = 0; i < total_updates / 2 - 1; ++i) {
+        updates[i] =
+            index_circular_array(&self->buffer1, self->circular_index[i]) *
+            data2[self->data_index[i]];
+    }
+    for (i = i; i < total_updates; ++i) {
+        updates[i] =
+            index_circular_array(&self->buffer2, self->circular_index[i]) *
+            data1[self->data_index[i]];
+    }
+
+    // The first and last elements can be summed directly as they're totally
+    // recomputed at every iteration - always save the last blocks sum so we
+    // can subtract it in the next iteration to not have to resum everything
+    row_index = 0;
+    start = block_size * (block_size + 1) / 2;
+    for (i = 0; i < self->row_updates; ++i) {
+        current_row = &self->pyramid[row_index++];
+        write_circular_array_multi(current_row, &updates[start], block_size);
+        start += block_size;
+    }
     // CALLGRIND_STOP_INSTRUMENTATION;
 }
 
@@ -232,10 +290,9 @@ void calculate_cross_correlation(const CrossCorrelation *self) {
 static PyObject *CrossCorrelation_update(CrossCorrelation *self,
                                          PyObject *args) {
     PyObject *array1_obj, *array2_obj;
-    int blocksize;
 
     // Parse the blocksize and two 1D float arrays
-    if (!PyArg_ParseTuple(args, "iO!O!", &blocksize, &PyArray_Type, &array1_obj,
+    if (!PyArg_ParseTuple(args, "O!O!", &PyArray_Type, &array1_obj,
                           &PyArray_Type, &array2_obj)) {
         return NULL;
     }
@@ -243,7 +300,7 @@ static PyObject *CrossCorrelation_update(CrossCorrelation *self,
     PyArrayObject *a = (PyArrayObject *)array1_obj;
     PyArrayObject *b = (PyArrayObject *)array2_obj;
 
-    update_cross_correlation_data(self, a, b, blocksize);
+    update_cross_correlation_data(self, a, b);
     // Not doing currently as the update itself is already bottlenecking
     // calculate_cross_correlation(self);
     Py_INCREF(self->output_array);
