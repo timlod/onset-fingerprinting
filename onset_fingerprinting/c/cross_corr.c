@@ -117,11 +117,13 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
 static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
                                  PyObject *kwds) {
 
-    if (!PyArg_ParseTuple(args, "i", &self->n)) {
+    if (!PyArg_ParseTuple(args, "ii", &self->n, &self->block_size)) {
         return -1; // Return -1 to indicate error during initialization
     }
-    int n, i, total_rows, row_size, total_size, current_offset;
+    int n, block_size, i, j, offset, lag, total_rows, total_updates, row_size,
+        row_updates, updates_count, idx, total_size, current_offset;
     n = self->n;
+    block_size = self->block_size;
 
     init_circular_array(&self->buffer1, n);
     init_circular_array(&self->buffer2, n);
@@ -138,7 +140,7 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
 
     // Calculate total number of floats we need to store
     total_size = 0;
-    for (int i = 0; i < total_rows; ++i) {
+    for (i = 0; i < total_rows; ++i) {
         total_size += (i < n) ? (i + 1) : (2 * n - 1 - i);
     }
 
@@ -154,11 +156,43 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
         self->pyramid[i].data = &self->pyramid_data[current_offset];
         self->pyramid[i].size = row_size;
         self->pyramid[i].start = 0;
+        self->pyramid[i].mark = row_size - 1;
         current_offset += row_size;
     }
 
     npy_intp dim[1] = {2 * n - 1};
     self->output_array = PyArray_ZEROS(1, dim, NPY_FLOAT, 0);
+
+    // One dry-run to pre-compute all indices:
+    total_updates =
+        block_size * block_size + (2 * block_size * (n - block_size));
+    self->total_updates = total_updates;
+    row_updates = (total_rows - 2 * block_size);
+    self->row_updates = row_updates;
+
+    self->circular_index = (int *)malloc(total_updates * sizeof(int));
+    self->data_index = (int *)malloc(total_updates * sizeof(int));
+
+    // Compute new multiplications of first half of data
+    j = 0;
+    for (offset = 0; offset < n - 1; ++offset) {
+        for (i = min(offset, block_size - 1); i >= 0; --i) {
+            self->circular_index[j] = offset - i;
+            self->data_index[j++] = block_size - i - 1;
+        }
+    }
+    // Continuing from the last update of the first n-1 rows
+    for (lag = 0; lag < n; ++lag) {
+        // Determine the number of elements to update based on lag and
+        // block_size
+        updates_count = lag <= n - block_size ? block_size : n - lag;
+
+        for (i = 0; i < updates_count; ++i) {
+            idx = i - updates_count + block_size;
+            self->circular_index[j] = n - block_size + idx - lag;
+            self->data_index[j++] = idx;
+        }
+    }
 
     return 0;
 }
@@ -166,6 +200,9 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
 static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     printf("Deallocating CrossCorrelation\n");
     free(self->pyramid_data);
+    free(self->circular_index);
+    free(self->data_index);
+    free(self->pyramid);
     /* for (int i = 0; i < 2 * self->n - 1; ++i) { */
     /*     free_circular_array(&self->pyramid[i]); */
     /* } */
