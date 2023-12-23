@@ -70,14 +70,14 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
             data1[self->data_index[i]];
     }
 
-    k = 0;    
+    k = 0;
     for (i = 0; i < block_size; ++i) {
         sum = 0;
         for (j = 0; j < i + 1; ++j) {
             sum += updates[k++];
         }
         result_data[i] = sum;
-    }    
+    }
     // for center blocks
     for (i = 0; i < self->row_updates; ++i) {
         sum = 0;
@@ -97,7 +97,7 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
     }
     for (i = block_size + self->row_updates; i < total_rows; ++i) {
         sum = 0;
-        for (j = 0; j < 2*block_size - i + self->row_updates; ++j) {
+        for (j = 0; j < 2 * block_size - i + self->row_updates; ++j) {
             sum += updates[k++];
         }
         result_data[i] = sum;
@@ -200,7 +200,8 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     for (i = block_size; i < total_rows - block_size; ++i) {
         int row_size = (i < n) ? (i + 1) : (2 * n - 1 - i);
         self->offsets[i - block_size] = block_size - (row_size % block_size);
-        init_circular_array(&self->block_sums[i - block_size], row_size / block_size);
+        init_circular_array(&self->block_sums[i - block_size],
+                            row_size / block_size);
     }
     printf("end init\n");
     return 0;
