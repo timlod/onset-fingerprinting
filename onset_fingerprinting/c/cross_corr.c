@@ -3,7 +3,6 @@
 #include <numpy/arrayobject.h>
 #include <stddef.h>
 #include <stdlib.h>
-#include <valgrind/callgrind.h>
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
@@ -15,131 +14,51 @@ typedef struct {
     CircularArray *pyramid;
     float *pyramid_data;
     PyObject *output_array;
+    float *result_data;
     // intermediate storage
     int total_updates;
     int row_updates;
     int *circular_index;
     int *data_index;
+    // Last partial sums
+    float *last_sum;
+    int *offsets;
+    // circular sum of blocks
+    CircularArray *block_sums;
 } CrossCorrelation;
 
 static PyTypeObject CrossCorrelationType;
 
-void update_cross_correlation_data_org(CrossCorrelation *self, PyArrayObject *a,
-                                       PyArrayObject *b, int block_size) {
-    // CALLGRIND_START_INSTRUMENTATION;
-
-    // There are 2 strategies here:
-    // 1: Write individual values to circular arrays immediately
-    // 2: Create an intermediate array on the stack just for row updates, and
-    // then batch update those with memcpy after the fact
-
-    int n, i, j, lag, offset, row_index, total_updates, updates_count, idx;
-    float data;
-    n = self->n;
-    // block_size^2 would be going up and down all the way, then we have to
-    // fill in with rows of block_size on both ends
-    total_updates =
-        block_size * block_size + (2 * block_size * (n - block_size));
-    // printf("Making %d updates!\n", total_updates);
-    float updates[total_updates];
-    CircularArray *current_row;
-    float *data1 = (float *)PyArray_DATA(a);
-    float *data2 = (float *)PyArray_DATA(b);
-
-    // Update buffers with new data
-    write_circular_array_multi(&self->buffer1, data1, block_size);
-    write_circular_array_multi(&self->buffer2, data2, block_size);
-
-    // Compute new multiplications of first half of data
-    j = 0;
-    row_index = 0;
-    for (offset = 0; offset < n - 1; ++offset) {
-        current_row = &self->pyramid[row_index++];
-        for (i = min(offset, block_size - 1); i >= 0; --i) {
-            data = index_circular_array(&self->buffer1, offset - i) *
-                   data2[block_size - i - 1];
-            updates[j++] = data;
-            // write_circular_array(current_row, data);
-            //   manually inlined
-            /* current_row->data[current_row->start++] = data; */
-            /* if (current_row->start == current_row->size) { */
-            /*     current_row->start = 0; */
-            /* } */
-        }
-    }
-
-    // Continuing from the last update of the first n-1 rows
-    for (lag = 0; lag < n; ++lag) {
-        current_row = &self->pyramid[row_index++];
-
-        // Determine the number of elements to update based on lag and
-        // block_size
-        updates_count = lag <= n - block_size ? block_size : n - lag;
-
-        for (i = 0; i < updates_count; ++i) {
-            idx = i - updates_count + block_size;
-            data = index_circular_array(&self->buffer2,
-                                        n - block_size + idx - lag) *
-                   data1[idx];
-            updates[j++] = data;
-            // write_circular_array(current_row, data);
-            //  manually inlined
-            /* current_row->data[current_row->start++] = data; */
-            /* if (current_row->start == current_row->size) { */
-            /*     current_row->start = 0; */
-            /* } */
-        }
-    }
-
-    // Strategy 2: batch updates
-    row_index = 0;
-    int start, len;
-    float *sub_array;
-    start = 0;
-    for (offset = 0; offset < self->n - 1; ++offset) {
-        current_row = &self->pyramid[row_index++];
-        len = min(offset + 1, block_size);
-        sub_array = &updates[start];
-        start += len;
-        write_circular_array_multi(current_row, sub_array, len);
-    }
-    for (offset = n; offset >= 1; --offset) {
-        current_row = &self->pyramid[row_index++];
-        len = min(offset, block_size);
-        sub_array = &updates[start];
-        start += len;
-        write_circular_array_multi(current_row, sub_array, len);
-    }
-    // CALLGRIND_STOP_INSTRUMENTATION;
-}
+/**
+TODO: add normalizing and, if adding normalizing, get min_samples required to
+have a result (will introduce latency)
+**/
 
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
-    // CALLGRIND_START_INSTRUMENTATION;
-
     // There are 2 strategies here:
     // 1: Write individual values to circular arrays immediately
     // 2: Create an intermediate array on the stack just for row updates, and
     // then batch update those with memcpy after the fact
-    int block_size, i, row_index, total_updates, start;
+    int block_size, i, j, k, total_updates, total_rows;
+
     // block_size^2 would be going up and down all the way, then we have to
     // fill in with rows of block_size on both ends
     total_updates = self->total_updates;
     block_size = self->block_size;
-    // printf("Making %d updates!\n", total_updates);
+    total_rows = 2 * self->n - 1;
+
     float updates[total_updates];
+    float sum, sum2;
     CircularArray *current_row;
     float *data1 = (float *)PyArray_DATA(a);
     float *data2 = (float *)PyArray_DATA(b);
+    float *result_data = self->result_data;
 
     // Update buffers with new data
     write_circular_array_multi(&self->buffer1, data1, block_size);
     write_circular_array_multi(&self->buffer2, data2, block_size);
 
-    // Compute new multiplications of first half of data
-
-    // we could use the fact that n is a multiple of block_size to make the
-    // circularity deterministic
     for (i = 0; i < total_updates / 2 - 1; ++i) {
         updates[i] =
             index_circular_array(&self->buffer1, self->circular_index[i]) *
@@ -151,17 +70,38 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
             data1[self->data_index[i]];
     }
 
-    // The first and last elements can be summed directly as they're totally
-    // recomputed at every iteration - always save the last blocks sum so we
-    // can subtract it in the next iteration to not have to resum everything
-    row_index = 0;
-    start = block_size * (block_size + 1) / 2;
+    k = 0;    
+    for (i = 0; i < block_size; ++i) {
+        sum = 0;
+        for (j = 0; j < i + 1; ++j) {
+            sum += updates[k++];
+        }
+        result_data[i] = sum;
+    }    
+    // for center blocks
     for (i = 0; i < self->row_updates; ++i) {
-        current_row = &self->pyramid[row_index++];
-        write_circular_array_multi(current_row, &updates[start], block_size);
-        start += block_size;
+        sum = 0;
+        sum2 = 0;
+        current_row = &self->block_sums[i];
+        for (j = 0; j < self->offsets[i]; ++j) {
+            sum += updates[k++];
+        }
+        for (j = j; j < block_size; ++j) {
+            sum2 += updates[k++];
+        }
+        result_data[block_size + i] -=
+            current_row->data[current_row->start] - (sum + sum2);
+        write_circular_array(current_row, self->last_sum[i] + sum);
+        // Push new sum to block sums
+        self->last_sum[i] = sum2;
     }
-    // CALLGRIND_STOP_INSTRUMENTATION;
+    for (i = block_size + self->row_updates; i < total_rows; ++i) {
+        sum = 0;
+        for (j = 0; j < 2*block_size - i + self->row_updates; ++j) {
+            sum += updates[k++];
+        }
+        result_data[i] = sum;
+    }
 }
 
 // Strategy: Create 2 contiguous arrays - one for small buffers (<block_size)
@@ -220,6 +160,8 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
 
     npy_intp dim[1] = {2 * n - 1};
     self->output_array = PyArray_ZEROS(1, dim, NPY_FLOAT, 0);
+    self->result_data =
+        (float *)PyArray_DATA((PyArrayObject *)self->output_array);
 
     // One dry-run to pre-compute all indices:
     total_updates =
@@ -251,7 +193,16 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
             self->data_index[j++] = idx;
         }
     }
-
+    self->block_sums =
+        (CircularArray *)malloc(row_updates * sizeof(CircularArray));
+    self->offsets = (int *)malloc(row_updates * sizeof(int));
+    self->last_sum = (float *)calloc(row_updates, sizeof(float));
+    for (i = block_size; i < total_rows - block_size; ++i) {
+        int row_size = (i < n) ? (i + 1) : (2 * n - 1 - i);
+        self->offsets[i - block_size] = block_size - (row_size % block_size);
+        init_circular_array(&self->block_sums[i - block_size], row_size / block_size);
+    }
+    printf("end init\n");
     return 0;
 }
 
@@ -261,9 +212,15 @@ static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     free(self->circular_index);
     free(self->data_index);
     free(self->pyramid);
+    free(self->last_sum);
+    free(self->offsets);
     /* for (int i = 0; i < 2 * self->n - 1; ++i) { */
     /*     free_circular_array(&self->pyramid[i]); */
     /* } */
+    for (int i = 0; i < self->row_updates; ++i) {
+        free_circular_array(&self->block_sums[i]);
+    }
+    free(self->block_sums);
     // Safe decrement
     Py_XDECREF(self->output_array);
     Py_TYPE(self)->tp_free((PyObject *)self);

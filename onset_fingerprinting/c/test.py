@@ -4,19 +4,18 @@ from time import time
 
 block_size = 64
 n = 512
-cc = online_cc.CrossCorrelation(n)
+cc = online_cc.CrossCorrelation(n, block_size)
 
-n_samples = 100000
+n_samples = 1000000
 a = np.empty(n_samples, dtype=np.float32)
 b = np.empty(n_samples, dtype=np.float32)
 
-
 t = time()
 for i in range(0, len(a), block_size):
-    res = cc.update(block_size, a[i : i + block_size], b[i : i + block_size])
+    res = cc.update(a[i : i + block_size], b[i : i + block_size])
 
 print(time() - t)
-# print("CC (mine):", res)
+print("CC (mine):", res)
 
 t = time()
 for i in range(n, len(a), block_size):
@@ -27,4 +26,4 @@ for i in range(n, len(a), block_size):
     )
 
 print(time() - t)
-# print("CC (np):", out)
+print("CC (np):", out)
