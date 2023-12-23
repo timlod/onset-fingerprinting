@@ -214,7 +214,7 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
         self->pyramid[i].data = &self->pyramid_data[current_offset];
         self->pyramid[i].size = row_size;
         self->pyramid[i].start = 0;
-        self->pyramid[i].mark = row_size - 1;
+        self->pyramid[i].sizem1 = row_size - 1;
         current_offset += row_size;
     }
 

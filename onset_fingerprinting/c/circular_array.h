@@ -10,6 +10,7 @@ typedef struct {
     float *data;
     int size;
     int start;
+    int sizem1;
 } CircularArray;
 
 
@@ -17,12 +18,13 @@ typedef struct {
  * Initialize a CircularArray of a given size.
  *
  * @param cb Pointer to the CircularArray to initialize.
- * @param size Size of the array to allocate.
+ * @param size Size of the array to allocate. Needs to be a power of 2.
  */
 inline void init_circular_array(CircularArray *cb, int size) {
     cb->data = (float *)calloc(size, sizeof(float));
     cb->size = size;
     cb->start = 0;
+    cb->sizem1 = size - 1;
 }
 
 inline void free_circular_array(CircularArray *cb) {
@@ -40,7 +42,8 @@ inline void free_circular_array(CircularArray *cb) {
  */
 inline void write_circular_array_multi(CircularArray *cb, float *new_data,
                             int block_size) {
-    int end = (cb->start + block_size) % cb->size;
+    // int end = (cb->start + block_size) % cb->size;
+    int end = (cb->start + block_size) & cb->sizem1;
     if (end < cb->start) {
         memcpy(cb->data + cb->start, new_data,
                (cb->size - cb->start) * sizeof(float));
@@ -61,9 +64,10 @@ sizeof(float));
  */
 inline void write_circular_array(CircularArray *cb, float new_data) {
     cb->data[cb->start++] = new_data;
-    if (cb->start == cb->size) {
-        cb->start = 0;
-    }
+    /* if (cb->start == cb->size) { */
+    /*     cb->start = 0; */
+    /* } */
+    cb->start &= cb->sizem1;
 }
 
 
@@ -76,13 +80,16 @@ inline void write_circular_array(CircularArray *cb, float new_data) {
  * @return The float value at the specified index.
  */
 inline float index_circular_array(const CircularArray *cb, int index) {
-    int adjusted_index;
-    // C handles modulo of negative numbers differently than Python, hence
-    // the if to handle the negative case correctly.
-    if (index < 0) {
-        adjusted_index = (cb->start + index + cb->size) % cb->size;
-    } else {
-        adjusted_index = (cb->start + index) % cb->size;
-    }
-    return cb->data[adjusted_index];
+    /* int adjusted_index; */
+    /* // C handles modulo of negative numbers differently than Python, hence */
+    /* // the if to handle the negative case correctly. */
+    /* if (index < 0) { */
+    /*     // adjusted_index = (cb->start + index + cb->size) % cb->size; */
+    /*     adjusted_index = (cb->start + index + cb->size) & cb->mark; */
+    /* } else { */
+    /*     // adjusted_index = (cb->start + index) % cb->size; */
+    /*     adjusted_index = (cb->start + index) & cb->mark; */
+    /* } */
+    /* return cb->data[adjusted_index]; */
+    return cb->data[(cb->start + index) & cb->sizem1];
 }
