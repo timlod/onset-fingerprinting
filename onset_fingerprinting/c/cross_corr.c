@@ -35,9 +35,6 @@ have a result (will introduce latency)
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
     int block_size, i, j, k, total_updates, total_rows;
-
-    // block_size^2 would be going up and down all the way, then we have to
-    // fill in with rows of block_size on both ends
     total_updates = self->total_updates;
     block_size = self->block_size;
     total_rows = 2 * self->n - 1;
@@ -113,7 +110,7 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
         return -1; // Return -1 to indicate error during initialization
     }
     int n, block_size, i, j, offset, lag, total_rows, total_updates, row_size,
-        row_updates, updates_count, idx, total_size, current_offset;
+        row_updates, updates_count, idx, total_size;
     n = self->n;
     block_size = self->block_size;
 
@@ -168,7 +165,7 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     self->offsets = (int *)malloc(row_updates * sizeof(int));
     self->last_sum = (float *)calloc(row_updates, sizeof(float));
     for (i = block_size; i < total_rows - block_size; ++i) {
-        int row_size = (i < n) ? (i + 1) : (2 * n - 1 - i);
+        row_size = (i < n) ? (i + 1) : (2 * n - 1 - i);
         self->offsets[i - block_size] = block_size - (row_size % block_size);
         init_circular_array(&self->block_sums[i - block_size],
                             row_size / block_size);
