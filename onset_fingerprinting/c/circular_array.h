@@ -67,6 +67,17 @@ inline void write_circular_array(CircularArray *cb, float new_data) {
 }
 
 /**
+ * Write a single value into the CircularArray (size is power of 2).
+ *
+ * @param cb Pointer to the CircularArray.
+ * @param new_data Float value to insert into the array.
+ */
+inline void write_circular_array_p2(CircularArray *cb, float new_data) {
+    cb->data[cb->start++] = new_data;
+    cb->start &= cb->sizem1;
+}
+
+/**
  * Retrieve a value from the CircularArray at a specified index.
  *
  * @param cb Pointer to the CircularArray.
@@ -88,5 +99,16 @@ inline float index_circular_array(const CircularArray *cb, int index) {
     int adjusted_index;
     adjusted_index = (cb->start + index) % cb->size;
     return cb->data[adjusted_index];
-    // return cb->data[(cb->start + index) & cb->sizem1];
+}
+
+/**
+ * Retrieve a value from the CircularArray at a specified index (size is power
+   of 2).
+ *
+ * @param cb Pointer to the CircularArray.
+ * @param index Index to retrieve the value from.
+ * @return The float value at the specified index.
+ */
+inline float index_circular_array_p2(const CircularArray *cb, int index) {
+    return cb->data[(cb->start + index) & cb->sizem1];
 }
