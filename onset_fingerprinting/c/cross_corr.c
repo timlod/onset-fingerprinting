@@ -16,10 +16,15 @@ typedef struct {
     // intermediate storage
     int total_updates;
     int row_updates;
+    int ramp_size;
     int *circular_index;
     int *data_index;
     // Last partial sums
     float *last_sum;
+    float *updates;
+    float *upd0;
+    float *upd1;
+    float *upd2;
     int *offsets;
     // circular sum of blocks
     CircularArray *block_sums;
@@ -39,7 +44,7 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
     block_size = self->block_size;
     total_rows = 2 * self->n - 1;
 
-    float updates[total_updates];
+    float *updates = self->updates;
     float sum, sum2;
     CircularArray *current_row;
     float *data1 = (float *)PyArray_DATA(a);
@@ -60,6 +65,28 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
             index_circular_array_p2(&self->buffer2, self->circular_index[i]) *
             data1[self->data_index[i]];
     }
+    /* for (i = 0; i < self->ramp_size; ++i) { */
+    /*     upd0[i] = */
+    /*         index_circular_array_p2(&self->buffer1, self->circular_index[i]) * */
+    /*         data2[self->data_index[i]]; */
+    /* } */
+    /* k = i; */
+    /* for (i = i; i < total_updates / 2 - 1; ++i) { */
+    /*     upd1[i - k] = */
+    /*         index_circular_array_p2(&self->buffer1, self->circular_index[i]) * */
+    /*         data2[self->data_index[i]]; */
+    /* } */
+    /* for (i = i; i < total_updates - self->ramp_size; ++i) { */
+    /*     upd1[i - k] = */
+    /*         index_circular_array_p2(&self->buffer2, self->circular_index[i]) * */
+    /*         data1[self->data_index[i]]; */
+    /* } */
+    /* k = i; */
+    /* for (i = i; i < total_updates; ++i) { */
+    /*     upd2[i - k] = */
+    /*         index_circular_array_p2(&self->buffer2, self->circular_index[i]) * */
+    /*         data1[self->data_index[i]]; */
+    /* } */
 
     k = 0;
     for (i = 0; i < block_size; ++i) {
@@ -160,6 +187,15 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
             self->data_index[j++] = idx;
         }
     }
+    self->updates = (float *)malloc(total_updates * sizeof(float));
+
+    int ramp_size = ((block_size + 1) * block_size)/2;
+    self->ramp_size = ramp_size;
+    self->upd0 = (float *)malloc(ramp_size * sizeof(float));
+    self->upd1 =
+        (float *)malloc((total_updates - 2 * ramp_size) * sizeof(float));
+    self->upd2 = (float *)malloc(ramp_size * sizeof(float));
+
     self->block_sums =
         (CircularArray *)malloc(row_updates * sizeof(CircularArray));
     self->offsets = (int *)malloc(row_updates * sizeof(int));
@@ -179,11 +215,15 @@ static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     free(self->circular_index);
     free(self->data_index);
     free(self->last_sum);
-    free(self->offsets);
+    free(self->updates);
+    free(self->upd0);
+    free(self->upd1);
+    free(self->upd2);
     for (int i = 0; i < self->row_updates; ++i) {
         free_circular_array(&self->block_sums[i]);
     }
     free(self->block_sums);
+    free(self->offsets);
     // Safe decrement
     Py_XDECREF(self->output_array);
     Py_TYPE(self)->tp_free((PyObject *)self);
