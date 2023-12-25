@@ -11,8 +11,6 @@ typedef struct {
     int block_size;
     CircularArray buffer1;
     CircularArray buffer2;
-    CircularArray *pyramid;
-    float *pyramid_data;
     PyObject *output_array;
     float *result_data;
     // intermediate storage
@@ -36,10 +34,6 @@ have a result (will introduce latency)
 
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
-    // There are 2 strategies here:
-    // 1: Write individual values to circular arrays immediately
-    // 2: Create an intermediate array on the stack just for row updates, and
-    // then batch update those with memcpy after the fact
     int block_size, i, j, k, total_updates, total_rows;
 
     // block_size^2 would be going up and down all the way, then we have to
@@ -127,35 +121,11 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     init_circular_array(&self->buffer2, n);
 
     total_rows = 2 * n - 1;
-    // Allocate each circular array individually - currently using big
-    // contiguous block instead for everything
-    /* self->pyramid = */
-    /*     (CircularArray *)malloc(total_rows * sizeof(CircularArray)); */
-    /* for (int i = 0; i < total_rows; ++i) { */
-    /*     int row_size = (i < n) ? (i + 1) : (2 * n - 1 - i); */
-    /*     init_circular_array(&self->pyramid[i], row_size, 64); */
-    /* } */
 
     // Calculate total number of floats we need to store
     total_size = 0;
     for (i = 0; i < total_rows; ++i) {
         total_size += (i < n) ? (i + 1) : (2 * n - 1 - i);
-    }
-
-    // Allocate big block of memory for the entire pyramid and the array of
-    // CircularArrays
-    self->pyramid_data = (float *)malloc(total_size * sizeof(float));
-    self->pyramid = (CircularArray *)malloc(total_rows * sizeof(CircularArray));
-
-    // Initialize each circular array
-    current_offset = 0;
-    for (i = 0; i < total_rows; ++i) {
-        row_size = (i < n) ? (i + 1) : (2 * n - 1 - i);
-        self->pyramid[i].data = &self->pyramid_data[current_offset];
-        self->pyramid[i].size = row_size;
-        self->pyramid[i].start = 0;
-        self->pyramid[i].sizem1 = row_size - 1;
-        current_offset += row_size;
     }
 
     npy_intp dim[1] = {2 * n - 1};
@@ -209,15 +179,10 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
 
 static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     printf("Deallocating CrossCorrelation\n");
-    free(self->pyramid_data);
     free(self->circular_index);
     free(self->data_index);
-    free(self->pyramid);
     free(self->last_sum);
     free(self->offsets);
-    /* for (int i = 0; i < 2 * self->n - 1; ++i) { */
-    /*     free_circular_array(&self->pyramid[i]); */
-    /* } */
     for (int i = 0; i < self->row_updates; ++i) {
         free_circular_array(&self->block_sums[i]);
     }
