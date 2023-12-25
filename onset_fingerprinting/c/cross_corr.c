@@ -65,41 +65,34 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
     /*     cumsum[i] = cs; */
     /* } */
     int bsm1 = block_size - 1;
-    cs = b1[0] * data2[bsm1];
-    cumsum[0] = cs;
-    j = 1;
-    for (offset = 1; offset < block_size; ++offset) {
+    // float cumsum[total_rows];
+    cs = 0;
+    j = 0;
+    for (offset = 0; offset < block_size; ++offset) {
         for (i = offset; i >= 0; --i) {
-            cs += b1[offset - i] * data2[bsm1 - i];
+            cs += b1[offset - i] * b2[n - i - 1];
             cumsum[j++] = cs;
         }
     }
-
-    // 2. Body Before Center
     for (; offset < n - 1; ++offset) {
-        for (i = bsm1; i >= 0; --i) {
-            cs += b1[offset - i] * data2[bsm1 - i];
-            cumsum[j++] = cs;
-        }
-    }
-
-    // 3. Body After Center
-    int inter = n - block_size;
-    for (lag = 0; lag <= n - block_size; ++lag) {
         for (i = 0; i < block_size; ++i) {
-            cs += b2[inter + i] * data1[i];
+            cs += b1[offset - bsm1 + i] * data2[i];
             cumsum[j++] = cs;
         }
-        inter -= 1;
     }
-
-    // 4. Ramp-down Phase
-    inter = block_size - n;
-    for (; lag < n; ++lag) {
-        for (i = 0; i < n - lag; ++i) {
-            cs += b2[i] * data1[i + lag + inter];
+    int inter = n - block_size;
+    for (lag = 0; lag <= inter; ++lag) {
+        for (i = 0; i < block_size; ++i) {
+            cs += b2[inter + i - lag] * data1[i];
             cumsum[j++] = cs;
         }
+    }
+    for (lag = n - block_size + 1; lag < n; ++lag) {
+        for (i = 0; i < n - lag; ++i) {
+            cs += b2[i] * b1[i + lag];
+            cumsum[j++] = cs;
+        }
+        // cumsum[offset + lag] = cs;
     }
 
     k = 0;
