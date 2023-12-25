@@ -35,10 +35,11 @@ have a result (will introduce latency)
 
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
-    int block_size, i, j, k, offset, total_updates, total_rows;
+    int block_size, i, j, k, offset, total_updates, total_rows, lag, n;
     total_updates = self->total_updates;
     block_size = self->block_size;
     total_rows = 2 * self->n - 1;
+    n = self->n;
 
     float *cumsum = self->cumsum;
     float cs, sum, sum2;
@@ -49,23 +50,56 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
 
     // Update buffers with new data
     write_circular_array_multi(&self->buffer1, data1, block_size);
+    float *b1 = rearrange_circular_array(&self->buffer1);
     write_circular_array_multi(&self->buffer2, data2, block_size);
+    float *b2 = rearrange_circular_array(&self->buffer2);
 
-    cumsum[0] =
-        index_circular_array_p2(&self->buffer1, self->circular_index[0]) *
-        data2[self->data_index[0]];
-    cs = cumsum[0];
-    for (i = 1; i < total_updates / 2 - 1; ++i) {
-        cs += index_circular_array_p2(&self->buffer1,
-    self->circular_index[i]) *
-              data2[self->data_index[i]];
-        cumsum[i] = cs;
+    /* cumsum[0] = b1[self->circular_index[0]] * data2[self->data_index[0]]; */
+    /* cs = cumsum[0]; */
+    /* for (i = 1; i < total_updates / 2 - 1; i++) { */
+    /*     cs += b1[self->circular_index[i]] * data2[self->data_index[i]]; */
+    /*     cumsum[i] = cs; */
+    /* } */
+    /* for (i = i; i < total_updates; i++) { */
+    /*     cs += b2[self->circular_index[i]] * data1[self->data_index[i]]; */
+    /*     cumsum[i] = cs; */
+    /* } */
+    int bsm1 = block_size - 1;
+    cs = b1[0] * data2[bsm1];
+    cumsum[0] = cs;
+    j = 1;
+    for (offset = 1; offset < block_size; ++offset) {
+        for (i = offset; i >= 0; --i) {
+            cs += b1[offset - i] * data2[bsm1 - i];
+            cumsum[j++] = cs;
+        }
     }
-    for (i = i; i < total_updates; ++i) {
-        cs += index_circular_array_p2(&self->buffer2,
-    self->circular_index[i]) *
-              data1[self->data_index[i]];
-        cumsum[i] = cs;
+
+    // 2. Body Before Center
+    for (; offset < n - 1; ++offset) {
+        for (i = bsm1; i >= 0; --i) {
+            cs += b1[offset - i] * data2[bsm1 - i];
+            cumsum[j++] = cs;
+        }
+    }
+
+    // 3. Body After Center
+    int inter = n - block_size;
+    for (lag = 0; lag <= n - block_size; ++lag) {
+        for (i = 0; i < block_size; ++i) {
+            cs += b2[inter + i] * data1[i];
+            cumsum[j++] = cs;
+        }
+        inter -= 1;
+    }
+
+    // 4. Ramp-down Phase
+    inter = block_size - n;
+    for (; lag < n; ++lag) {
+        for (i = 0; i < n - lag; ++i) {
+            cs += b2[i] * data1[i + lag + inter];
+            cumsum[j++] = cs;
+        }
     }
 
     k = 0;
@@ -160,42 +194,6 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
             self->data_index[j++] = idx;
             // printf("%d %d\n", self->circular_index[j-1],
             // self->data_index[j-1]);
-        }
-    }
-    // 1. Ramp-up Phase
-    j = 0;
-    int bm1 = block_size - 1;
-    for (offset = 0; offset < block_size; ++offset) {
-        for (i = offset; i >= 0; --i) {
-            self->circular_index[j] = offset - i;
-            self->data_index[j++] = bm1 - i;
-        }
-    }
-
-    // 2. Body Before Center
-    for (; offset < n - 1; ++offset) {
-        for (i = block_size - 1; i >= 0; --i) {
-            self->circular_index[j] = offset - i;
-            self->data_index[j++] = bm1 - i;
-        }
-    }
-
-    // 3. Body After Center
-    int inter = n - block_size;
-    for (lag = 0; lag <= n - block_size; ++lag) {
-        for (i = 0; i < block_size; ++i) {
-            self->circular_index[j] = inter + i;
-            self->data_index[j++] = i;
-        }
-        inter -= 1;
-    }
-
-    // 4. Ramp-down Phase
-    inter = block_size - n;
-    for (; lag < n; ++lag) {
-        for (i = 0; i < n - lag; ++i) {
-            self->circular_index[j] = i;
-            self->data_index[j++] = i + lag - inter;
         }
     }
 
