@@ -40,8 +40,7 @@ inline void free_circular_array(CircularArray *cb) {
  */
 inline void write_circular_array_multi(CircularArray *cb, float *new_data,
                                        int block_size) {
-    // int end = (cb->start + block_size) % cb->size;
-    int end = (cb->start + block_size) & cb->sizem1;
+    int end = (cb->start + block_size) % cb->size;
     if (end < cb->start) {
         memcpy(cb->data + cb->start, new_data,
                (cb->size - cb->start) * sizeof(float));
@@ -63,7 +62,6 @@ inline void write_circular_array(CircularArray *cb, float new_data) {
     if (cb->start == cb->size) {
         cb->start = 0;
     }
-    // cb->start &= cb->sizem1;
 }
 
 /**
@@ -81,8 +79,8 @@ inline void write_circular_array_p2(CircularArray *cb, float new_data) {
  * Retrieve a value from the CircularArray at a specified index.
  *
  * @param cb Pointer to the CircularArray.
- * @param index Index to retrieve the value from. Can be negative for reverse
- *        indexing.
+ * @param index Index to retrieve the value from. (Can be negative for reverse
+ *        indexing - not currently turned on).
  * @return The float value at the specified index.
  */
 inline float index_circular_array(const CircularArray *cb, int index) {
