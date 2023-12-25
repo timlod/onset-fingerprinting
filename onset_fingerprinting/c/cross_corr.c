@@ -158,6 +158,44 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
             idx = i - updates_count + block_size;
             self->circular_index[j] = n - block_size + idx - lag;
             self->data_index[j++] = idx;
+            // printf("%d %d\n", self->circular_index[j-1],
+            // self->data_index[j-1]);
+        }
+    }
+    // 1. Ramp-up Phase
+    j = 0;
+    int bm1 = block_size - 1;
+    for (offset = 0; offset < block_size; ++offset) {
+        for (i = offset; i >= 0; --i) {
+            self->circular_index[j] = offset - i;
+            self->data_index[j++] = bm1 - i;
+        }
+    }
+
+    // 2. Body Before Center
+    for (; offset < n - 1; ++offset) {
+        for (i = block_size - 1; i >= 0; --i) {
+            self->circular_index[j] = offset - i;
+            self->data_index[j++] = bm1 - i;
+        }
+    }
+
+    // 3. Body After Center
+    int inter = n - block_size;
+    for (lag = 0; lag <= n - block_size; ++lag) {
+        for (i = 0; i < block_size; ++i) {
+            self->circular_index[j] = inter + i;
+            self->data_index[j++] = i;
+        }
+        inter -= 1;
+    }
+
+    // 4. Ramp-down Phase
+    inter = block_size - n;
+    for (; lag < n; ++lag) {
+        for (i = 0; i < n - lag; ++i) {
+            self->circular_index[j] = i;
+            self->data_index[j++] = i + lag - inter;
         }
     }
 
