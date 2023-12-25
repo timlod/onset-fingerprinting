@@ -227,24 +227,6 @@ static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-void calculate_cross_correlation(const CrossCorrelation *self) {
-    int lag, i;
-    float sum;
-    float *result_data =
-        (float *)PyArray_DATA((PyArrayObject *)self->output_array);
-    int total_rows = 2 * self->n - 1;
-    CircularArray *current_row;
-
-    for (lag = 0; lag < total_rows; ++lag) {
-        sum = 0;
-        current_row = &self->pyramid[lag];
-        for (i = 0; i < current_row->size; ++i) {
-            sum += current_row->data[i];
-        }
-        result_data[lag] = sum;
-    }
-}
-
 static PyObject *CrossCorrelation_update(CrossCorrelation *self,
                                          PyObject *args) {
     PyObject *array1_obj, *array2_obj;
