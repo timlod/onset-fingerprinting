@@ -55,12 +55,12 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
 
     for (i = 0; i < total_updates / 2 - 1; ++i) {
         updates[i] =
-            index_circular_array(&self->buffer1, self->circular_index[i]) *
+            index_circular_array_p2(&self->buffer1, self->circular_index[i]) *
             data2[self->data_index[i]];
     }
     for (i = i; i < total_updates; ++i) {
         updates[i] =
-            index_circular_array(&self->buffer2, self->circular_index[i]) *
+            index_circular_array_p2(&self->buffer2, self->circular_index[i]) *
             data1[self->data_index[i]];
     }
 
