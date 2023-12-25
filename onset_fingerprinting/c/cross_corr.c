@@ -20,7 +20,7 @@ typedef struct {
     int *data_index;
     // Last partial sums
     float *last_sum;
-    float *updates;
+    float *cumsum;
     int *offsets;
     // circular sum of blocks
     CircularArray *block_sums;
@@ -35,13 +35,13 @@ have a result (will introduce latency)
 
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
-    int block_size, i, j, k, total_updates, total_rows;
+    int block_size, i, j, k, offset, total_updates, total_rows;
     total_updates = self->total_updates;
     block_size = self->block_size;
     total_rows = 2 * self->n - 1;
 
-    float *updates = self->updates;
-    float sum, sum2;
+    float *cumsum = self->cumsum;
+    float cs, sum, sum2;
     CircularArray *current_row;
     float *data1 = (float *)PyArray_DATA(a);
     float *data2 = (float *)PyArray_DATA(b);
@@ -51,58 +51,53 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
     write_circular_array_multi(&self->buffer1, data1, block_size);
     write_circular_array_multi(&self->buffer2, data2, block_size);
 
-    for (i = 0; i < total_updates / 2 - 1; ++i) {
-        updates[i] =
-            index_circular_array_p2(&self->buffer1, self->circular_index[i]) *
-            data2[self->data_index[i]];
+    cumsum[0] =
+        index_circular_array_p2(&self->buffer1, self->circular_index[0]) *
+        data2[self->data_index[0]];
+    cs = cumsum[0];
+    for (i = 1; i < total_updates / 2 - 1; ++i) {
+        cs += index_circular_array_p2(&self->buffer1,
+    self->circular_index[i]) *
+              data2[self->data_index[i]];
+        cumsum[i] = cs;
     }
     for (i = i; i < total_updates; ++i) {
-        updates[i] =
-            index_circular_array_p2(&self->buffer2, self->circular_index[i]) *
-            data1[self->data_index[i]];
+        cs += index_circular_array_p2(&self->buffer2,
+    self->circular_index[i]) *
+              data1[self->data_index[i]];
+        cumsum[i] = cs;
     }
 
     k = 0;
-    for (i = 0; i < block_size; ++i) {
-        sum = 0;
-        for (j = 0; j < i + 1; ++j) {
-            sum += updates[k++];
-        }
-        result_data[i] = sum;
+    result_data[0] = cumsum[0];
+    for (i = 2; i <= block_size; ++i) {
+        k += i;
+        result_data[i - 1] = cumsum[k] - cumsum[k - i];
     }
-    // for center blocks
+    // Center blocks' data is shifted by 1 index at each iteration, so we have
+    // to account for 'mid-block' sums (when dropping off the old sum, it
+    // contained data from 2 blocks)
     for (i = 0; i < self->row_updates; ++i) {
-        sum = 0;
-        sum2 = 0;
         current_row = &self->block_sums[i];
-        for (j = 0; j < self->offsets[i]; ++j) {
-            sum += updates[k++];
-        }
-        for (j = j; j < block_size; ++j) {
-            sum2 += updates[k++];
-        }
+        offset = self->offsets[i];
+        j = k;
+        k += offset;
+        sum = cumsum[k] - cumsum[j];
+        j = k;
+        k += block_size - offset;
+        sum2 = cumsum[k] - cumsum[j];
         result_data[block_size + i] -=
             current_row->data[current_row->start] - (sum + sum2);
         write_circular_array(current_row, self->last_sum[i] + sum);
         // Push new sum to block sums
         self->last_sum[i] = sum2;
     }
+    j = block_size;
     for (i = block_size + self->row_updates; i < total_rows; ++i) {
-        sum = 0;
-        for (j = 0; j < 2 * block_size - i + self->row_updates; ++j) {
-            sum += updates[k++];
-        }
-        result_data[i] = sum;
+        k += j;
+        result_data[i] = cumsum[k] - cumsum[k - j--];
     }
 }
-
-// Strategy: Create 2 contiguous arrays - one for small buffers (<block_size)
-// which needn't be circular and are updated directly, and another for
-// >block_size circular buffers which is used to update the 'center' at the end
-// as has been done with the updates array Actually we can just use the updates
-// array as has been done and ignore the first/last block_size entries. In that
-// case index batch updates from block_size until blocksize and adjust start
-// accordingly (I think block_size*(block_size+1)/2)
 
 static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
                                  PyObject *kwds) {
@@ -138,8 +133,12 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     row_updates = (total_rows - 2 * block_size);
     self->row_updates = row_updates;
 
-    self->circular_index = (int *)malloc(total_updates * sizeof(int));
-    self->data_index = (int *)malloc(total_updates * sizeof(int));
+    posix_memalign((void **)&self->circular_index, 16, total_updates * sizeof(int));
+    posix_memalign((void **)&self->data_index, 16, total_updates * sizeof(int));
+    /* self->circular_index = (int *)malloc(total_updates * sizeof(int)); */
+    /* self->data_index = (int *)malloc(total_updates * sizeof(int)); */
+    // self->cumsum = (float *)malloc(total_updates * sizeof(float));
+    posix_memalign((void **)&self->cumsum, 16, total_updates * sizeof(float));
 
     // Compute new multiplications of first half of data
     j = 0;
@@ -161,7 +160,7 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
             self->data_index[j++] = idx;
         }
     }
-    self->updates = (float *)malloc(total_updates * sizeof(float));
+
     self->block_sums =
         (CircularArray *)malloc(row_updates * sizeof(CircularArray));
     self->offsets = (int *)malloc(row_updates * sizeof(int));
@@ -172,7 +171,7 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
         init_circular_array(&self->block_sums[i - block_size],
                             row_size / block_size);
     }
-    printf("end init\n");
+    printf("End init\n");
     return 0;
 }
 
@@ -181,7 +180,7 @@ static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     free(self->circular_index);
     free(self->data_index);
     free(self->last_sum);
-    free(self->updates);
+    free(self->cumsum);
     for (int i = 0; i < self->row_updates; ++i) {
         free_circular_array(&self->block_sums[i]);
     }
