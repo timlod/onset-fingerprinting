@@ -8,6 +8,7 @@
  */
 typedef struct {
     float *data;
+    float *temp;
     int size;
     int start;
     int sizem1;
@@ -21,6 +22,7 @@ typedef struct {
  */
 inline void init_circular_array(CircularArray *cb, int size) {
     cb->data = (float *)calloc(size, sizeof(float));
+    cb->temp = (float *)calloc(size, sizeof(float));
     cb->size = size;
     cb->start = 0;
     cb->sizem1 = size - 1;
@@ -109,4 +111,22 @@ inline float index_circular_array(const CircularArray *cb, int index) {
  */
 inline float index_circular_array_p2(const CircularArray *cb, int index) {
     return cb->data[(cb->start + index) & cb->sizem1];
+}
+
+/**
+ * Rearrange the CircularArray such that it starts at index 0.
+ *
+ * @param cb Pointer to the CircularArray to rearrange.
+ */
+inline float* rearrange_circular_array(CircularArray *cb) {
+    if (cb->start == 0) {
+        // The array already starts at 0, no rearrangement needed
+        return cb->data;
+    }
+    float *temp = cb->temp;
+    // Copy the data starting from 'start' to the end of the array
+    memcpy(temp, cb->data + cb->start, (cb->size - cb->start) * sizeof(float));
+    // Copy the remaining data from the beginning of the array to 'start'
+    memcpy(temp + cb->size - cb->start, cb->data, cb->start * sizeof(float));
+    return temp;
 }
