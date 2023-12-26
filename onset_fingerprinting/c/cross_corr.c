@@ -114,42 +114,27 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
             j += 8;
         }
     }
-    cs = cumsum[j - 1];
-    for (lag = n - block_size + 1; lag < n; ++lag) {
+    for (lag = nmbs + 1; lag < n; ++lag) {
+        cs = 0;
         for (i = 0; i < n - lag; ++i) {
             cs += b1[i + lag] * b2[i];
-            cumsum[j++] = cs;
         }
+        result_data[lag + n - 1] = cs;
     }
 
-    k = 0;
-    result_data[0] = cumsum[0];
-    for (i = 2; i <= block_size; ++i) {
-        k += i;
-        result_data[i - 1] = cumsum[k] - cumsum[k - i];
-    }
     // Center blocks' data is shifted by 1 index at each iteration, so we have
     // to account for 'mid-block' sums (when dropping off the old sum, it
     // contained data from 2 blocks)
     for (i = 0; i < self->row_updates; ++i) {
         current_row = &self->block_sums[i];
         offset = self->offsets[i];
-        j = k;
-        k += offset;
-        sum = cumsum[k] - cumsum[j];
-        j = k;
-        k += block_size - offset;
-        sum2 = cumsum[k] - cumsum[j];
-        result_data[block_size + i] -=
+        sum = cumsum[i * block_size + offset - 1];
+        sum2 = cumsum[(i + 1) * block_size - 1] - sum;
+        result_data[bsm1 + i] -=
             current_row->data[current_row->start] - (sum + sum2);
         write_circular_array(current_row, self->last_sum[i] + sum);
-        // Push new sum to block sums
+        // Push new right sum to block sums to subtract in next iteration
         self->last_sum[i] = sum2;
-    }
-    j = block_size;
-    for (i = block_size + self->row_updates; i < total_rows; ++i) {
-        k += j;
-        result_data[i] = cumsum[k] - cumsum[k - j--];
     }
 }
 
@@ -181,9 +166,8 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
         (float *)PyArray_DATA((PyArrayObject *)self->output_array);
 
     // One dry-run to pre-compute all indices:
-    total_updates =
-        block_size * block_size + (2 * block_size * (n - block_size));
-    row_updates = (total_rows - 2 * block_size);
+    total_updates = block_size + (2 * block_size * (n - block_size));
+    row_updates = total_rows - 2 * (block_size - 1);
     self->row_updates = row_updates;
 
     posix_memalign((void **)&self->cumsum, ALIGN_SIZE,
@@ -193,11 +177,12 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
         (CircularArray *)malloc(row_updates * sizeof(CircularArray));
     self->offsets = (int *)malloc(row_updates * sizeof(int));
     self->last_sum = (float *)calloc(row_updates, sizeof(float));
-    for (i = block_size; i < total_rows - block_size; ++i) {
+    for (i = block_size - 1; i < total_rows - block_size + 1; ++i) {
         row_size = (i < n) ? (i + 1) : (2 * n - 1 - i);
-        self->offsets[i - block_size] = block_size - (row_size % block_size);
-        init_circular_array(&self->block_sums[i - block_size],
-                            row_size / block_size);
+        self->offsets[i - block_size + 1] =
+            block_size - (row_size % block_size);
+        init_circular_array(&self->block_sums[i - block_size + 1],
+                            row_size / (block_size));
     }
     printf("End init\n");
     return 0;
@@ -205,8 +190,6 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
 
 static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     printf("Deallocating CrossCorrelation\n");
-    free(self->circular_index);
-    free(self->data_index);
     free(self->last_sum);
     free(self->cumsum);
     for (int i = 0; i < self->row_updates; ++i) {
