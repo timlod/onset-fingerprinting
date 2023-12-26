@@ -1,10 +1,13 @@
 #include "circular_array.h"
 #include <Python.h>
+#include <emmintrin.h>
+#include <immintrin.h>
 #include <numpy/arrayobject.h>
 #include <stddef.h>
 #include <stdlib.h>
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
+#define ALIGN_SIZE 32
 
 typedef struct {
     PyObject_HEAD int n;
@@ -32,6 +35,29 @@ static PyTypeObject CrossCorrelationType;
 TODO: add normalizing and, if adding normalizing, get min_samples required to
 have a result (will introduce latency)
 **/
+
+// https://stackoverflow.com/questions/19494114/parallel-prefix-cumulative-sum-with-sse
+// Thank you!!!
+inline __m128 scan_SSE(__m128 x) {
+    x = _mm_add_ps(x, _mm_castsi128_ps(_mm_slli_si128(_mm_castps_si128(x), 4))); 
+    x = _mm_add_ps(x, _mm_castsi128_ps(_mm_slli_si128(_mm_castps_si128(x), 8)));
+    return x;
+}
+
+inline __m256 scan_AVX(__m256 x) {
+    __m256 t0, t1;
+    //shift1_AVX + add
+    t0 = _mm256_permute_ps(x, _MM_SHUFFLE(2, 1, 0, 3));
+    t1 = _mm256_permute2f128_ps(t0, t0, 41);
+    x = _mm256_add_ps(x, _mm256_blend_ps(t0, t1, 0x11));
+    //shift2_AVX + add
+    t0 = _mm256_permute_ps(x, _MM_SHUFFLE(1, 0, 3, 2));
+    t1 = _mm256_permute2f128_ps(t0, t0, 41);
+    x = _mm256_add_ps(x, _mm256_blend_ps(t0, t1, 0x33));
+    //shift3_AVX + add
+    x = _mm256_add_ps(x,_mm256_permute2f128_ps(x, x, 41));
+    return x;
+}
 
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
@@ -160,13 +186,12 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     row_updates = (total_rows - 2 * block_size);
     self->row_updates = row_updates;
 
-    posix_memalign((void **)&self->circular_index, 16,
+    posix_memalign((void **)&self->circular_index, ALIGN_SIZE,
                    total_updates * sizeof(int));
-    posix_memalign((void **)&self->data_index, 16, total_updates * sizeof(int));
-    /* self->circular_index = (int *)malloc(total_updates * sizeof(int)); */
-    /* self->data_index = (int *)malloc(total_updates * sizeof(int)); */
-    // self->cumsum = (float *)malloc(total_updates * sizeof(float));
-    posix_memalign((void **)&self->cumsum, 16, total_updates * sizeof(float));
+    posix_memalign((void **)&self->data_index, ALIGN_SIZE,
+                   total_updates * sizeof(int));
+    posix_memalign((void **)&self->cumsum, ALIGN_SIZE,
+                   total_updates * sizeof(float));
 
     // Compute new multiplications of first half of data
     j = 0;

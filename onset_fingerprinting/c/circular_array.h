@@ -21,10 +21,16 @@ typedef struct {
  * @param size Size of the array to allocate. Needs to be a power of 2.
  */
 inline void init_circular_array(CircularArray *cb, int size) {
+    int ret = posix_memalign((void **)&cb->data, 32, size * sizeof(float));
+    if (ret != 0) {
+        printf("Failed to aligned allocated data: %d!\n", ret);
+    };
     cb->data = (float *)calloc(size, sizeof(float));
-    posix_memalign((void **)&cb->temp, 16,
-                   size * sizeof(float));
-    //cb->temp = (float *)calloc(size, sizeof(float));
+    ret = posix_memalign((void **)&cb->temp, 32, size * sizeof(float));
+    if (ret != 0) {
+        printf("Failed to aligned allocated temp: %d!\n", ret);
+    };
+    cb->temp = (float *)calloc(size, sizeof(float));
     cb->size = size;
     cb->start = 0;
     cb->sizem1 = size - 1;
@@ -32,6 +38,7 @@ inline void init_circular_array(CircularArray *cb, int size) {
 
 inline void free_circular_array(CircularArray *cb) {
     free(cb->data);
+    free(cb->temp);
     cb->data = NULL;
 }
 
