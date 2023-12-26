@@ -39,23 +39,23 @@ have a result (will introduce latency)
 // https://stackoverflow.com/questions/19494114/parallel-prefix-cumulative-sum-with-sse
 // Thank you!!!
 inline __m128 scan_SSE(__m128 x) {
-    x = _mm_add_ps(x, _mm_castsi128_ps(_mm_slli_si128(_mm_castps_si128(x), 4))); 
+    x = _mm_add_ps(x, _mm_castsi128_ps(_mm_slli_si128(_mm_castps_si128(x), 4)));
     x = _mm_add_ps(x, _mm_castsi128_ps(_mm_slli_si128(_mm_castps_si128(x), 8)));
     return x;
 }
 
 inline __m256 scan_AVX(__m256 x) {
     __m256 t0, t1;
-    //shift1_AVX + add
+    // shift1_AVX + add
     t0 = _mm256_permute_ps(x, _MM_SHUFFLE(2, 1, 0, 3));
     t1 = _mm256_permute2f128_ps(t0, t0, 41);
     x = _mm256_add_ps(x, _mm256_blend_ps(t0, t1, 0x11));
-    //shift2_AVX + add
+    // shift2_AVX + add
     t0 = _mm256_permute_ps(x, _MM_SHUFFLE(1, 0, 3, 2));
     t1 = _mm256_permute2f128_ps(t0, t0, 41);
     x = _mm256_add_ps(x, _mm256_blend_ps(t0, t1, 0x33));
-    //shift3_AVX + add
-    x = _mm256_add_ps(x,_mm256_permute2f128_ps(x, x, 41));
+    // shift3_AVX + add
+    x = _mm256_add_ps(x, _mm256_permute2f128_ps(x, x, 41));
     return x;
 }
 
@@ -80,18 +80,7 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
     write_circular_array_multi(&self->buffer2, data2, block_size);
     float *b2 = rearrange_circular_array(&self->buffer2);
 
-    /* cumsum[0] = b1[self->circular_index[0]] * data2[self->data_index[0]]; */
-    /* cs = cumsum[0]; */
-    /* for (i = 1; i < total_updates / 2 - 1; i++) { */
-    /*     cs += b1[self->circular_index[i]] * data2[self->data_index[i]]; */
-    /*     cumsum[i] = cs; */
-    /* } */
-    /* for (i = i; i < total_updates; i++) { */
-    /*     cs += b2[self->circular_index[i]] * data1[self->data_index[i]]; */
-    /*     cumsum[i] = cs; */
-    /* } */
     int bsm1 = block_size - 1;
-    // float cumsum[total_rows];
     cs = 0;
     j = 0;
     for (offset = 0; offset < block_size; ++offset) {
@@ -211,8 +200,6 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
             idx = i - updates_count + block_size;
             self->circular_index[j] = n - block_size + idx - lag;
             self->data_index[j++] = idx;
-            // printf("%d %d\n", self->circular_index[j-1],
-            // self->data_index[j-1]);
         }
     }
 
@@ -260,8 +247,6 @@ static PyObject *CrossCorrelation_update(CrossCorrelation *self,
     PyArrayObject *b = (PyArrayObject *)array2_obj;
 
     update_cross_correlation_data(self, a, b);
-    // Not doing currently as the update itself is already bottlenecking
-    // calculate_cross_correlation(self);
     Py_INCREF(self->output_array);
     return self->output_array;
 }
