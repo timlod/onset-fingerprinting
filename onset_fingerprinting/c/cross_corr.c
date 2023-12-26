@@ -17,10 +17,7 @@ typedef struct {
     PyObject *output_array;
     float *result_data;
     // intermediate storage
-    int total_updates;
     int row_updates;
-    int *circular_index;
-    int *data_index;
     // Last partial sums
     float *last_sum;
     float *cumsum;
@@ -61,11 +58,11 @@ inline __m256 scan_AVX(__m256 x) {
 
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
-    int block_size, i, j, k, offset, total_updates, total_rows, lag, n;
-    total_updates = self->total_updates;
+    int block_size, i, j, offset, lag, n, nmbs, bsm1;
     block_size = self->block_size;
-    total_rows = 2 * self->n - 1;
     n = self->n;
+    nmbs = n - block_size;
+    bsm1 = block_size - 1;
 
     float *cumsum = self->cumsum;
     float cs, sum, sum2;
@@ -80,23 +77,21 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
     write_circular_array_multi(&self->buffer2, data2, block_size);
     float *b2 = rearrange_circular_array(&self->buffer2);
 
-    int bsm1 = block_size - 1;
-    cs = 0;
-    j = 0;
-    for (offset = 0; offset < block_size; ++offset) {
+    for (offset = 0; offset < block_size - 1; ++offset) {
+        cs = 0;
         for (i = offset; i >= 0; --i) {
             cs += b1[offset - i] * b2[n - i - 1];
-            cumsum[j++] = cs;
         }
+        result_data[offset] = cs;
     }
-    __m256 b1_vec, data2_vec, product, cs_vec, t0;
-    cs_vec = _mm256_set1_ps(cs);
-    k = j;
-    for (offset = block_size; offset < n - 1; ++offset) {
+    __m256 b_vec, data_vec, product, cs_vec, t0;
+    j = 0;
+    for (offset = block_size - 1; offset < n - 1; ++offset) {
+        cs_vec = _mm256_setzero_ps();
         for (i = 0; i < block_size; i += 8) {
-            b1_vec = _mm256_loadu_ps(&b1[offset - bsm1 + i]);
-            data2_vec = _mm256_load_ps(&data2[i]);
-            product = _mm256_mul_ps(b1_vec, data2_vec);
+            b_vec = _mm256_loadu_ps(&b1[offset - bsm1 + i]);
+            data_vec = _mm256_load_ps(&data2[i]);
+            product = _mm256_mul_ps(b_vec, data_vec);
             product = scan_AVX(product);
             product = _mm256_add_ps(product, cs_vec);
             _mm256_store_ps(&cumsum[j], product);
@@ -105,12 +100,12 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
             j += 8;
         }
     }
-    int inter = n - block_size;
-    for (lag = 0; lag <= inter; ++lag) {
+    for (lag = 0; lag <= nmbs; ++lag) {
+        cs_vec = _mm256_setzero_ps();
         for (i = 0; i < block_size; i += 8) {
-            b1_vec = _mm256_loadu_ps(&b2[i + inter - lag]);
-            data2_vec = _mm256_load_ps(&data1[i]);
-            product = _mm256_mul_ps(b1_vec, data2_vec);
+            b_vec = _mm256_loadu_ps(&b2[i + nmbs - lag]);
+            data_vec = _mm256_load_ps(&data1[i]);
+            product = _mm256_mul_ps(b_vec, data_vec);
             product = scan_AVX(product);
             product = _mm256_add_ps(product, cs_vec);
             _mm256_store_ps(&cumsum[j], product);
@@ -188,37 +183,11 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     // One dry-run to pre-compute all indices:
     total_updates =
         block_size * block_size + (2 * block_size * (n - block_size));
-    self->total_updates = total_updates;
     row_updates = (total_rows - 2 * block_size);
     self->row_updates = row_updates;
 
-    posix_memalign((void **)&self->circular_index, ALIGN_SIZE,
-                   total_updates * sizeof(int));
-    posix_memalign((void **)&self->data_index, ALIGN_SIZE,
-                   total_updates * sizeof(int));
     posix_memalign((void **)&self->cumsum, ALIGN_SIZE,
                    total_updates * sizeof(float));
-
-    // Compute new multiplications of first half of data
-    j = 0;
-    for (offset = 0; offset < n - 1; ++offset) {
-        for (i = min(offset, block_size - 1); i >= 0; --i) {
-            self->circular_index[j] = offset - i;
-            self->data_index[j++] = block_size - i - 1;
-        }
-    }
-    // Continuing from the last update of the first n-1 rows
-    for (lag = 0; lag < n; ++lag) {
-        // Determine the number of elements to update based on lag and
-        // block_size
-        updates_count = lag <= n - block_size ? block_size : n - lag;
-
-        for (i = 0; i < updates_count; ++i) {
-            idx = i - updates_count + block_size;
-            self->circular_index[j] = n - block_size + idx - lag;
-            self->data_index[j++] = idx;
-        }
-    }
 
     self->block_sums =
         (CircularArray *)malloc(row_updates * sizeof(CircularArray));
