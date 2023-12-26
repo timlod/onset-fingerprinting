@@ -160,7 +160,8 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     row_updates = (total_rows - 2 * block_size);
     self->row_updates = row_updates;
 
-    posix_memalign((void **)&self->circular_index, 16, total_updates * sizeof(int));
+    posix_memalign((void **)&self->circular_index, 16,
+                   total_updates * sizeof(int));
     posix_memalign((void **)&self->data_index, 16, total_updates * sizeof(int));
     /* self->circular_index = (int *)malloc(total_updates * sizeof(int)); */
     /* self->data_index = (int *)malloc(total_updates * sizeof(int)); */

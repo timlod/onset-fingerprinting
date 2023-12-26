@@ -22,7 +22,9 @@ typedef struct {
  */
 inline void init_circular_array(CircularArray *cb, int size) {
     cb->data = (float *)calloc(size, sizeof(float));
-    cb->temp = (float *)calloc(size, sizeof(float));
+    posix_memalign((void **)&cb->temp, 16,
+                   size * sizeof(float));
+    //cb->temp = (float *)calloc(size, sizeof(float));
     cb->size = size;
     cb->start = 0;
     cb->sizem1 = size - 1;
