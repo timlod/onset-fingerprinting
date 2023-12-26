@@ -163,8 +163,11 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     row_updates = total_rows - 2 * (block_size - 1);
     self->row_updates = row_updates;
 
-    posix_memalign((void **)&self->cumsum, ALIGN_SIZE,
-                   total_updates * sizeof(float));
+    int ret = posix_memalign((void **)&self->cumsum, ALIGN_SIZE,
+                             total_updates * sizeof(float));
+    if (ret != 0) {
+        printf("Failed to aligned allocated data: %d!\n", ret);
+    };
 
     self->block_sums =
         (CircularArray *)malloc(row_updates * sizeof(CircularArray));

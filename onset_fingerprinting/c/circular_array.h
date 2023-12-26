@@ -127,7 +127,7 @@ inline float index_circular_array_p2(const CircularArray *cb, int index) {
  *
  * @param cb Pointer to the CircularArray to rearrange.
  */
-inline float* rearrange_circular_array(CircularArray *cb) {
+inline float *rearrange_circular_array(CircularArray *cb) {
     if (cb->start == 0) {
         // The array already starts at 0, no rearrangement needed
         return cb->data;
