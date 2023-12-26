@@ -6,7 +6,6 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#define min(a, b) ((a) < (b) ? (a) : (b))
 #define ALIGN_SIZE 32
 
 typedef struct {
@@ -16,13 +15,14 @@ typedef struct {
     CircularArray buffer2;
     PyObject *output_array;
     float *result_data;
-    // intermediate storage
     int row_updates;
-    // Last partial sums
-    float *last_sum;
+    // Cumulative sums of rows in center block
     float *cumsum;
+    // Right partial sum of last iteration for each row in center block
+    float *last_sum;
+    // Offsets
     int *offsets;
-    // circular sum of blocks
+    // Circular arrays for total sums of each row in center block
     CircularArray *block_sums;
 } CrossCorrelation;
 
@@ -142,10 +142,9 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
                                  PyObject *kwds) {
 
     if (!PyArg_ParseTuple(args, "ii", &self->n, &self->block_size)) {
-        return -1; // Return -1 to indicate error during initialization
+        return -1;
     }
-    int n, block_size, i, j, offset, lag, total_rows, total_updates, row_size,
-        row_updates, updates_count, idx, total_size;
+    int n, block_size, i, total_rows, total_updates, row_size, row_updates;
     n = self->n;
     block_size = self->block_size;
 
@@ -153,12 +152,6 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
     init_circular_array(&self->buffer2, n);
 
     total_rows = 2 * n - 1;
-
-    // Calculate total number of floats we need to store
-    total_size = 0;
-    for (i = 0; i < total_rows; ++i) {
-        total_size += (i < n) ? (i + 1) : (2 * n - 1 - i);
-    }
 
     npy_intp dim[1] = {2 * n - 1};
     self->output_array = PyArray_ZEROS(1, dim, NPY_FLOAT, 0);
@@ -184,12 +177,10 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
         init_circular_array(&self->block_sums[i - block_size + 1],
                             row_size / (block_size));
     }
-    printf("End init\n");
     return 0;
 }
 
 static void CrossCorrelation_dealloc(CrossCorrelation *self) {
-    printf("Deallocating CrossCorrelation\n");
     free(self->last_sum);
     free(self->cumsum);
     for (int i = 0; i < self->row_updates; ++i) {
@@ -197,7 +188,6 @@ static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     }
     free(self->block_sums);
     free(self->offsets);
-    // Safe decrement
     Py_XDECREF(self->output_array);
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
@@ -253,7 +243,7 @@ PyMODINIT_FUNC PyInit_online_cc(void) {
     PyObject *m;
     import_array(); // Required for NumPy API
     if (PyType_Ready(&CrossCorrelationType) < 0) {
-        printf("error in type prep\n");
+        printf("Error in PyType_Ready type preparation.\n");
         return NULL;
     };
     m = PyModule_Create(&online_cc_module);
