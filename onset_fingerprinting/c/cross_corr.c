@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-#define ALIGN_SIZE 32
+#define ALIGN_SIZE 16
 
 typedef struct {
     PyObject_HEAD int n;
@@ -16,31 +16,39 @@ typedef struct {
     PyObject *output_array;
     float *result_data;
     int row_updates;
-    // Cumulative sums of rows in center block
+    // Cumulative sums of rows/lags in center block
     float *cumsum;
-    // Right partial sum of last iteration for each row in center block
+    // Right partial sum of last iteration for each row/lag in center block
     float *last_sum;
     // Offsets
     int *offsets;
-    // Circular arrays for total sums of each row in center block
+    // Circular arrays for total sums of each row/lag in center block
+    // - think of these as partial dot-products
     CircularArray *block_sums;
 } CrossCorrelation;
 
 static PyTypeObject CrossCorrelationType;
 
-/**
+/*
 TODO: add normalizing and, if adding normalizing, get min_samples required to
 have a result (will introduce latency)
-**/
+*/
 
+// The following two functions are from this SO question:
 // https://stackoverflow.com/questions/19494114/parallel-prefix-cumulative-sum-with-sse
 // Thank you!!!
+/**
+  Performs a cumulative sum over the input vector using SSE SIMD instructions.
+*/
 inline __m128 scan_SSE(__m128 x) {
     x = _mm_add_ps(x, _mm_castsi128_ps(_mm_slli_si128(_mm_castps_si128(x), 4)));
     x = _mm_add_ps(x, _mm_castsi128_ps(_mm_slli_si128(_mm_castps_si128(x), 8)));
     return x;
 }
 
+/**
+  Performs a cumulative sum over the input vector using AVX2 SIMD instructions.
+*/
 inline __m256 scan_AVX(__m256 x) {
     __m256 t0, t1;
     // shift1_AVX + add
@@ -55,7 +63,10 @@ inline __m256 scan_AVX(__m256 x) {
     x = _mm256_add_ps(x, _mm256_permute2f128_ps(x, x, 41));
     return x;
 }
-
+/**
+   Update intermediate data given new buffers and compute the updated
+   cross-correlation.
+ */
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
     int block_size, i, j, offset, lag, n, nmbs, bsm1;
