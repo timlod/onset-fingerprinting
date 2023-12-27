@@ -223,13 +223,15 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
 }
 
 static void CrossCorrelation_dealloc(CrossCorrelation *self) {
-    free(self->last_sum);
+    free_circular_array(&self->buffer1);
+    free_circular_array(&self->buffer2);
     free(self->cumsum);
+    free(self->last_sum);
+    free(self->offsets);
     for (int i = 0; i < self->row_updates; ++i) {
         free_circular_array(&self->block_sums[i]);
     }
     free(self->block_sums);
-    free(self->offsets);
     Py_XDECREF(self->output_array);
     Py_TYPE(self)->tp_free((PyObject *)self);
 }
