@@ -9,6 +9,11 @@ setuptools.setup(
             "online_cc",
             sources=["onset_fingerprinting/c/cross_corr.c"],
             include_dirs=[numpy.get_include()],
+            extra_compile_args=[
+                "-Wall",
+                "-O3",
+                "-mavx2",  # or -msse
+            ],
         )
     ]
 )
