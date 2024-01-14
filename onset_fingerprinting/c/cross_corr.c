@@ -20,11 +20,15 @@ typedef struct {
     float *cumsum;
     // Right partial sum of last iteration for each row/lag in center block
     float *last_sum;
-    // Offsets
     int *offsets;
     // Circular arrays for total sums of each row/lag in center block
     // - think of these as partial dot-products
     CircularArray *block_sums;
+    // Keep track of number of executions to compute full dot product to reset
+    // accumulated numerical error
+    int exec_count;
+    // Compensate arithmetic for better numerical precision
+    float *compensation;
 } CrossCorrelation;
 
 static PyTypeObject CrossCorrelationType;
@@ -204,6 +208,8 @@ static int CrossCorrelation_init(CrossCorrelation *self, PyObject *args,
         (CircularArray *)malloc(row_updates * sizeof(CircularArray));
     self->offsets = (int *)malloc(row_updates * sizeof(int));
     self->last_sum = (float *)calloc(row_updates, sizeof(float));
+    self->compensation = (float *)calloc(row_updates, sizeof(float));
+    self->exec_count = 0;
     for (i = block_size - 1; i < total_rows - block_size + 1; ++i) {
         row_size = (i < n) ? (i + 1) : (2 * n - 1 - i);
         self->offsets[i - block_size + 1] =
@@ -219,6 +225,7 @@ static void CrossCorrelation_dealloc(CrossCorrelation *self) {
     free_circular_array(&self->buffer2);
     free(self->cumsum);
     free(self->last_sum);
+    free(self->compensation);
     free(self->offsets);
     for (int i = 0; i < self->row_updates; ++i) {
         free_circular_array(&self->block_sums[i]);
