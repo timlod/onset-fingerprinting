@@ -101,14 +101,16 @@ inline float dot_product_sse(float *b1, float *b2, int start1, int start2,
  */
 void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
                                    PyArrayObject *b) {
-    int block_size, i, j, offset, lag, n, nmbs, bsm1;
+    int block_size, i, j, offset, lag, n, nm1, nmbs, bsm1, recompute_row;
     block_size = self->block_size;
     n = self->n;
+    nm1 = n - 1;
     nmbs = n - block_size;
     bsm1 = block_size - 1;
+    recompute_row = (self->exec_count++ % ((2 * nm1) * 1));
 
     float *cumsum = self->cumsum;
-    float cs, sum, sum2;
+    float sum, sum2, input, y, t;
     CircularArray *current_row;
     float *data1 = (float *)PyArray_DATA(a);
     float *data2 = (float *)PyArray_DATA(b);
@@ -127,7 +129,11 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
 
     j = 0;
     __m128 cs_vec, data_vec, b_vec, product;
-    for (offset = block_size - 1; offset < n - 1; ++offset) {
+    for (offset = block_size - 1; offset < nm1; ++offset) {
+        if (recompute_row == offset) {
+            result_data[offset] =
+                dot_product_sse(b1, b2, 0, nm1 - offset, offset + 1);
+        }
         cs_vec = _mm_setzero_ps();
         for (i = 0; i < block_size; i += 4) {
             b_vec = _mm_loadu_ps(&b1[offset - bsm1 + i]);
@@ -141,6 +147,9 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
         }
     }
     for (lag = 0; lag <= nmbs; ++lag) {
+        if (recompute_row == (lag + offset)) {
+            result_data[lag + nm1] = dot_product_sse(b1, b2, lag, 0, n - lag);
+        }
         cs_vec = _mm_setzero_ps();
         for (i = 0; i < block_size; i += 4) {
             b_vec = _mm_loadu_ps(&b2[i + nmbs - lag]);
@@ -165,8 +174,14 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
         offset = self->offsets[i];
         sum = cumsum[i * block_size + offset - 1];
         sum2 = cumsum[(i + 1) * block_size - 1] - sum;
-        result_data[bsm1 + i] -=
-            current_row->data[current_row->start] - (sum + sum2);
+
+        input = (sum + sum2) - current_row->data[current_row->start];
+        y = input - self->compensation[i];
+        t = result_data[bsm1 + i] + y;
+        self->compensation[i] = (t - result_data[bsm1 + i]) - y;
+        if (recompute_row != (bsm1 + i)) {
+            result_data[bsm1 + i] = t;
+        }
         write_circular_array(current_row, self->last_sum[i] + sum);
         // Push new right sum to block sums to subtract in next iteration
         self->last_sum[i] = sum2;
