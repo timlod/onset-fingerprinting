@@ -116,12 +116,9 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
     write_circular_array_multi(&self->buffer2, data2, block_size);
     float *b2 = rearrange_circular_array(&self->buffer2);
 
-    for (offset = 0; offset < block_size - 1; ++offset) {
-        cs = 0;
-        for (i = offset; i >= 0; --i) {
-            cs += b1[offset - i] * b2[n - i - 1];
-        }
-        result_data[offset] = cs;
+    for (offset = 0; offset < bsm1; ++offset) {
+        result_data[offset] =
+            dot_product_sse(b1, b2, 0, nm1 - offset, offset + 1);
     }
     /* __m256 b_vec, data_vec, product, cs_vec, t0; */
     /* j = 0; */
@@ -182,11 +179,7 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
         }
     }
     for (lag = nmbs + 1; lag < n; ++lag) {
-        cs = 0;
-        for (i = 0; i < n - lag; ++i) {
-            cs += b1[i + lag] * b2[i];
-        }
-        result_data[lag + n - 1] = cs;
+        result_data[lag + nm1] = dot_product_sse(b1, b2, lag, 0, n - lag);
     }
 
     // Center blocks' data is shifted by 1 index at each iteration, so we have
