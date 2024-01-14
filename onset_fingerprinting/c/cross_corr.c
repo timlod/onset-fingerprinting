@@ -120,36 +120,7 @@ void update_cross_correlation_data(CrossCorrelation *self, PyArrayObject *a,
         result_data[offset] =
             dot_product_sse(b1, b2, 0, nm1 - offset, offset + 1);
     }
-    /* __m256 b_vec, data_vec, product, cs_vec, t0; */
-    /* j = 0; */
-    /* for (offset = block_size - 1; offset < n - 1; ++offset) { */
-    /*     cs_vec = _mm256_setzero_ps(); */
-    /*     for (i = 0; i < block_size; i += 8) { */
-    /*         b_vec = _mm256_loadu_ps(&b1[offset - bsm1 + i]); */
-    /*         data_vec = _mm256_load_ps(&data2[i]); */
-    /*         product = _mm256_mul_ps(b_vec, data_vec); */
-    /*         product = scan_AVX(product); */
-    /*         product = _mm256_add_ps(product, cs_vec); */
-    /*         _mm256_store_ps(&cumsum[j], product); */
-    /*         t0 = _mm256_permute2f128_ps(product, product, 0x11); */
-    /*         cs_vec = _mm256_permute_ps(t0, 0xff); */
-    /*         j += 8; */
-    /*     } */
-    /* } */
-    /* for (lag = 0; lag <= nmbs; ++lag) { */
-    /*     cs_vec = _mm256_setzero_ps(); */
-    /*     for (i = 0; i < block_size; i += 8) { */
-    /*         b_vec = _mm256_loadu_ps(&b2[i + nmbs - lag]); */
-    /*         data_vec = _mm256_load_ps(&data1[i]); */
-    /*         product = _mm256_mul_ps(b_vec, data_vec); */
-    /*         product = scan_AVX(product); */
-    /*         product = _mm256_add_ps(product, cs_vec); */
-    /*         _mm256_store_ps(&cumsum[j], product); */
-    /*         t0 = _mm256_permute2f128_ps(product, product, 0x11); */
-    /*         cs_vec = _mm256_permute_ps(t0, 0xff); */
-    /*         j += 8; */
-    /*     } */
-    /* } */
+
     j = 0;
     __m128 cs_vec, data_vec, b_vec, product;
     for (offset = block_size - 1; offset < n - 1; ++offset) {
