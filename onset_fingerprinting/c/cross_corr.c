@@ -63,6 +63,34 @@ inline __m256 scan_AVX(__m256 x) {
     x = _mm256_add_ps(x, _mm256_permute2f128_ps(x, x, 41));
     return x;
 }
+
+inline float dot_product_sse(float *b1, float *b2, int start1, int start2,
+                             int length) {
+    __m128 sum, product;
+    int i;
+    float result;
+
+    sum = _mm_setzero_ps();
+    for (i = 0; i <= length - 3; i += 4) {
+        product = _mm_mul_ps(_mm_loadu_ps(&b1[start1 + i]),
+                             _mm_loadu_ps(&b2[start2 + i]));
+        sum = _mm_add_ps(sum, product);
+    }
+
+    // Handle any remaining elements (which don't fit in blocks of 4)
+    for (; i <= length; ++i) {
+        sum = _mm_add_ss(sum, _mm_mul_ss(_mm_load_ss(&b1[start1 + i]),
+                                         _mm_load_ss(&b2[start2 + i])));
+    }
+
+    // Horizontal addition to sum up all elements in the sum vector
+    sum = _mm_hadd_ps(sum, sum);
+    sum = _mm_hadd_ps(sum, sum);
+
+    _mm_store_ss(&result, sum);
+    return result;
+}
+
 /**
    Update intermediate data given new buffers and compute the updated
    cross-correlation.
