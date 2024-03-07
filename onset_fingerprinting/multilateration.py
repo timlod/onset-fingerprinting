@@ -311,8 +311,6 @@ class Multilaterate:
             of the drumhead
 
         :param drum_diameter: diameter in cm of the drum
-        :param scale: scale to use for accuracy of results.  scale 1 would use
-            a centimeter grid, default uses millimeters.
         :param medium: 'drumhead' for vibration/optical sensors, 'air' for
             microphones
         :param sr: sampling rate
