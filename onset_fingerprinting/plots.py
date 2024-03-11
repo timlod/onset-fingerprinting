@@ -75,28 +75,36 @@ def polar_circle(polar_coords: list[tuple[float, float]]) -> None:
     :param polar_coords: List of tuples, each containing radius and angle in degrees.
     """
     # Plot unit circle
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+
     theta = np.linspace(0, 2 * np.pi, 100)
     x_circle = np.sin(theta)
     y_circle = np.cos(theta)
-    plt.plot(x_circle, y_circle, label="Unit Circle")
+    ax.plot(x_circle, y_circle, label="Unit Circle")
 
     x_values = np.zeros(len(polar_coords))
     y_values = np.zeros(len(polar_coords))
     for i, (r, angle) in enumerate(polar_coords):
-        x_values[i] = r * np.sin(np.radians(angle))
-        y_values[i] = r * np.cos(np.radians(angle))
+        x_values[i] = r * np.cos(np.radians(angle))
+        y_values[i] = r * np.sin(np.radians(angle))
 
     # Scatter plot with colormap
-    plt.scatter(
-        x_values, y_values, c=range(len(polar_coords)), cmap="coolwarm"
+    ax.scatter(
+        x_values,
+        y_values,
+        c=range(len(polar_coords)),
+        cmap="coolwarm",
+        zorder=10,
     )
 
     # Set aspect ratio and labels
-    plt.axis("equal")
-    plt.xlabel("X-axis")
-    plt.ylabel("Y-axis")
-    plt.legend()
-    plt.title("Circle and Scatter Plot")
+    ax.axis("equal")
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    ax.legend()
+    ax.set_title("Circle and Scatter Plot")
+    return ax
 
 
 def is_legal_3d_plot(m, group, tolerance=2):
