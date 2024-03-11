@@ -214,65 +214,75 @@ def solve_trilateration(
 def solve_trilateration_3d(
     sensor_a: tuple[float, float, float],
     sensor_b: tuple[float, float, float],
-    sensor_c: tuple[float, float, float],
+    sensor_origin: tuple[float, float, float],
     delta_d_a: float,
     delta_d_b: float,
-    delta_d_c: float,
     initial_guess: np.ndarray,
-) -> tuple[float, float, float]:
+) -> tuple[float, float] | None:
     """
-    Solve the trilateration problem using fsolve in 3D space.
+    Solve the trilateration problem for a 2D point using 3D sensor locations.
+
+    :param sensor_a: The (x, y, z) coordinates of sensor A.
+    :param sensor_b: The (x, y, z) coordinates of sensor B.
+    :param sensor_origin: The (x, y, z) coordinates of the origin sensor.
+    :param delta_d_a: The difference in distance from the unknown point to
+        sensor A and the origin sensor.
+    :param delta_d_b: The difference in distance from the unknown point to
+        sensor B and the origin sensor.
+    :param initial_guess: An initial guess of the (x, y) position of the
+        unknown point.
+
+    :return: The (x, y) coordinates of the unknown point if solution is found,
+             else None.
     """
+    # Extract 3D coordinates
+    x_o, y_o, z_o = sensor_origin
     x_a, y_a, z_a = sensor_a
     x_b, y_b, z_b = sensor_b
-    x_c, y_c, z_c = sensor_c
 
     def equations(point: np.ndarray) -> np.ndarray:
-        x, y, z = point
+        x, y = point
+        # Assume the z-coordinate for the estimated point is at the same height as the origin
+        z = 0.0
+
+        # Calculate distances in 3D space but project the result into 2D
         d_a = np.sqrt((x - x_a) ** 2 + (y - y_a) ** 2 + (z - z_a) ** 2)
         d_b = np.sqrt((x - x_b) ** 2 + (y - y_b) ** 2 + (z - z_b) ** 2)
-        d_c = np.sqrt((x - x_c) ** 2 + (y - y_c) ** 2 + (z - z_c) ** 2)
+        d_o = np.sqrt((x - x_o) ** 2 + (y - y_o) ** 2 + (z - z_o) ** 2)
 
-        eq1 = d_a - delta_d_a
-        eq2 = d_b - delta_d_b
-        eq3 = d_c - delta_d_c
+        eq1 = d_a - d_o - delta_d_a
+        eq2 = d_b - d_o - delta_d_b
 
-        return eq1, eq2, eq3
+        return np.array([eq1, eq2])
 
     def jacobian(point: np.ndarray) -> np.ndarray:
-        x, y, z = point
+        x, y = point
+        # Again, use a fixed z-coordinate
+        z = 0.0
 
+        # Jacobian only with respect to x and y
         J00 = (x - x_a) / np.sqrt(
             (x - x_a) ** 2 + (y - y_a) ** 2 + (z - z_a) ** 2
+        ) - (x - x_o) / np.sqrt(
+            (x - x_o) ** 2 + (y - y_o) ** 2 + (z - z_o) ** 2
         )
         J01 = (y - y_a) / np.sqrt(
             (x - x_a) ** 2 + (y - y_a) ** 2 + (z - z_a) ** 2
+        ) - (y - y_o) / np.sqrt(
+            (x - x_o) ** 2 + (y - y_o) ** 2 + (z - z_o) ** 2
         )
-        J02 = (z - z_a) / np.sqrt(
-            (x - x_a) ** 2 + (y - y_a) ** 2 + (z - z_a) ** 2
-        )
-
         J10 = (x - x_b) / np.sqrt(
             (x - x_b) ** 2 + (y - y_b) ** 2 + (z - z_b) ** 2
+        ) - (x - x_o) / np.sqrt(
+            (x - x_o) ** 2 + (y - y_o) ** 2 + (z - z_o) ** 2
         )
         J11 = (y - y_b) / np.sqrt(
             (x - x_b) ** 2 + (y - y_b) ** 2 + (z - z_b) ** 2
-        )
-        J12 = (z - z_b) / np.sqrt(
-            (x - x_b) ** 2 + (y - y_b) ** 2 + (z - z_b) ** 2
-        )
-
-        J20 = (x - x_c) / np.sqrt(
-            (x - x_c) ** 2 + (y - y_c) ** 2 + (z - z_c) ** 2
-        )
-        J21 = (y - y_c) / np.sqrt(
-            (x - x_c) ** 2 + (y - y_c) ** 2 + (z - z_c) ** 2
-        )
-        J22 = (z - z_c) / np.sqrt(
-            (x - x_c) ** 2 + (y - y_c) ** 2 + (z - z_c) ** 2
+        ) - (y - y_o) / np.sqrt(
+            (x - x_o) ** 2 + (y - y_o) ** 2 + (z - z_o) ** 2
         )
 
-        return [[J00, J01, J02], [J10, J11, J12], [J20, J21, J22]]
+        return np.array([[J00, J01], [J10, J11]])
 
     root, info, ier, msg = fsolve(
         equations,
