@@ -34,25 +34,6 @@ def speed_of_sound(
         return scale * C_drumhead
 
 
-def polar_to_cartesian(
-    r: float, theta: float, theta_start_deg=90, theta_direction="cw"
-):
-    """Convert 2D polar coordinates to cartesian coordinates.
-
-    :param r: radius
-    :param theta: angle in degrees
-    """
-    theta_radians = np.radians(theta)
-    if theta_direction == "ccw":
-        theta_radians += np.radians(theta_start_deg)
-    else:
-        theta_radians = np.radians(theta_start_deg) - theta_radians
-
-    x = r * np.cos(theta_radians)
-    y = r * np.sin(theta_radians)
-    return x, y
-
-
 def cartesian_to_polar(x: float, y: float, r: float = None):
     """Convert 2D cartesian coordinates to polar coordinates.
 
@@ -65,61 +46,53 @@ def cartesian_to_polar(x: float, y: float, r: float = None):
     else:
         r = np.sqrt(x**2 + y**2) / r
 
-    theta_radians = np.arctan2(y, x) + np.pi / 2
+    phi_radians = np.arctan2(y, x)
 
     # Adjust theta to be in the range [0, 2 * pi)
-    theta_radians = theta_radians % (2 * np.pi)
+    phi_radians = phi_radians % (2 * np.pi)
 
-    return r, theta_radians * 180 / np.pi
+    return r, np.degrees(phi_radians)
+
+
+def polar_to_cartesian(r: float, phi: float):
+    """Convert 2D polar coordinates to cartesian coordinates.
+
+    :param r: radius
+    :param phi: angle in degrees
+    """
+    phi_radians = np.radians(phi)
+
+    x = r * np.cos(phi_radians)
+    y = r * np.sin(phi_radians)
+    return x, y
 
 
 def spherical_to_cartesian(
     r: float,
-    theta: float,
     phi: float,
-    theta_start_deg: float = 90,
-    phi_start_deg: float = 90,
-    theta_direction: str = "cw",
-    phi_direction: str = "ccw",
+    theta: float,
 ) -> (float, float, float):
     """Convert 3D spherical coordinates to Cartesian coordinates.
 
-    By default, x-y rotation moves clockwise and starts at y=1 (North); and x-z
-    rotation starts at x=0 moving counter-clockwise (up).  For example,
-    increasing theta and phi from 0 would start at [0, 1, 0], and move
-    clockwise in an upwards spiral.
+    By default, x-y rotation moves clockwise and starts at y=0 (East); and x-z
+    rotation starts at x=0 moving counter-clockwise (up).
 
     :param r: radius
-    :param theta: angle in the x-y plane in degrees
-    :param phi: angle between the x-axis and the z-axis in degrees
-    :param theta_start_deg: starting angle in degrees for theta rotation,
-        relative to right-up x-y coordinate system
-    :param phi_start_deg: starting angle in degrees for phi rotation, measured
-        in right-up x-z coordinate system
-    :param theta_direction: rotation direction for theta ('cw' for clockwise,
-        'ccw' for counter-clockwise)
-    :param phi_direction: rotation direction for phi ('cw' for clockwise, 'ccw'
-        for counter-clockwise)
+    :param phi: angle in the x-y plane in degrees
+    :param theta: angle in the x-z plane in degrees
 
     :return: Cartesian coordinates as (x, y, z)
     """
-    theta_radians = np.radians(theta)
     phi_radians = np.radians(phi)
-
-    if theta_direction == "ccw":
-        theta_radians += np.radians(theta_start_deg)
+    if theta < 0:
+        theta = -theta
     else:
-        theta_radians = np.radians(theta_start_deg) - theta_radians
+        theta = 90 - theta
+    theta_radians = np.radians(theta)
 
-    # This is a little confusing - the logic is reversed to rotate ccw around x
-    if phi_direction == "cw":
-        phi_radians += np.radians(phi_start_deg)
-    else:
-        phi_radians = np.radians(phi_start_deg) - phi_radians
-
-    x = r * np.sin(phi_radians) * np.cos(theta_radians)
+    x = r * np.cos(phi_radians) * np.sin(theta_radians)
     y = r * np.sin(phi_radians) * np.sin(theta_radians)
-    z = r * np.cos(phi_radians)
+    z = r * np.cos(theta_radians)
 
     return x, y, z
 
@@ -137,8 +110,46 @@ def cartesian_to_spherical(x: float, y: float, z: float):
 
     # Adjust phi to be in the range [0, 2 * pi)
     phi_radians = phi_radians % (2 * np.pi)
+    theta = np.degrees(theta_radians)
+    if theta < 0:
+        theta = -theta
+    else:
+        theta = 90 - theta
+    return r, np.degrees(phi_radians), theta
 
-    return r, np.degrees(phi_radians), np.degrees(theta_radians)
+
+def cartesian_to_cylindrical(x: float, y: float, z: float, r: float = None):
+    """Convert 3D cartesian coordinates to cylindrical coordinates.
+
+    :param x: x coordinate
+    :param y: y coordinate
+    :param z: z coordinate
+    :param r: radius unit-normalize returned radius
+    """
+    if r is None:
+        r = np.sqrt(x**2 + y**2)
+    else:
+        r = np.sqrt(x**2 + y**2) / r
+
+    phi_radians = np.arctan2(y, x)
+
+    # Adjust theta to be in the range [0, 2 * pi)
+    phi_radians = phi_radians % (2 * np.pi)
+
+    return r, np.degrees(phi_radians), z
+
+
+def cylindrical_to_cartesian(r: float, phi: float, z: float):
+    """Convert 2D polar coordinates to cartesian coordinates.
+
+    :param r: radius
+    :param phi: angle in degrees
+    """
+    theta_radians = np.radians(phi)
+
+    x = r * np.cos(theta_radians)
+    y = r * np.sin(theta_radians)
+    return x, y, z
 
 
 def remove_seed(groups, group):

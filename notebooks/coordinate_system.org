@@ -182,10 +182,10 @@ def polar_to_cartesian(
     :param r: radius
     :param phi: angle in degrees
     """
-    theta_radians = np.radians(phi)    
+    phi_radians = np.radians(phi)
 
-    x = r * np.cos(theta_radians)
-    y = r * np.sin(theta_radians)
+    x = r * np.cos(phi_radians)
+    y = r * np.sin(phi_radians)
     return x, y
 #+end_src
 
@@ -291,3 +291,93 @@ given positive angle from 90 degrees.
 /Cylindrical/
 - z :: "up-to-down" in the vertical sense, or height/distance from x-y plane.
   The z-axis points up vertically from the origin, same as cartesian.
+
+Cylindrical coordinates are polar coordinates with added z-axis, which can be
+taken directly from the cartesian system.
+
+#+begin_src python
+def spherical_to_cartesian(
+    r: float,
+    phi: float,
+    theta: float,
+) -> (float, float, float):
+    """Convert 3D spherical coordinates to Cartesian coordinates.
+
+    By default, x-y rotation moves clockwise and starts at y=0 (East); and x-z
+    rotation starts at x=0 moving counter-clockwise (up).
+
+    :param r: radius
+    :param phi: angle in the x-y plane in degrees
+    :param theta: angle in the x-z plane in degrees
+
+    :return: Cartesian coordinates as (x, y, z)
+    """
+    phi_radians = np.radians(phi)
+    if theta < 0:
+        theta = -theta
+    else:
+        theta = 90 - theta
+    theta_radians = np.radians(theta)
+
+    x = r * np.cos(phi_radians) * np.sin(theta_radians)
+    y = r * np.sin(phi_radians) * np.sin(theta_radians)
+    z = r * np.cos(theta_radians)
+
+    return x, y, z
+
+
+def cartesian_to_spherical(x: float, y: float, z: float):
+    """Convert 3D cartesian coordinates to spherical/polar coordinates.
+
+    :param x: x coordinate
+    :param y: y coordinate
+    :param z: z coordinate
+    """
+    r = np.sqrt(x**2 + y**2 + z**2)
+    phi_radians = np.arctan2(y, x)
+    theta_radians = np.arccos(z / r)
+
+    # Adjust phi to be in the range [0, 2 * pi)
+    phi_radians = phi_radians % (2 * np.pi)
+    theta = np.degrees(theta_radians)
+    if theta < 0:
+        theta = -theta
+    else:
+        theta = 90 - theta
+    return r, np.degrees(phi_radians), theta
+
+
+def cartesian_to_cylindrical(x: float, y: float, z: float, r: float = None):
+    """Convert 3D cartesian coordinates to cylindrical coordinates.
+
+    :param x: x coordinate
+    :param y: y coordinate
+    :param z: z coordinate
+    :param r: radius unit-normalize returned radius
+    """
+    if r is None:
+        r = np.sqrt(x**2 + y**2)
+    else:
+        r = np.sqrt(x**2 + y**2) / r
+
+    phi_radians = np.arctan2(y, x)
+
+    # Adjust theta to be in the range [0, 2 * pi)
+    phi_radians = phi_radians % (2 * np.pi)
+
+    return r, np.degrees(phi_radians), z
+
+def cylindrical_to_cartesian(
+    r: float, phi: float, z: float
+):
+    """Convert 2D polar coordinates to cartesian coordinates.
+
+    :param r: radius
+    :param phi: angle in degrees
+    """
+    theta_radians = np.radians(phi)
+
+    x = r * np.cos(theta_radians)
+    y = r * np.sin(theta_radians)
+    return x, y, z
+#+end_src
