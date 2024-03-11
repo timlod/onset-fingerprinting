@@ -34,8 +34,12 @@ typedef struct {
 static PyTypeObject CrossCorrelationType;
 
 /*
-TODO: add normalizing and, if adding normalizing, get min_samples required to
-have a result (will introduce latency)
+  TODO:
+
+- add normalizing and, if adding normalizing, get min_samples required to have
+a result (will introduce latency)
+- normalize by inverse square root of distance to sound source
+
 */
 
 // The following two functions are from this SO question:
