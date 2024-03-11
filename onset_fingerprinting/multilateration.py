@@ -10,7 +10,7 @@ HUMIDITY = 50.0
 DIAMETER = 14 * 2.54
 STRIKE_FORCE = 1.0
 # speed in m/s of sound through drumhead membrane
-C_drumhead = 140
+C_drumhead = 82
 # medium used in sound propagation equations (air or drumhead)
 MEDIUM = "air"
 
@@ -132,13 +132,13 @@ def cartesian_to_spherical(x: float, y: float, z: float):
     :param z: z coordinate
     """
     r = np.sqrt(x**2 + y**2 + z**2)
-    theta_radians = np.arccos(z / r)
     phi_radians = np.arctan2(y, x)
+    theta_radians = np.arccos(z / r)
 
     # Adjust phi to be in the range [0, 2 * pi)
     phi_radians = phi_radians % (2 * np.pi)
 
-    return r, np.degrees(theta_radians), np.degrees(phi_radians)
+    return r, np.degrees(phi_radians), np.degrees(theta_radians)
 
 
 def remove_seed(groups, group):
