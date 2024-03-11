@@ -1,0 +1,293 @@
+#+TITLE: Coordinate systems for drum onset multilateration
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Sunday, 10 March 2024
+#+STARTUP: showall hideblocks
+#+PROPERTY: header-args :exports both :session coord :kernel lm :cache no
+:PROPERTIES:
+OPTIONS: ^:nil
+#+LATEX_COMPILER: xelatex
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [logo, color, author]
+#+LATEX_HEADER: \insertauthor
+#+LATEX_HEADER: \usepackage{minted}
+#+LATEX_HEADER: \usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+:END:
+
+* Imports and Environment Variables
+:PROPERTIES:
+:visibility: folded
+:END:
+
+#+name: imports
+#+begin_src python
+import matplotlib.pyplot as plt
+import numpy as np
+from onset_fingerprinting import plots
+#+end_src
+
+#+name: env
+#+begin_src python
+
+#+end_src
+
+* Introduction
+When laterating drum onsets using multiple sensors, we use multiple coordinate
+systems to state the problem as simply as possible at each step of the process.
+
+A single playing surface is currently always a 2D plane, points on which make
+sense to define in two different ways:
+1. Cartesian coordinates x, y with center of surface (usually a circle/disk) defined
+   as the origin (0, 0)
+2. Polar coordinates with radius/angle r, theta using the same origin (0, # - at 0
+   radius the angle doesn't matter)
+
+When using pickups or optical sensors, sensor locations can be defined on the
+playing surface using this 2D coordinate system, but once we use microphones,
+we need to work in 3D - the microphone capsule will never be on the same plane
+as the playing surface.
+
+Since the playing surface stays in 2D, we'd like to continue to think about it
+in 2D, therefore the 3D coordinate systems should be logical extensions of the
+2D system without any mental overhead. Further, directions and terminology
+should be as intuitive as possible to the player/percussionist, mapping onto
+their point of view.
+
+For now, we assume the playing surface is circular/a disk.
+
+For intuitive ease, degrees are used over radians (which should only be used
+internally for computation).
+
+*On plotting*
+Visualizing coordinate systems and results is important to understanding what's
+going on - plotting libraries may have differing conventions as to how a given
+coordinate system and points in it are displayed, so we need to make sure we
+clearly define how the plotting library (matplotlib in this case) works to
+display our results without mental overhead.
+
+* 2D
+
+Strikes we are locating will (at this point) always lie on idealized 2D planes,
+therefore we aim to anchor everything in 2D in a logical way. As our 2D playing
+surfaces are usually drumheads parallel to the floor, we use the following
+convention:
+
+/Cartesian/
+- origin at center :: (0, 0) shall always be the exact center of a playing surface
+- x :: "left-to-right" - or length
+- y :: "up-to-down" - or width. up-to-down is in the sense of looking down onto
+  the playing surface
+- positive numbers are up-right :: to match the classical x-y plot, negative
+  numbers will be left of origin for the y-axis, and down from origin for the
+  x-axis
+
+/Polar/
+- r :: radius/distance from origin
+- phi :: angle of the x-y plane, with positive x and y being quadrant 1, i.e.
+  phi=0/360 (in degrees) meaning we are on the positive part of the x-axis. Phi
+  is the /azimuth/.
+
+Let's showcase:
+
+#+begin_src python :file ./figures/coordinate_system/2D.png
+import matplotlib.patches as patches
+
+ax = polar_circle([(1, 0), (1, 90), (1, 180), (1, 270)])
+ax.set_title("2D coordinate system\nPoints in(x,y), (r,phi)")
+ax.plot([-1, 1], [0, 0], "black")
+ax.plot([0, 0], [-1, 1], "black")
+plt.annotate(
+    f"(1, 0), (1, 0)",
+    (1, 0),
+    textcoords="offset points",
+    xytext=(0, 10),
+    ha="center",
+    fontsize=8,
+)
+plt.annotate(
+    f"(0, 1), (1, 90)",
+    (0, 1),
+    textcoords="offset points",
+    xytext=(0, 10),
+    ha="center",
+    fontsize=8,
+)
+plt.annotate(
+    f"(-1, 0), (1, 180)",
+    (-1, 0),
+    textcoords="offset points",
+    xytext=(0, 10),
+    ha="center",
+    fontsize=8,
+)
+plt.annotate(
+    f"(0, -1), (1, 270)",
+    (0, -1),
+    textcoords="offset points",
+    xytext=(0, 10),
+    ha="center",
+    fontsize=8,
+)
+arrow_style = patches.ArrowStyle(
+    "Simple", head_length=4, head_width=4, tail_width=0.5
+)
+phi = np.pi / 2
+arrow = patches.FancyArrowPatch(
+    (0.2, 0),
+    (0.2 * np.cos(phi), 0.2 * np.sin(phi)),
+    connectionstyle="arc3,rad=.5",
+    arrowstyle=arrow_style,
+    color="blue",
+)
+ax.add_patch(arrow)
+plt.annotate(
+    f"phi",
+    (0.08, 0),
+    color="blue",
+    textcoords="offset points",
+    xytext=(0, 10),
+    ha="center",
+    fontsize=8,    
+);
+#+end_src
+
+#+RESULTS:
+[[./figures/coordinate_system/2D.png]]
+
+#+begin_src python
+def cartesian_to_polar(x: float, y: float, r: float = None):
+    """Convert 2D cartesian coordinates to polar coordinates.
+
+    :param x: x coordinate
+    :param y: y coordinate
+    :param r: radius unit-normalize returned radius
+    """
+    if r is None:
+        r = np.sqrt(x**2 + y**2)
+    else:
+        r = np.sqrt(x**2 + y**2) / r
+
+    phi_radians = np.arctan2(y, x)
+
+    # Adjust theta to be in the range [0, 2 * pi)
+    phi_radians = phi_radians % (2 * np.pi)
+
+    return r, np.degrees(phi_radians)
+
+def polar_to_cartesian(
+    r: float, phi: float
+):
+    """Convert 2D polar coordinates to cartesian coordinates.
+
+    :param r: radius
+    :param phi: angle in degrees
+    """
+    theta_radians = np.radians(phi)    
+
+    x = r * np.cos(theta_radians)
+    y = r * np.sin(theta_radians)
+    return x, y
+#+end_src
+
+
+** Arrays
+Array indexing convention in 2D means we index first row and then column. This
+means the first indexer indexes "up-down", which is the opposite of traditional
+x/y thinking. We will use the following:
+
+- i :: row-indexing variable
+- j :: column-indexing variable
+
+Usually this means we need to index ~array[j][i]~ for getting point (x, y).
+
+We might use matrices to easily represent our playing surface at a given
+granularity. In that case, the center index (i=j=len(array)//2) will be at the
+origin. Further, when defining arrays literally, we usually have the first row
+(i=0) at the top. This means that i=0 needs to correspond to the extent of the
+y-axis. It's important that we use ~extent=[-1, 1, -1, 1]~ in our calls to
+plt.imshow to center our matrices around the origin.
+
+#+begin_src python file ./figures/coordinate_system/2D_array.png
+array = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+#print(array)
+ax = polar_circle([])
+aim = ax.imshow(array, extent=[-1, 1, -1, 1])
+ax.legend("")
+plt.colorbar(aim)
+plt.annotate(
+    f"[0,0]",
+    (-0.667, 0.62),
+    ha="center",
+    fontsize=12,
+    color="red",
+)
+plt.annotate(
+    f"[0,2]",
+    (0.68, 0.62),
+    ha="center",
+    fontsize=12,
+    color="red",
+)
+plt.annotate(
+    f"[2,0]",
+    (-0.68, -0.68),
+    ha="center",
+    fontsize=12,
+    color="red",
+);
+plt.annotate(
+    f"[1,1]",
+    (-0, 0),
+    ha="center",
+    fontsize=12,
+    color="red",
+);
+plt.annotate(
+    f"[2,2]",
+    (0.68, -0.68),
+    ha="center",
+    fontsize=12,
+    color="red",
+);
+#+end_src
+
+#+RESULTS:
+[[./.ob-jupyter/051246aac46e31e09982002722d1c2ba93219c2e.png]]
+
+: [[1 2 3]
+:  [4 5 6]
+:  [7 8 9]]
+
+* 3D
+
+In 3D, we will extend the cartesian coordinate system by adding the z-axis
+(representing height). The polar coordinate system can be extended by either
+adding a second angle (theta, or the x-z plane angle) to form a spherical
+coordinate system, or adding the z-component like in the cartesian system,
+forming a cylindrical coordinate system.
+
+It's important that we leave the conventions from the 2D system as they are,
+and just add a third component in a way that makes intuitive sense. This means
+the spherical coordinate system does NOT follow the typical physics or
+mathematics convention of spherical coordinate systems, as in those a x-z angle
+of 0 would always point at the origin. We want to preserve the 2D case when
+theta is 0.
+
+/Cartesian/
+- z :: "up-to-down" in the vertical sense, or height. The z-axis points up
+  vertically from the origin
+
+/Spherical/
+- theta :: angle of the x-z plane, (/polar angle/, /inclination/ or /zenith/),
+  with theta=0 representing 0 (!) inclination, and theta=90 representing points
+  directly above the origin (counter-clockwise rotation). Theta is only defined
+  from -90 to 90 degrees (further rotation around x-y should be done by using
+  phi += 180)
+
+The unconventional angle can be converted to the physics convention (clockwise
+rotation down from the z-axis) by negating negative angles, and subtracting a
+given positive angle from 90 degrees.
+
+/Cylindrical/
+- z :: "up-to-down" in the vertical sense, or height/distance from x-y plane.
+  The z-axis points up vertically from the origin, same as cartesian.
