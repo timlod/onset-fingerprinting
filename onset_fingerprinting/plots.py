@@ -228,6 +228,7 @@ def plot_lags_3d(
     sr: int = 96000,
     scale: float = 1,
     medium: str = "air",
+    only_lags=True,
 ):
     """Plot lags and sound intensities dropoffs for 3D mic locations.
 
@@ -244,6 +245,7 @@ def plot_lags_3d(
         centimeters.  For example, for millimeters, scale should be 10
     :param medium: the medium the sound travels through.  One of 'air' or
         'drumhead', the latter for optical/magnetic measurements
+    :param only_lags: set False to also plot intensity dropoffs
     """
     n = int(np.round(d, 1) * scale)
     r = n // 2
@@ -257,8 +259,9 @@ def plot_lags_3d(
         mic_a_cart, mic_b_cart, reflectivity, d, sr, scale, medium
     )
     plot_heatmap(lags, r, mic_a_cart, mic_b_cart, "Samples difference")
-    plot_heatmap(sa, r, mic_a_cart, mic_b_cart, "dB")
-    plot_heatmap(sb, r, mic_a_cart, mic_b_cart, "dB")
+    if not only_lags:
+        plot_heatmap(sa, r, mic_a_cart, mic_b_cart, "dB")
+        plot_heatmap(sb, r, mic_a_cart, mic_b_cart, "dB")
 
 
 def plot_heatmap(x, r, mic_a_cart, mic_b_cart, cb_label=""):

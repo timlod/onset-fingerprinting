@@ -253,7 +253,8 @@ def solve_trilateration_3d(
 
     def equations(point: np.ndarray) -> np.ndarray:
         x, y = point
-        # Assume the z-coordinate for the estimated point is at the same height as the origin
+        # Assume the z-coordinate for the estimated point is at the same height
+        # as the origin
         z = 0.0
 
         # Calculate distances in 3D space but project the result into 2D
