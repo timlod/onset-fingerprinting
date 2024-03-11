@@ -299,6 +299,169 @@ def solve_trilateration_3d(
         return None
 
 
+class Multilaterate3D:
+    def __init__(
+        self,
+        sensor_locations: list[tuple[float, float, float]],
+        drum_diameter: float = DIAMETER,
+        medium: str = "drumhead",
+        sr: int = 44100,
+    ):
+        """Initialize multilateration onset locator.
+
+        :param sensor_locations: list of sensor location tuples in relative
+            polar coordinates, with first index of the location tuple being the
+            radius (usually in [0, 1], although e.g. a microphone could be
+            placed outside of the drumhead, i.e. 1.1) and the second being the
+            angle in degrees, with 0/360 being the top/north location of the
+            drum.
+
+            For example, [(0.9, 0), (0.9, 90)] defines two sensors placed
+            towards the outer edge of the drum, at the north and east locations
+            of the drumhead
+
+        :param drum_diameter: diameter in cm of the drum
+        :param medium: 'drumhead' for vibration/optical sensors, 'air' for
+            microphones
+        :param sr: sampling rate
+        """
+        self.radius = drum_diameter / 2
+        self.sensor_locs = [
+            spherical_to_cartesian(x[0] * self.radius, x[1], x[2])
+            for x in sensor_locations
+        ]
+        self.medium = medium
+        self.sr = sr
+        self.samples_per_cm = sr / speed_of_sound(100, medium=medium)
+
+        # Create small lag maps (centimeter resolution) just to determine
+        # whether a given lag is feasible, quickly
+        self.lag_maps = [{} for _ in range(len(self.sensor_locs))]
+        # Max valid lags for sensor pairings
+        self.max_lags = [{} for _ in range(len(self.sensor_locs))]
+        # Min valid lags for sensor pairings
+        self.min_lags = [{} for _ in range(len(self.sensor_locs))]
+        for i in range(len(self.sensor_locs)):
+            for j in range(len(self.sensor_locs)):
+                if i == j:
+                    continue
+                lm = lag_map_3d(
+                    self.sensor_locs[j],
+                    self.sensor_locs[i],
+                    d=drum_diameter,
+                    sr=sr,
+                    scale=1,
+                    medium=self.medium,
+                    # 2cm tolerance around edge of drum
+                    tol=2,
+                )
+                # Allow some negative values, specifically to allow some slack
+                # in the the center region if sensors are placed circularly
+                lm[lm < -self.samples_per_cm * 1] = np.nan
+                self.lag_maps[i][j] = lm
+                self.max_lags[i][j] = np.nanmax(lm)
+                self.min_lags[i][j] = np.nanmin(lm)
+        # Max valid lag (total) per sensor, to use in stopping condition
+        self.max_max_lags = [
+            np.nanmax(list(d.values())) for d in self.max_lags
+        ]
+        self.ongoing = []
+
+    def is_legal(self, first_sensor: int, later_sensor: int, lag: int) -> bool:
+        """Verifies that the given sensor/onset index combinations fall on the
+        playing surface.
+
+        :param first_sensor: index of the sensor within self.sensor_locs with
+            the earlier onset
+        :param later_sensor: index of the sensor within self.sensor_locs with
+            the later onset
+        :param lag: onset index of the sensor with the later onset
+        """
+        return (
+            self.min_lags[first_sensor][later_sensor]
+            < lag
+            < self.max_lags[first_sensor][later_sensor]
+        )
+
+    def is_legal_3d(self, group, tolerance=1):
+        # We take a tolerance of Xcm around the target - fine location is done
+        # during fsolve trilateration
+        tolerance *= self.samples_per_cm
+        sensors, onsets = group[0], group[1]
+        lag1 = onsets[1] - onsets[0]
+        lag2 = onsets[2] - onsets[0]
+        lm1 = self.lag_maps[sensors[0]][sensors[1]]
+        lm2 = self.lag_maps[sensors[0]][sensors[2]]
+
+        legal = (lm1 < lag1 + tolerance) & (lm1 > lag1 - tolerance)
+        legal &= (lm2 < lag2 + tolerance) & (lm2 > lag2 - tolerance)
+        res = np.unravel_index(np.argmax(legal > 0), legal.shape, "F")
+        return res
+
+    def locate(
+        self, sensor_index: int, onset_index: int
+    ) -> None | tuple[float, float]:
+        new_groups = []
+
+        for group in self.ongoing:
+            # Group: ([sensor_indexes], [onset_indexes])
+            lag = onset_index - group[1][0]
+            if sensor_index not in group[0]:
+                if self.is_legal(group[0][0], sensor_index, lag):
+                    group = (
+                        group[0] + [sensor_index],
+                        group[1] + [onset_index],
+                    )
+                    if len(group[0]) == 3:
+                        res = self.is_legal_3d(group)
+                        if res != (0, 0):
+                            res = np.array(res) - self.radius
+                            # print(group, res, res == (0, 0))
+                            # Should we try again if trilaterate fails? Should
+                            # we purge everything with the same first element
+                            # if it succeeds? print(group, sensor_index,
+                            # onset_index, lag)
+                            res = self.trilaterate(group, res)
+                            if res is not None:
+                                new_groups = remove_seed(new_groups, group)
+                            self.ongoing = new_groups
+                            return res
+                    new_groups.append(group)
+            # Not reached maximum possible lag (and didn't return during
+            # trilaterate), so keep this group for now
+            if lag <= self.max_max_lags[group[0][0]]:
+                new_groups.append(group)
+        new_groups.append(([sensor_index], [onset_index]))
+        self.ongoing = new_groups
+        return None
+
+    def trilaterate(
+        self, group: tuple[list[int], list[int]], initial_guess
+    ) -> tuple[float, float]:
+        sensors, onsets = group[0], group[1]
+        sensor_a = self.sensor_locs[sensors[1]]
+        sensor_b = self.sensor_locs[sensors[2]]
+        sensor_origin = self.sensor_locs[sensors[0]]
+
+        c = speed_of_sound(100, medium=self.medium)
+
+        d_a1 = (onsets[1] - onsets[0]) * c / self.sr
+        d_b1 = (onsets[2] - onsets[0]) * c / self.sr
+
+        res = solve_trilateration_3d(
+            sensor_a,
+            sensor_b,
+            sensor_origin,
+            d_a1,
+            d_b1,
+            initial_guess,
+        )
+        if res is not None:
+            return cartesian_to_polar(*res, self.radius)
+        else:
+            return None
+
+
 class Multilaterate:
     def __init__(
         self,
