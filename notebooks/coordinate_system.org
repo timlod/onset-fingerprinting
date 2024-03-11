@@ -204,8 +204,8 @@ We might use matrices to easily represent our playing surface at a given
 granularity. In that case, the center index (i=j=len(array)//2) will be at the
 origin. Further, when defining arrays literally, we usually have the first row
 (i=0) at the top. This means that i=0 needs to correspond to the extent of the
-y-axis. It's important that we use ~extent=[-1, 1, -1, 1]~ in our calls to
-plt.imshow to center our matrices around the origin.
+y-axis. It's important that we use ~extent=[-r, r, -r, r]~ in our calls to
+plt.imshow to center our matrices around the origin (with r being the radius).
 
 #+begin_src python file ./figures/coordinate_system/2D_array.png
 array = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
