@@ -14,6 +14,14 @@ setuptools.setup(
                 "-O3",
                 "-mavx2",  # or -msse
             ],
-        )
+        ),
+        setuptools.Extension(
+            "online_cc",
+            sources=["onset_fingerprinting/envelope_follower.c"],
+            extra_compile_args=[
+                "-Wall",
+                "-O3",
+            ],
+        ),
     ]
 )
