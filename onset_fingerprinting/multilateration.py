@@ -745,9 +745,9 @@ class MultilateratePaired:
             cross-correlation computation.  Around 5ms of samples are useful.
             If x contains <= this many samples, this setting won't do anything
         """
-        onset_idx = detection.detect_onset_region(
-            x[:, i], onset_idx, right, threshold_factor=0.2
-        )
+        # onset_idx = detection.detect_onset_region(
+        #     x[:, i], onset_idx, right, threshold_factor=0.2
+        # )
         self.res[:] = 0
         for j in self.lag_maps[i]:
             lag = find_lag(
