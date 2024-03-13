@@ -92,7 +92,7 @@ Let's showcase:
 #+begin_src python :file ./figures/coordinate_system/2D.png
 import matplotlib.patches as patches
 
-ax = polar_circle([(1, 0), (1, 90), (1, 180), (1, 270)])
+ax = plots.polar_circle([(1, 0), (1, 90), (1, 180), (1, 270)])
 ax.set_title("2D coordinate system\nPoints in(x,y), (r,phi)")
 ax.plot([-1, 1], [0, 0], "black")
 ax.plot([0, 0], [-1, 1], "black")
@@ -207,10 +207,10 @@ origin. Further, when defining arrays literally, we usually have the first row
 y-axis. It's important that we use ~extent=[-r, r, -r, r]~ in our calls to
 plt.imshow to center our matrices around the origin (with r being the radius).
 
-#+begin_src python file ./figures/coordinate_system/2D_array.png
+#+begin_src python :file ./figures/coordinate_system/2D_array.png
 array = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
 #print(array)
-ax = polar_circle([])
+ax = plots.polar_circle([])
 aim = ax.imshow(array, extent=[-1, 1, -1, 1])
 ax.legend("")
 plt.colorbar(aim)
@@ -252,7 +252,7 @@ plt.annotate(
 #+end_src
 
 #+RESULTS:
-[[./.ob-jupyter/051246aac46e31e09982002722d1c2ba93219c2e.png]]
+[[./figures/coordinate_system/2D_array.png]]
 
 : [[1 2 3]
 :  [4 5 6]
