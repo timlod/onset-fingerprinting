@@ -68,7 +68,7 @@ def plot_3d_scene(
     ax.set_zlabel("Z-axis")
 
 
-def polar_circle(polar_coords: list[tuple[float, float]]) -> None:
+def polar_circle(polar_coords: list[tuple[float, float]], label=False) -> None:
     """
     Plot a unit circle and scatter a list of polar coordinates on it.
 
@@ -97,6 +97,9 @@ def polar_circle(polar_coords: list[tuple[float, float]]) -> None:
         cmap="coolwarm",
         zorder=10,
     )
+    if label:
+        for i, (x, y) in enumerate(zip(x_values, y_values)):
+            ax.text(x, y, str(i))
 
     # Set aspect ratio and labels
     ax.axis("equal")
