@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import librosa
 from scipy import signal as sig
-from scipy.ndimage import binary_opening
+from scipy.ndimage import binary_opening, maximum_filter1d
 
 
 def detect_onsets(x: np.ndarray, sr: int = 96000, method="amp"):
@@ -350,8 +350,9 @@ class AmplitudeOnsetDetector:
             np.full((block_size, n_signals), floor, dtype=np.float32), *slow_ar
         )
         self.minmax_tracker = MinMaxEnvelopeFollower(
-            x0=np.array([[0, 20]] * n_signals).T,
+            x0=np.array([[0, 10]] * n_signals).T,
             alpha_min=1e-4,
+            alpha_max=1e-5,
         )
 
         self.state = np.zeros(n_signals, dtype=bool)
@@ -397,7 +398,8 @@ class AmplitudeOnsetDetector:
 
         mi, ma = self.minmax_tracker(relative_envelope)
         # Logic for detection
-        on_threshold = (ma * self.on_threshold) + mi
+        # on_threshold = self.on_threshold
+        on_threshold = ma * self.on_threshold + mi
         crossed_on_threshold = (
             (relative_envelope > on_threshold)
             & (~self.state)
@@ -418,9 +420,9 @@ class AmplitudeOnsetDetector:
 
         # Update states for off_threshold crossing
         # only check for off_threshold after detection to turn off
-        crossed_off_threshold = relative_envelope < (
-            (ma * self.off_threshold) + mi
-        )
+        # off_threshold = self.off_threshold
+        off_threshold = ma * self.off_threshold + mi
+        crossed_off_threshold = relative_envelope < off_threshold
 
         crossed_off_threshold[: on_indices.max(), :] = False
         self.state[np.any(crossed_off_threshold, axis=0)] = False
@@ -430,7 +432,7 @@ class AmplitudeOnsetDetector:
         channels, deltas = np.where(on)[0], on_indices[on]
         if self.backtrack and len(channels) > 0:
             deltas = self.backtrack_onsets(channels, deltas)
-        return channels, deltas
+        return channels, deltas, relative_envelope
 
     def backtrack_onsets(self, channels, deltas):
         N = self.buffer.N
@@ -466,4 +468,52 @@ class AmplitudeOnsetDetector:
         for i in range(0, len(x), self.block_size):
             xi = x[i : i + self.block_size, :]
             self.minmax_tracker(self.fast_slide(xi) - self.slow_slide(xi))
+
+    def init(self, x):
+        """Initialize onset detector with a data containing stretches of
+        silence as well as stretches of audio approximately as loud as it will
+        get during performance.
+
+        :param x: multi-channel audio array
+        """
+
+        if self.hp is not None:
+            x = self.hp(x)
+        # Compute floor-clipped, rectified dB
+        x = 20 * np.log10(np.abs(x + 1e-10))
+
+        # Initialize slides, assumes that first half second is silent
+        for i in range(
+            int(0.1 * self.sr), int(0.5 * self.sr), self.block_size
+        ):
+            xi = x[i : i + self.block_size]
+            self.fast_slide(xi)
+            self.slow_slide(xi)
+
+        rel = np.zeros_like(x)
+        for i in range(0, len(x), self.block_size):
+            xi = x[i : i + self.block_size]
+            rel[i : i + self.block_size] = self.fast_slide(
+                xi
+            ) - self.slow_slide(xi)
+
+        self.mins = np.median(rel[: self.sr], axis=0)
+        self.maxs = np.max(rel, axis=0)
+        self.on_threshold = self.maxs * self.on_threshold + self.mins
+        self.off_threshold = self.maxs * self.off_threshold + self.mins
+        self.noise_max = np.median(
+            maximum_filter1d(rel[::], int(self.sr * 0.01), axis=0), axis=0
+        )
+        noise_thresh = (self.noise_max - self.mins) / self.maxs
+        print(
+            "Approx. relative noise thresholds at "
+            f"{[np.round(x, 3) for x in noise_thresh]}!"
+        )
+
+        # Ensure continuity with the starting point again
+        x = x[self.sr - 1 :: -1].copy()
+        for i in range(0, self.sr, self.block_size):
+            xi = x[i : i + self.block_size]
+            self.fast_slide(xi)
+            self.slow_slide(xi)
 
