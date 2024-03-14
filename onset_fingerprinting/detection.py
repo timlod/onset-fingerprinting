@@ -44,17 +44,14 @@ def detect_onsets_amplitude(
         backtrack_smooth_size=1,
     )
     od.init_minmax_tracker(x[: int(0.5 * sr)])
-    num_blocks = len(x) // block_size
     channels, onsets = [], []
     rel = []
-    for i in range(num_blocks):
-        start_idx = i * block_size
-        end_idx = (i + 1) * block_size
-        samples = x[start_idx:end_idx]
+    for i in range(0, len(x), block_size):
+        samples = x[i : i + block_size]
         c, d, r = od(samples)
         rel.append(r)
         if len(c) > 0:
-            d = [start_idx + x for x in d]
+            d = [i + x for x in d]
             channels.append(c)
             onsets.append(d)
     channels_flat = [x for y in channels for x in y]
@@ -466,7 +463,7 @@ class AmplitudeOnsetDetector:
             x = self.hp(x)
         # Compute floor-clipped, rectified dB
         x = 20 * np.log10(np.abs(x + 1e-10))
-        for i in range(0, len(x) // self.block_size):
-            xi = x[i * self.block_size : (i + 1) * self.block_size, :]
+        for i in range(0, len(x), self.block_size):
+            xi = x[i : i + self.block_size, :]
             self.minmax_tracker(self.fast_slide(xi) - self.slow_slide(xi))
 
