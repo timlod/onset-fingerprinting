@@ -109,7 +109,7 @@ def tdoa_calibration_loss(
     """
     # sp assumed in meters
     C = sensor_positions[0]
-    sensor_positions = sensor_positions[1:].reshape(-1, 3)
+    sensor_positions = sensor_positions.reshape(-1, 3)
     error = 0.0
     for i, sound in enumerate(sound_positions):
         distances = (
