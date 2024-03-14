@@ -7,7 +7,62 @@ from scipy import signal as sig
 from scipy.ndimage import binary_opening
 
 
-def detect_onsets(
+def detect_onsets(x: np.ndarray, sr: int = 96000, method="amp"):
+    if method == "amp":
+        return detect_onsets_amplitude(x, sr=sr)
+    else:
+        return detect_onsets_spectral(x, sr=sr)
+
+
+def detect_onsets_amplitude(
+    x: np.ndarray,
+    block_size: int = 128,
+    floor: float = -70.0,
+    hipass_freq: float = 2000.0,
+    fast_ar: tuple[float, float] = (3.0, 383.0),
+    slow_ar: tuple[float, float] = (2205.0, 2205.0),
+    on_threshold: float = 0.5,
+    off_threshold: float = 0.1,
+    cooldown: int = 1323,
+    backtrack: bool = False,
+    backtrack_buffer_size: int = 80,
+    backtrack_smooth_size: int = 5,
+    sr: int = 96000,
+):
+    od = AmplitudeOnsetDetector(
+        x.shape[1],
+        block_size,
+        hipass_freq=2000,
+        fast_ar=(1, 1000),
+        slow_ar=(10000, 10000),
+        on_threshold=0.6,
+        off_threshold=0.01,
+        cooldown=1323,
+        sr=sr,
+        backtrack=True,
+        backtrack_buffer_size=2 * block_size,
+        backtrack_smooth_size=1,
+    )
+    od.init_minmax_tracker(x[: int(0.5 * sr)])
+    num_blocks = len(x) // block_size
+    channels, onsets = [], []
+    rel = []
+    for i in range(num_blocks):
+        start_idx = i * block_size
+        end_idx = (i + 1) * block_size
+        samples = x[start_idx:end_idx]
+        c, d, r = od(samples)
+        rel.append(r)
+        if len(c) > 0:
+            d = [start_idx + x for x in d]
+            channels.append(c)
+            onsets.append(d)
+    channels_flat = [x for y in channels for x in y]
+    onsets_flat = [x for y in onsets for x in y]
+    return channels_flat, onsets_flat
+
+
+def detect_onsets_spectral(
     x: np.ndarray,
     n_fft: int = 256,
     hop: int = 32,
