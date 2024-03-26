@@ -1,9 +1,6 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import fsolve
 from scipy.signal import find_peaks
-
-from onset_fingerprinting import detection
 
 TEMPERATURE = 20.0
 HUMIDITY = 50.0
@@ -759,9 +756,6 @@ class MultilateratePaired:
             cross-correlation computation.  Around 5ms of samples are useful.
             If x contains <= this many samples, this setting won't do anything
         """
-        # onset_idx = detection.detect_onset_region(
-        #     x[:, i], onset_idx, right, threshold_factor=0.2
-        # )
         self.res[:] = 0
         for j in self.lag_maps[i]:
             lag = find_lag(
