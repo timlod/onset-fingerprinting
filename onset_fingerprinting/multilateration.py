@@ -315,6 +315,7 @@ class Multilaterate3D:
         drum_diameter: float = DIAMETER,
         medium: str = "drumhead",
         sr: int = 44100,
+        c: float | None = None,
     ):
         """Initialize multilateration onset locator.
 
@@ -333,7 +334,9 @@ class Multilaterate3D:
         :param medium: 'drumhead' for vibration/optical sensors, 'air' for
             microphones
         :param sr: sampling rate
+        :param c: speed of sound in m/s. uses speed_of_sound if not provided
         """
+        self.c = speed_of_sound(100, medium=medium) if c is None else c * 100
         self.radius = drum_diameter / 2
         self.sensor_locs = [
             spherical_to_cartesian(x[0] * self.radius, x[1], x[2])
@@ -341,7 +344,7 @@ class Multilaterate3D:
         ]
         self.medium = medium
         self.sr = sr
-        self.samples_per_cm = sr / speed_of_sound(100, medium=medium)
+        self.samples_per_cm = sr / self.c
 
         # Create small lag maps (centimeter resolution) just to determine
         # whether a given lag is feasible, quickly
@@ -454,10 +457,8 @@ class Multilaterate3D:
         sensor_b = self.sensor_locs[sensors[2]]
         sensor_origin = self.sensor_locs[sensors[0]]
 
-        c = speed_of_sound(100, medium=self.medium)
-
-        d_a1 = (onsets[1] - onsets[0]) * c / self.sr
-        d_b1 = (onsets[2] - onsets[0]) * c / self.sr
+        d_a1 = (onsets[1] - onsets[0]) * self.c / self.sr
+        d_b1 = (onsets[2] - onsets[0]) * self.c / self.sr
 
         res = solve_trilateration_3d(
             sensor_a,
