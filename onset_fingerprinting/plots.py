@@ -1,16 +1,18 @@
 import matplotlib.pyplot as plt
-from onset_fingerprinting import multilateration
 import numpy as np
+
+from onset_fingerprinting import multilateration
 
 
 def plot_3d_scene(
     ball_radius: float,
     disk_radius: float,
     points: list[tuple[float, float, float]],
-    azim: float,
-    elev: float,
+    azim: int = -90,
+    elev: int = 90,
     labels: list[str] = None,
     label: bool = False,
+    figsize=(6, 6),
 ) -> None:
     """
     Plot the upper half of a 3D ball as the area of interest around a drum,
@@ -23,7 +25,7 @@ def plot_3d_scene(
     :param azim: Azimuthal angle for rotation.
     :param elev: Elevation angle for rotation.
     """
-    fig = plt.figure()
+    fig = plt.figure(figsize=figsize)
     ax = fig.add_subplot(111, projection="3d")
 
     if label and (labels is None):
@@ -68,14 +70,16 @@ def plot_3d_scene(
     ax.set_zlabel("Z-axis")
 
 
-def polar_circle(polar_coords: list[tuple[float, float]], label=False) -> None:
+def polar_circle(
+    polar_coords: list[tuple[float, float]], label=False, **kwargs
+) -> None:
     """
     Plot a unit circle and scatter a list of polar coordinates on it.
 
     :param polar_coords: List of tuples, each containing radius and angle in degrees.
     """
     # Plot unit circle
-    fig = plt.figure()
+    fig = plt.figure(**kwargs)
     ax = fig.add_subplot(111)
 
     theta = np.linspace(0, 2 * np.pi, 100)
