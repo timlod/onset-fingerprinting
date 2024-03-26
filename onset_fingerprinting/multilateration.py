@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.optimize import fsolve
 from scipy.signal import find_peaks
 
 from onset_fingerprinting import detection
-from scipy.optimize import fsolve
 
 TEMPERATURE = 20.0
 HUMIDITY = 50.0
@@ -427,13 +427,15 @@ class Multilaterate3D:
                     if len(group[0]) == 3:
                         res = self.is_legal_3d(group)
                         if res != (0, 0):
+                            # res is the index into the lag map, subtracting
+                            # the radius brings us approximately into the
+                            # coordinate system
                             res = np.array(res) - self.radius
                             # print(group, res, res == (0, 0))
                             # Should we try again if trilaterate fails? Should
                             # we purge everything with the same first element
-                            # if it succeeds? print(group, sensor_index,
-                            # onset_index, lag)
-                            res = self.trilaterate(group, res)
+                            # if it succeeds?
+                            res = self.trilaterate(group, initial_guess=res)
                             if res is not None:
                                 new_groups = remove_seed(new_groups, group)
                             self.ongoing = new_groups
