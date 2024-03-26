@@ -132,10 +132,11 @@ def optimize_positions(
     initial_sound_positions: torch.Tensor,
     lr=0.01,
     num_epochs=1000,
+    C=342.29,
     sr=96000,
 ):
     """
-    Optimize the positions of sensors and sounds based on observed lags using PyTorch.
+    Optimize the positions of sensors and sounds based on observed lags.
 
     :param observed_lags: Tensor of observed lags for each sound and sensor
         pair, shape (num_sounds, num_sensors, num_sensors)
@@ -148,14 +149,16 @@ def optimize_positions(
 
     :return: Optimized sensor and sound positions
     """
-    C = 340.29  # Speed of sound in m/s
+
+    errors = []
+    # Speed of sound in m/s
+    C = torch.tensor(C, requires_grad=True, dtype=torch.float32)
 
     # Make sure data is on the same device
     device = observed_lags.device
     initial_sensor_positions = initial_sensor_positions.to(device)
     initial_sound_positions = initial_sound_positions.to(device)
 
-    # Initialize variables to optimize
     sensor_positions = torch.tensor(
         initial_sensor_positions, requires_grad=True, dtype=torch.float32
     )
@@ -163,32 +166,24 @@ def optimize_positions(
         initial_sound_positions, requires_grad=True, dtype=torch.float32
     )
 
-    # Optimizer
     optimizer = optim.Adam(
         [
-            {"params": [sensor_positions], "lr": 1e-6},
-            {"params": [sound_positions], "lr": 1e-5},
+            {"params": [sensor_positions], "lr": 1e-4},
+            {"params": [sound_positions], "lr": 1e-6},
+            {"params": C, "lr": 1e-4},
         ]
     )
-    # optimizer = optim.Adam([sensor_positions, sound_positions], lr=lr)
-
-    # Mask for missing lags
-    lag_mask = ~torch.isnan(observed_lags)
-
+    errors.clear()
     for epoch in range(num_epochs):
         optimizer.zero_grad()
-
         # Compute distances from each sound to each sensor
         diff = sound_positions[:, None, :] - sensor_positions[None, :, :]
         distances = torch.sqrt(torch.sum(diff**2, dim=-1)) / C
-        # Compute lags in samples
-        lags = (distances.flatten()[tmins][:, None] - distances) * sr
-        # Compute error
-        error = torch.abs(lags - observed_lags)
-        error_masked = torch.where(lag_mask, error, torch.zeros_like(error))
-        loss = error_masked.mean()
-
-        # Backprop and update
+        # Compute lags in number of samples
+        lags = torch.diff(distances) * sr
+        error = torch.abs(lags - observed_lags) ** 2
+        loss = error.mean()
+        errors.append(loss.detach().numpy())
         loss.backward()
         optimizer.step()
 
@@ -196,7 +191,7 @@ def optimize_positions(
         if epoch % 1000 == 0:
             print(f"Epoch {epoch}, Loss {loss.item()}")
 
-    return sensor_positions.detach(), sound_positions.detach()
+    return sensor_positions.detach(), sound_positions.detach(), C.detach()
 
 
 # # Usage: Initialize your observed_lags, initial_sensor_positions, and
