@@ -811,6 +811,7 @@ def lag_map_2d(
     scale: float = 1,
     medium: str = MEDIUM,
     tol: int = 1,
+    c: float | None = None,
 ):
     """Compute lag map for 2D microphone locations.
 
@@ -826,7 +827,11 @@ def lag_map_2d(
         tolerance (in centimeters) at the edges.  Note that the
         top/bottom/left/right/edges are naturally at the edge of the matrix,
         tolerance doesn't increase legality there
+    :param c: speed of sound. uses speed_of_sound if not provided
     """
+    if c is None:
+        c = speed_of_sound(100 * scale, medium=medium)
+
     # This will give us a diameter to use which we can sample at millimeter
     # precision
     r = int(np.round(d * scale / 2))
@@ -834,12 +839,8 @@ def lag_map_2d(
     circular_mask = i**2 + j**2 > ((r + tol * scale) ** 2)
 
     # compute lag in seconds from each potential location to microphones
-    lag_a = np.sqrt((i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2) / (
-        speed_of_sound(100 * scale, medium=medium)
-    )
-    lag_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2) / (
-        speed_of_sound(100 * scale, medium=medium)
-    )
+    lag_a = np.sqrt((i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2) / c
+    lag_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2) / c
     lag_map = np.round((lag_a - lag_b) * sr).astype(np.float32)
     lag_map[circular_mask] = np.nan
     return lag_map
@@ -853,6 +854,7 @@ def lag_map_3d(
     scale: float = 1,
     medium: str = MEDIUM,
     tol: int = 1,
+    c: None | float = None,
 ):
     """Compute lag map for 3D microphone locations.
 
@@ -868,8 +870,10 @@ def lag_map_3d(
         tolerance (in centimeters) at the edges.  Note that the
         top/bottom/left/right/edges are naturally at the edge of the matrix,
         tolerance doesn't increase legality there
+    :param c: speed of sound. uses speed_of_sound if not provided
     """
-
+    if c is None:
+        c = speed_of_sound(100 * scale, medium=medium)
     n = int(np.round(d, 1) * scale)
     r = n // 2
     i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
@@ -879,12 +883,22 @@ def lag_map_3d(
     z_surface = 0
 
     # compute lag in seconds from each potential location to microphones
-    lag_a = np.sqrt(
-        (i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2 + (z_surface - mic_a[2]) ** 2
-    ) / speed_of_sound(100 * scale, medium=medium)
-    lag_b = np.sqrt(
-        (i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2 + (z_surface - mic_b[2]) ** 2
-    ) / speed_of_sound(100 * scale, medium=medium)
+    lag_a = (
+        np.sqrt(
+            (i - mic_a[0]) ** 2
+            + (j - mic_a[1]) ** 2
+            + (z_surface - mic_a[2]) ** 2
+        )
+        / c
+    )
+    lag_b = (
+        np.sqrt(
+            (i - mic_b[0]) ** 2
+            + (j - mic_b[1]) ** 2
+            + (z_surface - mic_b[2]) ** 2
+        )
+        / c
+    )
 
     lag_map = np.round((lag_a - lag_b) * sr).astype(np.float32)
     lag_map[circular_mask] = np.nan
