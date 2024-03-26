@@ -10,6 +10,7 @@ def calibration_locations(
     n_each: int | list[int],
     radius: float,
     add_z: Optional[int] = None,
+    clockwise: bool = False,
 ):
     """
     Make list of spherical coordinates for calibration hits close to drum lugs.
@@ -21,6 +22,9 @@ def calibration_locations(
     :param add_z: Adds a third component
     """
     n = len(n_each) if isinstance(n_each, list) else 1
+    angles = np.repeat(range(0, 360, int(360 / n_lugs)), n_each)
+    if not clockwise:
+        angles = 360 - angles
     if add_z is not None:
         assert isinstance(
             add_z, int
@@ -28,7 +32,7 @@ def calibration_locations(
         return list(
             zip(
                 np.repeat(np.repeat([radius] * n, n_each), n_lugs),
-                np.repeat(range(0, 360, int(360 / n_lugs)), n_each),
+                angles,
                 np.repeat(np.repeat([add_z] * n, n_each), n_lugs),
             )
         )
@@ -36,7 +40,7 @@ def calibration_locations(
         return list(
             zip(
                 np.repeat(np.repeat([radius] * n, n_each), n_lugs),
-                np.repeat(range(0, 360, int(360 / n_lugs)), n_each),
+                angles,
             )
         )
 
