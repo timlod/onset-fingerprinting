@@ -1,4 +1,5 @@
 # Global configuration for loopmate
+import json
 from math import ceil
 from pathlib import Path
 
@@ -39,3 +40,18 @@ MAX_RECORDING_LENGTH = 60
 # MIDI (output) port to use as MIDI input
 MIDI_PORT = 0
 MIDI_CHANNEL = 0
+
+
+def save_setup(sensor_positions, medium, c, p: Path):
+    with open(p, "w") as f:
+        json.dump(
+            {"sensor_positions": sensor_positions, "medium": medium, "c": c}, f
+        )
+
+
+def load_setup(p: Path, c=None):
+    with open(p) as f:
+        conf = json.load(f)
+    if c is not None:
+        conf["c"] = c
+    return conf
