@@ -45,7 +45,7 @@ MIDI_CHANNEL = 0
 def save_setup(sensor_positions, medium, c, p: Path):
     with open(p, "w") as f:
         json.dump(
-            {"sensor_positions": sensor_positions, "medium": medium, "c": c}, f
+            {"sensor_locations": sensor_positions, "medium": medium, "c": c}, f
         )
 
 
