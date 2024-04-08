@@ -15,7 +15,7 @@ class PlayRec:
     and list of audio tracks to loop, and the global action queue.
     """
 
-    def __init__(self, recording, mic_locations):
+    def __init__(self, recording, ml_conf):
         self.audios = []
 
         self.current_index = 0
@@ -52,7 +52,10 @@ class PlayRec:
             backtrack_smooth_size=1,
         )
         self.m = multilateration.Multilaterate3D(
-            sensor_locations=mic_locations, sr=config.SR, medium="air"
+            sensor_locations=ml_conf["sensor_locations"],
+            sr=config.SR,
+            medium=ml_conf["medium"],
+            c=ml_conf["c"],
         )
 
     def detect_hits(self, audio):
@@ -92,9 +95,8 @@ class PlayRec:
             if self.rec_audio.counter < frames:
                 self.rec.data.analysis_action = 3
 
-            outdata[:] = 0.0
-            for audio in self.audios:
-                outdata[:] = indata[:, :2]
+            # TODO: Define mixing function
+            outdata[:] = indata[:, :2]
 
             # Store last output buffer to potentially send a slightly delayed
             # version to headphones (to match the speaker sound latency). We do
