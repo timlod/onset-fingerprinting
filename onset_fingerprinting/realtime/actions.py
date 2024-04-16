@@ -16,6 +16,59 @@ from onset_fingerprinting.multilateration import cartesian_to_polar
 # Allow for blending of actions by defining e.g. a radius around the given
 # bounds
 
+# Simple HPF based on angle
+
+
+class ParameterMapper:
+    """
+    Maps floating-point numbers from an original range to a target range with
+    an optional non-linear transformation function.
+
+    # TODO: interact with bounds, allow to select cartesian or spherical
+    interaction
+
+    :param coordinate: which coordinate to use for this mapping, must be one of
+        {x, y, r, phi}
+    :param target_names: names of the target parameters to map to
+    :param original_range: A tuple (min, max) defining the original range.
+    :param target_range: A tuple (min, max) defining the target range.
+    :param transformation: An optional function that applies a non-linear
+        transformation to the scaled value.  Use powers of x, or nth root of x.
+    """
+
+    def __init__(
+        self,
+        coordinate: str,
+        target_names: list[str],
+        original_range: tuple[float, float],
+        target_ranges: list[tuple[float, float]],
+        transformation: Optional[Callable[[float], float]] = None,
+    ):
+        self.coordinate = coordinate
+        self.target_names = target_names
+        self.original_min, self.original_max = original_range
+        self.target_ranges = target_ranges
+        self.transformation = transformation
+
+    def __call__(self, x: float) -> float:
+        """
+        Maps a value from the original range to the target ranges using an
+        optional transformation function.
+
+        :param value: The value to map from the original range.
+        """
+        x_norm = (x - self.original_min) / (
+            self.original_max - self.original_min
+        )
+
+        if self.transformation:
+            x_norm = self.transformation(x_norm)
+
+        return [
+            (x_norm * (target_max - target_min)) + target_min
+            for target_min, target_max in self.target_ranges
+        ]
+
 
 # Use actions but instead of loop positions the spherical position is used to
 # change an effect
