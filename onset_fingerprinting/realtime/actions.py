@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import queue
 from collections import deque
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import numpy as np
-from loopmate.actions import Action, Effect, Sample, Trigger
+from loopmate.actions import CrossFade, Sample
 from onset_fingerprinting.multilateration import cartesian_to_polar
 
 # Reverb/delay combo where angle works with the two
