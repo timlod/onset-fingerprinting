@@ -1,8 +1,11 @@
 import queue
 from collections import deque
 from dataclasses import KW_ONLY, dataclass, field
+from typing import Optional
 
+import numpy as np
 from loopmate.actions import Action, Effect, Sample, Trigger
+from onset_fingerprinting.multilateration import cartesian_to_polar
 
 # Reverb/delay combo where angle works with the two
 # feedback from bottom to sides
@@ -19,13 +22,73 @@ class DelayVerb:
 
 
 @dataclass
+class Location:
+    x: float
+    y: float
+
+    def __post_init__(self):
+        self.r, self.phi = cartesian_to_polar(self.x, self.y)
+
+    def __repr__(self):
+        return f"Location({self.x=}, {self.y=}, {self.r=}, {self.phi=})"
+
+
+@dataclass
+class Bounds:
+    """Bounds used to determine where an action will be valid."""
+
+    def __init__(
+        self,
+        x: Optional[tuple[float, float]] = None,
+        y: Optional[tuple[float, float]] = None,
+        r: Optional[tuple[float, float]] = None,
+        phi: Optional[tuple[float, float]] = None,
+    ):
+        """Initialize bounds with any combination of x,y,r,phi tuples.  The
+        order of the tuples matters only for phi due to its circular nature
+        (i.e. for phi, a tuple of [270, 90] is reasonable).
+
+        :param x: bounds for x
+        :param y: bounds for y
+        :param r: bounds for r (need to be larger than 0)
+        :param phi: bounds for phi (min can be larger than max)
+        """
+        x = sorted(x) if x is not None else (-np.inf, np.inf)
+        y = sorted(y) if y is not None else (-np.inf, np.inf)
+        r = sorted(r) if r is not None else (-np.inf, np.inf)
+        phi = phi if phi is not None else (-np.inf, np.inf)
+
+        self.x_min, self.x_max = x
+        self.y_min, self.y_max = y
+        self.r_min, self.r_max = r
+        self.phi_min, self.phi_max = phi
+        self.or_check = True if self.phi_min > self.phi_max else False
+
+    def __contains__(self, location: Location):
+        cart_check = (
+            self.x_min <= location.x <= self.x_max
+            and self.y_min <= location.y <= self.y_max
+        )
+        if self.or_check:
+            polar_check = self.r_min <= location.r <= self.r_max and (
+                location.phi >= self.phi_min or location.phi <= self.phi_max
+            )
+        else:
+            polar_check = (
+                self.r_min <= location.r <= self.r_max
+                and self.phi_min <= location.phi <= self.phi_max
+            )
+        print(cart_check, polar_check)
+        return cart_check and polar_check
+
+
+@dataclass
 class Action:
     """
     Action that triggers if a specific location is hit.
     """
 
-    # Allow for formulations in both spherical and cartesian coordinates
-    bounds: tuple
+    bounds: list[Bounds]
     _: KW_ONLY
     countdown: int = 0
     # If True, loop this action instead of consuming it
