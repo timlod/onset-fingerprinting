@@ -3,10 +3,10 @@ from collections import deque
 
 import numpy as np
 import sounddevice as sd
-from loopmate.actions import Actions, Sample, Start
 from loopmate.utils import CLAVE, StreamTime, channels_to_int
 from onset_fingerprinting import config, multilateration
 from onset_fingerprinting.detection import AmplitudeOnsetDetector
+from onset_fingerprinting.realtime.actions import Actions, Bounds, Location
 
 
 class PlayRec:
@@ -64,9 +64,10 @@ class PlayRec:
             d = [self.current_index + x for x in d]
             idx = np.argsort(d)
             for i in idx:
-                res = self.m.locate(c[i], d[i])
+                res = Location(*self.m.locate(c[i], d[i]))
                 if res is not None:
                     print(res)
+                    self.actions.append(res)
 
     def _get_callback(self):
         """
