@@ -185,22 +185,11 @@ class Actions:
 
         while not self.active.empty():
             action = self.active.get_nowait()
-            if isinstance(action, Trigger):
-                print(f"Trigger {action}, {location}")
-                action.run(self)
-                if action.consumed:
-                    print(self.plans)
-                    if not action.loop:
-                        self.actions.remove(action)
-                    if action.spawn is not None:
-                        self.actions.append(action.spawn)
-                continue
-
-            # Actions
             action.run(outdata)
             if action.consumed:
                 print(f"consumed {action}")
-                self.actions.remove(action)
+                if not action.loop:
+                    self.actions.remove(action)
                 if action.spawn is not None:
                     print(f"Spawning {action.spawn}")
                     self.actions.append(action.spawn)
