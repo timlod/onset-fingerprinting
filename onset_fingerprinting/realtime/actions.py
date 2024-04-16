@@ -146,6 +146,7 @@ class Action:
     bounds: list[Bounds]
     _: KW_ONLY
     countdown: int = 0
+    loop: bool = True
     # TODO: make this clearer - right now only relevant for sample playback
     n: int = 0
     # If True, loop this action instead of consuming it
@@ -207,6 +208,45 @@ class Action:
 
     def set_priority(self, priority):
         self.priority = priority
+
+
+class ParameterChange(Action):
+    def __init__(
+        self, bounds, effect, parameter_mappers: list[ParameterMapper]
+    ):
+        """Initialize effect which will fade in starting at a certain sample.
+
+        :param start: start effect at this sample (inside looped audio)
+        :param n: length of looped audio
+        :param transformation: callable of form f(outdata) which returns an
+            ndarray of the same size as outdata
+        :param priority: indicate priority at which to queue this action
+        """
+        # TODO: currently using loop to indicate non-consumption
+        super().__init__(bounds, loop=True)
+        self.effect = effect
+        self.pms = parameter_mappers
+        assert all(
+            [name in self.effect.parameters for name in self.pm.target_names],
+            "FX parameters and ParameterMapper names don't align!",
+        )
+
+    def do(self, data, location: Location):
+        """Called from within run inside callback. Applies the effect.
+
+        :param data: outdata in callback, modified in-place
+        """
+        for pm in self.pms:
+            mapped_values = pm(getattr(location, pm.coordinate))
+            for param, value in zip(pm.target_names, mapped_values):
+                setattr(self.effect, param, value)
+
+    def cancel(self):
+        """Stops effect over the next buffer(s).  Fades out to avoid audio
+        popping, and may thus take several callbacks to complete.
+        """
+        self.current_sample = self.n
+        self.loop = False
 
 
 @dataclass
