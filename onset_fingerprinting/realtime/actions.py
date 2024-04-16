@@ -91,17 +91,14 @@ class Action:
     bounds: list[Bounds]
     _: KW_ONLY
     countdown: int = 0
+    # TODO: make this clearer - right now only relevant for sample playback
+    n: int = 0
     # If True, loop this action instead of consuming it
     priority: int = 3
     # Consuming this action will 'spawn'/queue this new action
     spawn: Action | None = None
 
     def __post_init__(self):
-        if self.end > self.start:
-            self.n = self.end - self.start
-        else:
-            self.n = self.start + self.loop_length - self.end
-
         # Current sample !inside action between start and end
         # don't mix up with current_index in loop!
         self.current_sample = 0
@@ -118,21 +115,31 @@ class Action:
                 return True
         return False
 
-    def run(self, data, location):
+    def run(self, data: np.ndarray, location: Location):
         """Run action on incoming audio and updates internal counters
         accordingly.
 
         :param data: audio buffer
         """
-        pass
+        self.do(data, location)
+        self.current_sample += len(data)
+
+        if self.current_sample >= self.n:
+            if self.loop:
+                self.current_sample = 0
+            elif self.countdown > 0:
+                self.current_sample = 0
+                self.countdown -= 1
+            else:
+                self.consumed = True
 
     def __lt__(self, other):
         return self.priority < other.priority
 
-    def do(self, outdata, current_index):
+    def do(self, data: np.ndarray, location: Location):
         """Perform manipulations on the output buffer.
 
-        :param outdata: output buffer
+        :param location: Location of the hit
         """
         raise NotImplementedError("Subclasses need to override this!")
 
@@ -161,7 +168,7 @@ class Actions:
     def prepend(self, action: Action | Trigger):
         self.actions.insert(0, action)
 
-    def run(self, outdata, location):
+    def run(self, outdata, location: Location):
         """Run all actions (to be called once every callback)
 
         :param outdata: outdata as passed into sd callback (will fill portaudio
