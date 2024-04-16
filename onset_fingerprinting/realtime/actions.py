@@ -107,16 +107,16 @@ class Action:
         self.current_sample = 0
         self.consumed = False
 
-    def trigger(self, location):
-        """Run at every step to signal when the out buffer enters the start/end
-        boundaries of this action.
+    def trigger(self, location: Location):
+        """Run at every hit to signal if the location of the hit corresponds to
+        this action.
 
-        :param current_index: first sample index of outdata in full audio loop
-        :param next_index: first sample index of outdata in full audio loop for
-            the next step.  Will be != current_index + n_samples only when
-            wrapping around at the loop boundary.
+        :param location: cartesian coordinates of the hit
         """
-        pass
+        for bounds in self.bounds:
+            if location in bounds:
+                return True
+        return False
 
     def run(self, data, location):
         """Run action on incoming audio and updates internal counters
