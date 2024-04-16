@@ -92,7 +92,8 @@ class PlayRec:
             indata = indata.copy()
             self.rec_audio.write(indata[:, config.CHANNELS])
 
-            if self.rec_audio.counter < frames:
+            # I think this will write an empty sound file in the beginning
+            if self.rec_audio.write_counter < frames:
                 self.rec.data.analysis_action = 3
 
             # TODO: Define mixing function
