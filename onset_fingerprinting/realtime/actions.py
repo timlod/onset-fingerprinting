@@ -162,10 +162,10 @@ class Actions:
     active: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
     plans: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
 
-    def append(self, action: Action | Trigger):
+    def append(self, action: Action):
         self.actions.append(action)
 
-    def prepend(self, action: Action | Trigger):
+    def prepend(self, action: Action):
         self.actions.insert(0, action)
 
     def run(self, outdata, location: Location):
