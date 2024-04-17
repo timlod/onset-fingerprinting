@@ -66,6 +66,37 @@ class ParameterMapper:
             for target_min, target_max in self.target_ranges
         ]
 
+    @classmethod
+    def from_bounds(
+        cls,
+        bounds: Bounds,
+        effect: pedalboard.Plugin,
+        coordinate: str,
+        parameters: list[str],
+        transformation: Optional[Callable[[float], float]] = None,
+    ):
+        """Create a ParameterMapper to map directly from a given boundary to an
+        effect.
+
+        :param bounds: Bounds object that the parameter change should trigger
+            on
+        :param effect: pedalboard Plugin
+        :param coordinate: one of {x, y, r, phi}
+        :param parameters: name of the parameters in effect to map to
+        """
+        assert all(
+            [name in effect.parameters for name in parameters]
+        ), "FX parameters and given parameter names don't align!"
+
+        original_range = (
+            getattr(bounds, f"{coordinate}_min"),
+            getattr(bounds, f"{coordinate}_max"),
+        )
+        target_ranges = [
+            effect.parameters[param].range[:2] for param in parameters
+        ]
+        return cls(coordinate, parameters, original_range, target_ranges)
+
 
 # Use actions but instead of loop positions the spherical position is used to
 # change an effect
