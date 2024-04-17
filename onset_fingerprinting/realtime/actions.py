@@ -24,14 +24,11 @@ class ParameterMapper:
     Maps floating-point numbers from an original range to a target range with
     an optional non-linear transformation function.
 
-    # TODO: interact with bounds, allow to select cartesian or spherical
-    interaction
-
     :param coordinate: which coordinate to use for this mapping, must be one of
         {x, y, r, phi}
     :param target_names: names of the target parameters to map to
     :param original_range: A tuple (min, max) defining the original range.
-    :param target_range: A tuple (min, max) defining the target range.
+    :param target_ranges: A tuple (min, max) defining the target range.
     :param transformation: An optional function that applies a non-linear
         transformation to the scaled value.  Use powers of x, or nth root of x.
     """
