@@ -162,7 +162,6 @@ class Bounds:
                 self.r_min <= location.r <= self.r_max
                 and self.phi_min <= location.phi <= self.phi_max
             )
-        print(cart_check, polar_check)
         return cart_check and polar_check
 
 
@@ -256,9 +255,8 @@ class ParameterChange(Action):
         self.effect = effect
         self.pms = parameter_mappers
         assert all(
-            [name in self.effect.parameters for name in self.pm.target_names],
-            "FX parameters and ParameterMapper names don't align!",
-        )
+            [name in self.effect.parameters for name in self.pm.target_names]
+        ), "FX parameters and ParameterMapper names don't align!"
 
     def do(self, data, location: Location):
         """Called from within run inside callback. Applies the effect.
