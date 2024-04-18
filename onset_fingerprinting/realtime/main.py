@@ -9,7 +9,7 @@ import sounddevice as sd
 import soundfile as sf
 from loopmate import recording
 from loopmate.actions import BackCaptureTrigger, Effect, RecordTrigger
-from onset_fingerprinting.realtime import audio, config
+from onset_fingerprinting.realtime import actions, audio, config
 
 ## TODOs:
 # record all required channels somehow
@@ -70,17 +70,21 @@ if __name__ == "__main__":
         ap.start()
         ap2.start()
 
-        print(sd.query_devices())
-        pr = audio.PlayRec(rec, ml_conf)
-        pr.start()
-
         # Some example effects that can be applied. TODO: make more
         # interesting/intuitive
-        ps = pedalboard.PitchShift(semitones=-6)
-        ds = pedalboard.Distortion(drive_db=20)
-        delay = pedalboard.Delay(0.8, 0.1, 0.3)
-        limiter = pedalboard.Limiter()
-        pr.actions.append(Effect(0, 10000000, lambda x: limiter(x, config.SR)))
+        cc = pedalboard.load_plugin("/usr/lib/vst3/ChowCentaur.vst3")
+
+        print(sd.query_devices())
+        pr = audio.PlayRec(rec, ml_conf, [cc])
+        pr.start()
+        # Add parameterchange
+        # 1. Bounds for entire playing surface:
+        b = actions.Bounds(phi=[0, 360])
+        pm = actions.ParameterMapper.from_bounds(
+            b, cc, "phi", ["gain", "treble"]
+        )
+        pc = actions.ParameterChange(b, cc, pm)
+        pr.actions.append(pc)
 
         plan_thread = threading.Thread(target=plan_callback, args=(pr,))
         plan_thread.start()
