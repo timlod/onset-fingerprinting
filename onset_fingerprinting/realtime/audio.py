@@ -4,8 +4,9 @@ from collections import deque
 import numpy as np
 import sounddevice as sd
 from loopmate.utils import CLAVE, StreamTime, channels_to_int
-from onset_fingerprinting import config, multilateration
+from onset_fingerprinting import multilateration
 from onset_fingerprinting.detection import AmplitudeOnsetDetector
+from onset_fingerprinting.realtime import config
 from onset_fingerprinting.realtime.actions import Actions, Bounds, Location
 
 
