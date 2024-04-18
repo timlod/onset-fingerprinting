@@ -16,9 +16,7 @@ class PlayRec:
     and list of audio tracks to loop, and the global action queue.
     """
 
-    def __init__(self, recording, ml_conf):
-        self.audios = []
-
+    def __init__(self, recording, ml_conf, fx):
         self.current_index = 0
         self.rec = recording
         # Always record audio buffers so we can easily look back for loopables
@@ -58,6 +56,7 @@ class PlayRec:
             medium=ml_conf["medium"],
             c=ml_conf["c"],
         )
+        self.fx = fx
 
     def detect_hits(self, audio):
         c, d, r = self.od(audio)
@@ -98,8 +97,10 @@ class PlayRec:
             if self.rec_audio.write_counter < frames:
                 self.rec.data.analysis_action = 3
 
-            # TODO: Define mixing function
-            outdata[:] = indata[:, :2]
+            # TODO: Define mixing function, remove scale
+            outdata[:] = indata[:, :2] * 0.1
+            for fx in self.fx:
+                outdata[:] = fx(outdata[:], config.SR)
 
             # Store last output buffer to potentially send a slightly delayed
             # version to headphones (to match the speaker sound latency). We do
