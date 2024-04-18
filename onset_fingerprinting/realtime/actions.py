@@ -242,14 +242,7 @@ class ParameterChange(Action):
     def __init__(
         self, bounds, effect, parameter_mappers: list[ParameterMapper]
     ):
-        """Initialize effect which will fade in starting at a certain sample.
-
-        :param start: start effect at this sample (inside looped audio)
-        :param n: length of looped audio
-        :param transformation: callable of form f(outdata) which returns an
-            ndarray of the same size as outdata
-        :param priority: indicate priority at which to queue this action
-        """
+        """Initialize action to change fx parameters on triggering."""
         # TODO: currently using loop to indicate non-consumption
         super().__init__(bounds, loop=True)
         self.effect = effect
