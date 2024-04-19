@@ -7,9 +7,8 @@ import pedalboard
 import rtmidi
 import sounddevice as sd
 import soundfile as sf
-from loopmate import recording
 from loopmate.actions import BackCaptureTrigger, Effect, RecordTrigger
-from onset_fingerprinting.realtime import actions, audio, config
+from onset_fingerprinting.realtime import actions, audio, config, recording
 
 ## TODOs:
 # record all required channels somehow
@@ -46,7 +45,9 @@ def analysis_target():
     target function for the multiprocessing.Process which will run ongoing
     analysis on the audio which is constantly recorded.
     """
-    with recording.RecAnalysis(config.REC_N, config.N_CHANNELS) as rec:
+    with recording.RecAnalysis(
+        config.REC_N, config.N_CHANNELS, name="rt"
+    ) as rec:
         rec.run()
     print("done analysis")
 
@@ -55,24 +56,28 @@ def ondemand_target():
     """target function for the multiprocessing.Process which will run
     analysis like onset quantization or BPM estimation on demand.
     """
-    with recording.AnalysisOnDemand(config.REC_N, config.N_CHANNELS) as rec:
+    with recording.AnalysisOnDemand(
+        config.REC_N, config.N_CHANNELS, name="rt"
+    ) as rec:
         rec.run()
     print("done ondemand")
 
 
 if __name__ == "__main__":
     ml_conf = config.load_setup(
-        Path(__name__).parent.parent.parent / "data" / "demo" / "conf.json"
+        Path(__file__).parent.parent.parent / "data" / "demo" / "conf.json"
     )
-    with recording.RecAudio(config.REC_N, config.N_CHANNELS) as rec:
-        ap = Process(target=analysis_target)
+    print(ml_conf)
+    with recording.RecAudio(config.REC_N, config.N_CHANNELS, name="rt") as rec:
+        # ap = Process(target=analysis_target)
         ap2 = Process(target=ondemand_target)
-        ap.start()
+        # ap.start()
         ap2.start()
 
         # Some example effects that can be applied. TODO: make more
         # interesting/intuitive
         cc = pedalboard.load_plugin("/usr/lib/vst3/ChowCentaur.vst3")
+        cc.bypass = False
 
         print(sd.query_devices())
         pr = audio.PlayRec(rec, ml_conf, [cc])
