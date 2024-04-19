@@ -3,9 +3,9 @@ import json
 from math import ceil
 from pathlib import Path
 
-from numpy import array
+from numpy import array, ndarray
 
-WRITE_DIR = Path(__file__).parent / "data"
+WRITE_DIR = Path(__file__).parent.parent.parent / "data" / "demo"
 
 # Global sample rate for all audio being played/recorded - if loading different
 # SR files, convert them
@@ -16,11 +16,14 @@ SR = 96000
 # channels, and slice the last two. That will mean a significant decrease in
 # efficiency. For now, only one or two channels will work correctly, and they
 # need to be the first two
-CHANNELS = array([0, 1])
+
+# TODO: Fix to handle different input and output channels
+CHANNELS = array([0, 1, 2])
 N_CHANNELS = max(CHANNELS) + 1
+CHANS_IN_OUT = N_CHANNELS, 2
 # TODO: allow configuration of this to not necessarily always record everything
 RECORD_CHANNELS = CHANNELS
-DEVICE = "default"
+DEVICE = [19, 22]
 # Change this to your other device used for headphone output.
 HEADPHONE_DEVICE = "default"
 # Desired latency of audio interface, in ms
@@ -41,17 +44,32 @@ MAX_RECORDING_LENGTH = 60
 MIDI_PORT = 0
 MIDI_CHANNEL = 0
 
+# STFT config
+## Think about defining this in ms, such that it gives the same temporal
+## resolution regardless of sampling rate
+N_FFT = 2048
+HOP_LENGTH = BLOCKSIZE
+TG_WIN_LENGTH = 1024
+TG_PAD = 2 * TG_WIN_LENGTH - 1
 
-def save_setup(sensor_positions, medium, c, p: Path):
+
+REC_N = MAX_RECORDING_LENGTH * SR
+BLEND_SAMPLES = round(SR * BLEND_LENGTH)
+
+
+def save_setup(sensor_locations: ndarray | list, medium, c, p: Path | str):
+    if isinstance(sensor_locations, ndarray):
+        sensor_locations = sensor_locations.tolist()
     with open(p, "w") as f:
         json.dump(
-            {"sensor_locations": sensor_positions, "medium": medium, "c": c}, f
+            {"sensor_locations": sensor_locations, "medium": medium, "c": c}, f
         )
 
 
 def load_setup(p: Path, c=None):
     with open(p) as f:
         conf = json.load(f)
+    conf["sensor_locations"] = array(conf["sensor_locations"])
     if c is not None:
         conf["c"] = c
     return conf

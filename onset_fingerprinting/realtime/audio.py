@@ -28,7 +28,7 @@ class PlayRec:
         self.stream = sd.Stream(
             samplerate=config.SR,
             device=config.DEVICE,
-            channels=config.N_CHANNELS,
+            channels=config.CHANS_IN_OUT,
             callback=self._get_callback(),
             latency=config.LATENCY,
             blocksize=config.BLOCKSIZE,
