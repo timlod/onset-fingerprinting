@@ -88,12 +88,18 @@ if __name__ == "__main__":
         pm = actions.ParameterMapper.from_bounds(
             b, cc, "phi", ["gain", "treble"]
         )
-        pc = actions.ParameterChange(b, cc, pm)
+        pc = actions.ParameterChange([b], cc, [pm])
+        pr.actions.append(pc)
+        b = actions.Bounds(phi=[0, 360])
+        pm = actions.ParameterMapper.from_bounds(
+            b, cc, "phi", ["level"], lambda x: 1 / x
+        )
+        pc = actions.ParameterChange([b], cc, [pm])
         pr.actions.append(pc)
 
         plan_thread = threading.Thread(target=plan_callback, args=(pr,))
         plan_thread.start()
-        ap.join()
+        # ap.join()
         ap2.join()
         plan_thread.join()
         sd.sleep(10)
