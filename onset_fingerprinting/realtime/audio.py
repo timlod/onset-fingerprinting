@@ -64,10 +64,12 @@ class PlayRec:
             d = [self.current_index + x for x in d]
             idx = np.argsort(d)
             for i in idx:
-                res = Location(*self.m.locate(c[i], d[i]))
+                res = self.m.locate(c[i], d[i])
                 if res is not None:
+                    res = Location(*res)
                     print(res)
-                    self.actions.append(res)
+                    return res
+        return None
 
     def _get_callback(self):
         """
@@ -97,19 +99,19 @@ class PlayRec:
             if self.rec_audio.write_counter < frames:
                 self.rec.data.analysis_action = 3
 
+            res = self.detect_hits(indata)
             # TODO: Define mixing function, remove scale
-            outdata[:] = indata[:, :2] * 0.1
+            outdata[:] = indata[:, :2]
             for fx in self.fx:
-                outdata[:] = fx(outdata[:], config.SR)
+                outdata[:] = fx(outdata[:], config.SR, frames, reset=False)
 
             # Store last output buffer to potentially send a slightly delayed
             # version to headphones (to match the speaker sound latency). We do
             # this before running actions such that we can mute the two
             # separately
             self.last_out.append((self.callback_time, outdata.copy()))
-            self.actions.run(
-                outdata, self.current_index, self.current_index + frames
-            )
+            if res is not None:
+                self.actions.run(outdata, res)
 
         return callback
 
