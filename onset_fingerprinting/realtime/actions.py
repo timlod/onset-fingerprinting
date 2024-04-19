@@ -240,16 +240,20 @@ class Action:
 
 class ParameterChange(Action):
     def __init__(
-        self, bounds, effect, parameter_mappers: list[ParameterMapper]
+        self,
+        bounds: list[Bounds],
+        effect,
+        parameter_mappers: list[ParameterMapper],
     ):
         """Initialize action to change fx parameters on triggering."""
         # TODO: currently using loop to indicate non-consumption
         super().__init__(bounds, loop=True)
         self.effect = effect
         self.pms = parameter_mappers
-        assert all(
-            [name in self.effect.parameters for name in self.pm.target_names]
-        ), "FX parameters and ParameterMapper names don't align!"
+        for pm in self.pms:
+            assert all(
+                [name in self.effect.parameters for name in pm.target_names]
+            ), "FX parameters and ParameterMapper names don't align!"
 
     def do(self, data, location: Location):
         """Called from within run inside callback. Applies the effect.
@@ -300,7 +304,7 @@ class Actions:
 
         while not self.active.empty():
             action = self.active.get_nowait()
-            action.run(outdata)
+            action.run(outdata, location)
             if action.consumed:
                 print(f"consumed {action}")
                 if not action.loop:
