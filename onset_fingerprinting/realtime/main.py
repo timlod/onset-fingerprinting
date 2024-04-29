@@ -76,7 +76,7 @@ if __name__ == "__main__":
 
         # Some example effects that can be applied. TODO: make more
         # interesting/intuitive
-        cc = pedalboard.load_plugin("/usr/lib/vst3/ChowCentaur.vst3")
+        cc = pedalboard.load_plugin(config.fx)
         cc.bypass = False
 
         print(sd.query_devices())
@@ -85,17 +85,17 @@ if __name__ == "__main__":
         # Add parameterchange
         # 1. Bounds for entire playing surface:
         b = actions.Bounds(phi=[0, 360])
-        pm = actions.ParameterMapper.from_bounds(
-            b, cc, "phi", ["gain", "treble"]
+        pm = actions.ParameterMapper.from_bounds_fx(
+            b, cc, "phi", ["svf_cutoff_hz"]
         )
         pc = actions.ParameterChange([b], cc, [pm])
         pr.actions.append(pc)
-        b = actions.Bounds(phi=[0, 360])
-        pm = actions.ParameterMapper.from_bounds(
-            b, cc, "phi", ["level"], lambda x: 1 / x
-        )
-        pc = actions.ParameterChange([b], cc, [pm])
-        pr.actions.append(pc)
+        # b = actions.Bounds(phi=[0, 360])
+        # pm = actions.ParameterMapper.from_bounds_fxb(
+        #     b, cc, "phi", ["level"], lambda x: 1 / x
+        # )
+        # pc = actions.ParameterChange([b], cc, [pm])
+        # pr.actions.append(pc)
 
         plan_thread = threading.Thread(target=plan_callback, args=(pr,))
         plan_thread.start()
