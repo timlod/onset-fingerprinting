@@ -58,6 +58,7 @@ target/
 
 # DotEnv configuration
 .env_local
+.env
 
 # Database
 *.db
@@ -98,3 +99,6 @@ target/
 
 # Minted (from latex export)
 _minted*
+
+# Local venv
+venv/
