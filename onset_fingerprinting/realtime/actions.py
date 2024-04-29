@@ -17,7 +17,33 @@ from onset_fingerprinting.multilateration import cartesian_to_polar
 # Allow for blending of actions by defining e.g. a radius around the given
 # bounds
 
-# Simple HPF based on angle
+# TODO: Connect plugins to audio playback - how should this be done?
+# - just have them sit permanently on playback for now
+
+
+def value_in_parameter_range(
+    ranges: dict[tuple[float, float], float], value: float
+) -> float | None:
+    """
+    Retrieve the dictionary value for which the input value lies within the
+    key's range.
+
+    :param ranges: Dictionary with tuple keys representing ranges and float
+        values
+    :param value: The float value to test against the range keys in the
+        dictionary
+    """
+    if value == 1:
+        return list(ranges.values())[-1]
+    for range_key, associated_value in ranges.items():
+        if range_key[0] <= value <= range_key[1]:
+            return associated_value
+    return None
+
+
+def map_fx_param_range(fx, name, val):
+    p = fx.parameters[name]
+    return value_in_parameter_range(p.ranges, val)
 
 
 class ParameterMapper:
