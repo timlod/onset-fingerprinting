@@ -94,7 +94,7 @@ class ParameterMapper:
         ]
 
     @classmethod
-    def from_bounds(
+    def from_bounds_fx(
         cls,
         bounds: Bounds,
         effect: pedalboard.Plugin,
@@ -119,10 +119,34 @@ class ParameterMapper:
             getattr(bounds, f"{coordinate}_min"),
             getattr(bounds, f"{coordinate}_max"),
         )
-        target_ranges = [
-            effect.parameters[param].range[:2] for param in parameters
-        ]
+        # target_ranges = [
+        #     effect.parameters[param].range[:2] for param in parameters
+        # ]
+        target_ranges = [(0, 1) for param in parameters]
         return cls(coordinate, parameters, original_range, target_ranges)
+
+    def from_bounds(
+        cls,
+        bounds: Bounds,
+        coordinate: str,
+        target_names: list[str],
+        target_ranges: list[tuple[float, float]],
+        transformation: Optional[Callable[[float], float]] = None,
+    ):
+        """Create a ParameterMapper to map directly from a given boundary to an
+        effect.
+
+        :param bounds: Bounds object that the parameter change should trigger
+            on
+        :param effect: pedalboard Plugin
+        :param coordinate: one of {x, y, r, phi}
+        :param parameters: name of the parameters in effect to map to
+        """
+        original_range = (
+            getattr(bounds, f"{coordinate}_min"),
+            getattr(bounds, f"{coordinate}_max"),
+        )
+        return cls(coordinate, target_names, original_range, target_ranges)
 
 
 # Use actions but instead of loop positions the spherical position is used to
@@ -289,7 +313,9 @@ class ParameterChange(Action):
         for pm in self.pms:
             mapped_values = pm(getattr(location, pm.coordinate))
             for param, value in zip(pm.target_names, mapped_values):
-                setattr(self.effect, param, value)
+                print(f"Setting {param} to {value}.")
+                # setattr(self.effect, param, value)
+                setattr(self.effect.parameters[param], "raw_value", value)
 
     def cancel(self):
         """Stops effect over the next buffer(s).  Fades out to avoid audio
