@@ -6,6 +6,8 @@ from pathlib import Path
 from numpy import array, ndarray
 
 WRITE_DIR = Path(__file__).parent.parent.parent / "data" / "demo"
+VST_DIR = Path.home() / ".vst3"
+fx = str(VST_DIR / "HY-Filter4 free.vst3")
 
 # Global sample rate for all audio being played/recorded - if loading different
 # SR files, convert them
