@@ -4,6 +4,35 @@ import numpy as np
 from onset_fingerprinting import multilateration
 
 
+def plot_group(
+    audio: np.ndarray,
+    onsets: np.ndarray,
+    n_around: int = 64,
+    ax=None,
+    **kwargs,
+):
+    """Plot a group of audio onsets
+
+    :param audio: full audio to index with c channels
+    :param onsets: c onsets, one for each channel, in that order
+    :param n_around: plots this many samples before the first and after the
+        last onset
+    :param ax: axis to plot onto. Create a new figure by default
+    """
+    if ax is None:
+        fig = plt.figure(**kwargs)
+        ax = fig.add_subplot(111)
+    os = sorted(onsets)
+    plot_audio = audio[os[0] - n_around : os[-1] + n_around]
+    ax.plot(plot_audio)
+    ax.vlines(
+        np.array(onsets) - os[0] + n_around,
+        plot_audio.min(),
+        plot_audio.max(),
+        colors=plt.colormaps["tab10"].colors,
+    )
+
+
 def plot_3d_scene(
     ball_radius: float,
     disk_radius: float,
