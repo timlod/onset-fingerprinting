@@ -136,6 +136,7 @@ def optimize_positions(
     radius=0.1778,
     sr=96000,
     eps=1e-2,
+    n_es=10,
 ):
     """
     Optimize the positions of sensors and sounds based on observed lags.
@@ -201,7 +202,7 @@ def optimize_positions(
         if loss < last_loss - eps:
             last_loss = loss
             counter = 0 if counter == 0 else counter - 1
-        elif counter < 10:
+        elif counter < n_es:
             counter += 1
         else:
             break
@@ -214,7 +215,8 @@ def optimize_positions(
         # Print progress
         if epoch % 1 == 0:
             print(
-                f"Epoch {epoch}, Loss {loss.item()}, LL {last_loss.item() - eps}"
+                f"Epoch {epoch}, Loss {loss.item()}, LL"
+                f" {last_loss.item() - eps}"
             )
     print(f"Epoch {epoch}, Loss {loss.item()}")
     return sensor_positions.detach(), sound_positions.detach(), C.detach()
