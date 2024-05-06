@@ -9,6 +9,7 @@ def plot_group(
     onsets: np.ndarray,
     n_around: int = 64,
     ax=None,
+    title="",
     **kwargs,
 ):
     """Plot a group of audio onsets
@@ -21,6 +22,7 @@ def plot_group(
     """
     if ax is None:
         fig = plt.figure(**kwargs)
+        fig.suptitle(title)
         ax = fig.add_subplot(111)
     os = sorted(onsets)
     plot_audio = audio[os[0] - n_around : os[-1] + n_around]
@@ -31,6 +33,7 @@ def plot_group(
         plot_audio.max(),
         colors=plt.colormaps["tab10"].colors,
     )
+    return ax
 
 
 def plot_3d_scene(
