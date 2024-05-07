@@ -211,7 +211,7 @@ def optimize_positions(
     errors = []
     # Speed of sound in m/s
     C = torch.tensor(C, requires_grad=True, dtype=torch.float32)
-    decay = torch.tensor(0.03, requires_grad=True, dtype=torch.float32)
+    adj_model = TDAdjuster(n_hidden)
 
     # Make sure data is on the same device
     device = observed_lags.device
@@ -226,18 +226,21 @@ def optimize_positions(
     )
     sp_nl = torch.zeros(len(sp_learnable), 1)
 
-    lrs = torch.tensor([1e-4, 1e-6, 1e-2, 1e-2], dtype=torch.float32) * lr
+    lrs = torch.tensor([1e-3, 2e-4, 1e-1, 1e-4], dtype=torch.float32) * lr
     optimizer = optim.Adam(
         [
             {"params": [sensor_positions], "lr": lrs[0]},
             {"params": [sp_learnable], "lr": lrs[1]},
             {"params": C, "lr": lrs[2]},
-            {"params": decay, "lr": lrs[3]},
+            {"params": adj_model.parameters(), "lr": lrs[3]},
         ]
     )
-    scheduler = torch.optim.lr_scheduler.OneCycleLR(
-        optimizer, max_lr=list(lrs * 100), steps_per_epoch=1, epochs=num_epochs
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, num_epochs
     )
+    # scheduler = torch.optim.lr_scheduler.OneCycleLR(
+    #     optimizer, max_lr=list(lrs * 100), steps_per_epoch=1, epochs=num_epochs
+    # )
     errors.clear()
     last_loss = torch.inf
     counter = 0
