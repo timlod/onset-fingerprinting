@@ -2,7 +2,11 @@ from typing import Optional
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
+from torch import nn
+
+from onset_fingerprinting import calibration, multilateration
 
 
 def calibration_locations(
@@ -124,6 +128,57 @@ def tdoa_calibration_loss(
         # will have 1 - 0, 2 - 1 as lags in number of samples
         error += np.abs(lags_samples - observed_lags[i]) ** 1
     return np.mean(error)
+
+
+class TDAdjuster(nn.Module):
+    def __init__(
+        self, n_out: int = 2, n_hidden: int = 10, noise_floor: float = 0.01
+    ):
+        super(TDAdjuster, self).__init__()
+        self.fc1 = nn.Linear(2, n_hidden)
+        self.fc2 = nn.Linear(n_hidden, n_hidden)
+        self.fc3 = nn.Linear(n_hidden, 2)
+
+        self.initialize_weights_identity(self.fc1, 2, noise_floor)
+        self.initialize_weights_identity(self.fc2, n_hidden, noise_floor)
+        self.initialize_weights_identity(self.fc3, n_hidden, noise_floor)
+
+        self.fc1.bias.data.fill_(0.00001)
+        self.fc2.bias.data.fill_(0.00001)
+
+        nn.init.eye_(self.fc3.weight)
+        self.fc3.bias.data.fill_(0.000001)
+
+    def initialize_weights_identity(self, layer, n_in, noise_floor=0.001):
+        perturbation = torch.randn(layer.out_features, n_in) * noise_floor
+        layer.weight.data = torch.eye(layer.out_features, n_in) + perturbation
+
+    def forward(self, x):
+        """
+        Forward pass of the neural network designed to adjust TDOA for
+        non-linearities.
+
+        :param x: Input tensor of shape (n_hits, 2), where each row represents
+                  the TDOA between sensor pairs (0, 1) and (1, 2).
+
+        :returns: A tensor of shape (n_hits, 2) containing adjusted TDOAs.
+        """
+        x = F.elu(self.fc1(x))
+        x = F.elu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+    def call_raw(self, tdoa1: float, tdoa2: float):
+        """
+        Process individual pairs of TDOA values and return adjusted TDOA values.
+
+        :param tdoa1: TDOA between the first pair of sensors as a float.
+        :param tdoa2: TDOA between the second pair of sensors as a float.
+        :returns: A tuple of adjusted TDOA values as floats.
+        """
+        tdoa_tensor = torch.tensor([[tdoa1, tdoa2]], dtype=torch.float32)
+        adjusted_tdoas = self(tdoa_tensor)
+        return adjusted_tdoas[0, 0].item(), adjusted_tdoas[0, 1].item()
 
 
 def optimize_positions(
