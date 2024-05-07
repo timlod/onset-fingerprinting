@@ -192,6 +192,8 @@ def optimize_positions(
     sr=96000,
     eps=1e-2,
     n_es=10,
+    print_every=10,
+    n_hidden=5,
 ):
     """
     Optimize the positions of sensors and sounds based on observed lags.
@@ -288,7 +290,7 @@ def optimize_positions(
         # print(C)
         scheduler.step()
         # Print progress
-        if epoch % 1 == 0:
+        if epoch % print_every == 0:
             print(
                 f"Epoch {epoch}, Loss {loss.item()}, LL"
                 f" {last_loss.item() - eps}"
