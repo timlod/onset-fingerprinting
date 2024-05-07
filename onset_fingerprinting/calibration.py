@@ -156,6 +156,7 @@ def optimize_positions(
     errors = []
     # Speed of sound in m/s
     C = torch.tensor(C, requires_grad=True, dtype=torch.float32)
+    decay = torch.tensor(0.03, requires_grad=True, dtype=torch.float32)
 
     # Make sure data is on the same device
     device = observed_lags.device
@@ -170,12 +171,13 @@ def optimize_positions(
     )
     sp_nl = torch.zeros(len(sp_learnable), 1)
 
-    lrs = torch.tensor([1e-3, 1e-4, 1e-1], dtype=torch.float32) * 0.1
+    lrs = torch.tensor([1e-4, 1e-6, 1e-2, 1e-2], dtype=torch.float32) * lr
     optimizer = optim.Adam(
         [
             {"params": [sensor_positions], "lr": lrs[0]},
             {"params": [sp_learnable], "lr": lrs[1]},
             {"params": C, "lr": lrs[2]},
+            {"params": decay, "lr": lrs[3]},
         ]
     )
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
@@ -188,10 +190,25 @@ def optimize_positions(
         optimizer.zero_grad()
         # Compute distances from each sound to each sensor
         sound_positions = torch.cat((sp_learnable, sp_nl), dim=1)
-        diff = sound_positions[:, None, :] - sensor_positions[None, :, :]
-        distances = torch.sqrt(torch.sum(diff**2, dim=-1)) / C
+        distance_sound_sensor = torch.sqrt(
+            torch.sum(
+                (sound_positions[:, None, :] - sensor_positions[None, :, :])
+                ** 2,
+                dim=-1,
+            )
+        )
+        # distances will be in seconds across each direction
+        # distances = torch.sqrt(torch.sum(diff**2, dim=-1)) / C
+        speed_adjustment = torch.exp(-distance_sound_sensor / decay)
+        # speed_adjustment = torch.sigmoid(decay) * distances
+
+        # The time it takes sound to travel the distance between sound source
+        # and sensor position
+        time_per_distance = distance_sound_sensor / (
+            C * (1 + speed_adjustment)
+        )
         # Compute lags in number of samples
-        lags = torch.diff(distances) * sr
+        lags = torch.diff(time_per_distance) * sr
         error = torch.abs(lags - observed_lags) ** 1
         loss = error.mean()
         # Additional loss for max radius
@@ -219,7 +236,12 @@ def optimize_positions(
                 f" {last_loss.item() - eps}"
             )
     print(f"Epoch {epoch}, Loss {loss.item()}")
-    return sensor_positions.detach(), sound_positions.detach(), C.detach()
+    return (
+        sensor_positions.detach(),
+        sound_positions.detach(),
+        C.detach(),
+        decay,
+    )
 
 
 # # Usage: Initialize your observed_lags, initial_sensor_positions, and
