@@ -259,22 +259,29 @@ def optimize_positions(
         )
         # distances will be in seconds across each direction
         # distances = torch.sqrt(torch.sum(diff**2, dim=-1)) / C
-        speed_adjustment = torch.exp(-distance_sound_sensor / decay)
-        # speed_adjustment = torch.sigmoid(decay) * distances
-
-        # The time it takes sound to travel the distance between sound source
-        # and sensor position
-        time_per_distance = distance_sound_sensor / (
-            C * (1 + speed_adjustment)
-        )
-        # Compute lags in number of samples
-        lags = torch.diff(time_per_distance) * sr
+        # speed_adjustment = torch.exp(-distance_sound_sensor / decay)
+        # # The time it takes sound to travel the distance between sound source
+        # # and sensor position
+        # time_per_distance = distance_sound_sensor / (
+        #     C * (1 + speed_adjustment)
+        # )
+        # # Compute lags in number of samples
+        # lags = torch.diff(time_per_distance) * sr
+        # difference in sound_sensor distances of two sensor pairs
+        # tdoa = torch.diff(distance_sound_sensor) / C
+        tdoa = (
+            distance_sound_sensor[:, 1:] - distance_sound_sensor[:, :1]
+        ) / C
+        tdoa = adj_model(tdoa)
+        # diff in msamp/s
+        lags = tdoa * sr
+        # print(lags[:2], observed_lags[:2])
         error = torch.abs(lags - observed_lags) ** 1
         loss = error.mean()
         # Additional loss for max radius
-        penalties = torch.relu(
-            (sp_learnable**2).sum(dim=1) - (0.99 * radius) ** 2
-        )
+        # penalties = torch.relu(
+        #     (sp_learnable**2).sum(dim=1) - (0.99 * radius) ** 2
+        # )
         # Crude early stopping on own training loss
         if loss < last_loss - eps:
             last_loss = loss
@@ -283,11 +290,10 @@ def optimize_positions(
             counter += 1
         else:
             break
-        loss += penalties.sum()
+        # loss += penalties.sum()
         errors.append(loss.detach().numpy())
         loss.backward()
         optimizer.step()
-        # print(C)
         scheduler.step()
         # Print progress
         if epoch % print_every == 0:
@@ -296,11 +302,12 @@ def optimize_positions(
                 f" {last_loss.item() - eps}"
             )
     print(f"Epoch {epoch}, Loss {loss.item()}")
+    print(lags[:10], observed_lags[:10])
     return (
         sensor_positions.detach(),
         sound_positions.detach(),
         C.detach(),
-        decay,
+        adj_model,
     )
 
 
