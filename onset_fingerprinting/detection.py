@@ -1,5 +1,6 @@
 import ctypes
 from pathlib import Path
+from typing import Optional
 
 import librosa
 import numpy as np
@@ -105,9 +106,11 @@ def detect_onsets_spectral(
 def cross_correlation_lag(
     x: np.ndarray,
     y: np.ndarray,
-    legal_lags: tuple[int, int],
+    onsets: Optional[tuple[int, int]] = None,
+    legal_lags: Optional[tuple[int, int]] = None,
     d: int = 0,
     normalization_cutoff: int = 10,
+    onset_tolerance: int = 50,
 ) -> int:
     """
     Compute cross-correlation (CC) of two sequences, normalizes the resulting
@@ -126,13 +129,18 @@ def cross_correlation_lag(
 
     :param x: first input audio
     :param y: second input audio
+    :param onsets: current onsets to center the allowed lag around (use either
+        this or legal_lags)
     :param legal_lags: which lags to consider in the cross-correlation.  Use to
-        incorporate knowledge of sensor placement into choosing the correct lag
+        incorporate knowledge of sensor placement into choosing the correct
+        lag.  Use either this or onsets
     :param d: computes the CC on the d-th difference/derivative
     :param normalization_cutoff: number of elements which need to be present in
         one lag of the CC to be normalized such that that lag can contribute
         equally to lag as other lags above cutoff.  See description for better
         explanation
+    :param onset_tolerance: when using existing onsets to limit legal cc lags,
+        allow this many lags before or after the existing lag
     """
     x = np.diff(x, d)
     y = np.diff(y, d)
@@ -149,7 +157,12 @@ def cross_correlation_lag(
     # to be negated to fit cc (where lags before n represent y needing to move
     # forward)
     # TODO: add tolerance zone to legality? : perhaps better to add before call
-    cc = cc[n - legal_lags[1] : n - legal_lags[0]]
+    if legal_lags is not None:
+        cc = cc[n - legal_lags[1] : n - legal_lags[0]]
+    elif onsets is not None:
+        # lag_center is the current lag between onsets as index in the cc
+        lag_center = n - (onsets[1] - onsets[0])
+        cc = cc[lag_center - onset_tolerance : lag_center + onset_tolerance]
     return -(np.argmax(cc) - legal_lags[1])
 
 
