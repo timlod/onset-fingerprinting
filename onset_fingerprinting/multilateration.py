@@ -316,6 +316,7 @@ class Multilaterate3D:
         medium: str = "drumhead",
         sr: int = 44100,
         c: float | None = None,
+        model=None,
     ):
         """Initialize multilateration onset locator.
 
@@ -334,9 +335,13 @@ class Multilaterate3D:
         :param medium: 'drumhead' for vibration/optical sensors, 'air' for
             microphones
         :param sr: sampling rate
-        :param c: speed of sound in m/s. uses speed_of_sound if not provided
+        :param c: speed of sound in m/s.  uses speed_of_sound if not provided
+        :param model: bypass trilateration by optimization, using this pytorch
+            model for trilateration instead
         """
         self.c = speed_of_sound(100, medium=medium) if c is None else c * 100
+        self.model = model
+        self.model.eval()
         self.radius = drum_diameter / 2
         self.sensor_locs = [
             spherical_to_cartesian(x[0] * self.radius, x[1], x[2])
@@ -453,21 +458,34 @@ class Multilaterate3D:
         self, group: tuple[list[int], list[int]], initial_guess
     ) -> tuple[float, float]:
         sensors, onsets = group[0], group[1]
+        # TODO: don't bake in assumptions about order
+        # best just always use a list where the index tells which index it is
+        if sensors[1] == 1:
+            sensors[1:] = [0, 1]
+            onsets[1:] = onsets[2:0:-1]
         sensor_a = self.sensor_locs[sensors[1]]
         sensor_b = self.sensor_locs[sensors[2]]
         sensor_origin = self.sensor_locs[sensors[0]]
 
-        d_a1 = (onsets[1] - onsets[0]) * self.c / self.sr
-        d_b1 = (onsets[2] - onsets[0]) * self.c / self.sr
+        # onset diff = number of sample difference in sound arrival. / sr alone
+        # would be seconds (tdoa), * c is mm, tdoa expressed in distance
+        # sound travels in the time it took for sound to arrive at two sensors
 
-        res = solve_trilateration_3d(
-            sensor_a,
-            sensor_b,
-            sensor_origin,
-            d_a1,
-            d_b1,
-            initial_guess,
-        )
+        d_a1 = onsets[1] - onsets[0]
+        d_b1 = onsets[2] - onsets[0]
+        if self.model is not None:
+            d_a1, d_b1 = self.model.call_raw((d_a1, d_b1))
+            # Our scale is in centimeters, hence *100
+            res = (d_a1 * 100, d_b1 * 100)
+        else:
+            res = solve_trilateration_3d(
+                sensor_a,
+                sensor_b,
+                sensor_origin,
+                d_a1 / self.sr * self.c,
+                d_b1 / self.sr * self.c,
+                initial_guess,
+            )
         if res is not None:
             return cartesian_to_polar(*res, self.radius)
         else:
