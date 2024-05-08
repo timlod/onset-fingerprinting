@@ -1,8 +1,9 @@
-from loopmate.circular_array import CircularArray
 import ctypes
 from pathlib import Path
-import numpy as np
+
 import librosa
+import numpy as np
+from loopmate.circular_array import CircularArray
 from scipy import signal as sig
 from scipy.ndimage import binary_opening, maximum_filter1d
 
@@ -99,6 +100,85 @@ def detect_onsets_spectral(
         return peaks, oe
     else:
         return peaks
+
+
+def cross_correlation_lag(
+    x: np.ndarray,
+    y: np.ndarray,
+    legal_lags: tuple[int, int],
+    d: int = 0,
+    normalization_cutoff: int = 10,
+) -> int:
+    """
+    Compute cross-correlation (CC) of two sequences, normalizes the resulting
+    lags by contribution (i.e. divides each value by the number of elements
+    which contributed to that lag) and chooses the maximum within a given legal
+    region.  Also allows to compute CC on nth-order differences/derivatives.
+
+    The cross correlation is the dot product of parts of the two sequences.
+    This includes over the amount of elements present for a given lag.  Since
+    only the center value (lag 0) has contributions from all elements, it has
+    the potential to be the largest value (see np.correlate(np.ones(5),
+    np.ones(5), mode="full"), with the result of 1:5:1).  If we want to weigh
+    smaller matching subsequences equally, we need do divide each lag by the
+    number of elements which contributed to it (the aforementioned example
+    would give a cross-correlation for 1 at each lag in that case).
+
+    :param x: first input audio
+    :param y: second input audio
+    :param legal_lags: which lags to consider in the cross-correlation.  Use to
+        incorporate knowledge of sensor placement into choosing the correct lag
+    :param d: computes the CC on the d-th difference/derivative
+    :param normalization_cutoff: number of elements which need to be present in
+        one lag of the CC to be normalized such that that lag can contribute
+        equally to lag as other lags above cutoff.  See description for better
+        explanation
+    """
+    x = np.diff(x, d)
+    y = np.diff(y, d)
+    n = len(x)
+    cc = np.correlate(x, y, "full")
+    # Normalize such that each cc value with contributions of more than cutoff
+    # amount of elements has an equal chance to be the top lag
+    normalizer = np.arange(len(x)) + 1
+    normalizer[:normalization_cutoff] = normalization_cutoff
+    cc[:n] /= normalizer
+    cc[n:] /= normalizer[n - 2 :: -1]
+    # look at only legal lags - here we always assume that x is before y, and
+    # legality means the lag from x to y (usually positive) - these lags need
+    # to be negated to fit cc (where lags before n represent y needing to move
+    # forward)
+    # TODO: add tolerance zone to legality? : perhaps better to add before call
+    cc = cc[n - legal_lags[1] : n - legal_lags[0]]
+    return -(np.argmax(cc) - legal_lags[1])
+
+
+def adjust_onset(
+    onsets: list[int, int], relx: np.ndarray, rely: np.ndarray, new_lag: int
+) -> tuple[int, int]:
+    """Adjust one onset in a pair based on a target lag and the signals'
+    respective relative envelopes.
+
+    :param onsets: [onset_x, onset_y]
+    :param relx: relative envelope of x
+    :param rely: relative envelope of y
+    :param new_lag: target lag (likely output of cross_correlation_lag)
+    """
+    oa = onsets[0]
+    ob = onsets[1]
+    lag = ob - oa
+    lag_diff = lag - new_lag
+    # if lag_diff < 0 we need to look before onsets[0] or after onsets[1] and
+    # vice versa
+    # these will be positive if the new location is larger than the old one
+    # we'll take the one with a larger positive change
+    da = relx[oa + lag_diff] - relx[oa]
+    db = rely[ob - lag_diff] - rely[ob]
+    if da > db:
+        oa += lag_diff
+    else:
+        ob -= lag_diff
+    return oa, ob
 
 
 def detect_onset_region(
