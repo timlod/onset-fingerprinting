@@ -226,22 +226,23 @@ class FCNN(nn.Module):
 
         :param lags: observed lags
         """
-        return self(torch.tensor([lags], dtype=torch.float32)).numpy()
+        with torch.no_grad():
+            return self(torch.tensor([lags], dtype=torch.float32)).numpy()[0]
 
 
 def optimize_positions(
     observed_lags: torch.Tensor,
     initial_sensor_positions: torch.Tensor,
     initial_sound_positions: torch.Tensor,
-    lr=0.01,
-    num_epochs=1000,
-    C=342.29,
-    radius=0.1778,
-    sr=96000,
-    eps=1e-2,
-    n_es=10,
+    lr: float = 0.01,
+    num_epochs: int = 1000,
+    C: float = 342.29,
+    sr: int = 96000,
+    radius: float = 0.1778,
+    eps: float = 1e-2,
+    patience: float = 10,
     print_every=10,
-    n_hidden=5,
+    debug: bool = False,
 ):
     """
     Optimize the positions of sensors and sounds based on observed lags.
