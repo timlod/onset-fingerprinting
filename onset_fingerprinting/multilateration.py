@@ -475,9 +475,8 @@ class Multilaterate3D:
         d_a1 = onsets[1] - onsets[0]
         d_b1 = onsets[2] - onsets[0]
         if self.model is not None:
-            d_a1, d_b1 = self.model.call_raw((d_a1, d_b1))
             # Our scale is in centimeters, hence *100
-            res = (d_a1 * 100, d_b1 * 100)
+            res = self.model.call_np((d_a1, d_b1)) * 100
         else:
             res = solve_trilateration_3d(
                 sensor_a,
