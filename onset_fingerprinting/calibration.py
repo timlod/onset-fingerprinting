@@ -255,14 +255,18 @@ def optimize_positions(
         3)
     :param lr: Learning rate for optimizer
     :param num_epochs: Number of epochs for optimization
-
-    :return: Optimized sensor and sound positions
+    :param C: initial speed of sound
+    :param sr: sampling rate
+    :param radius: drum radius (additional loss commented out)
+    :param patience: early stopping patience
+    :param eps: epsilon for early stopping
+    :param print_every: print loss every this many epochs
+    :param debug: print some additional info
     """
-
+    observed_lags = observed_lags / sr
     errors = []
     # Speed of sound in m/s
     C = torch.tensor(C, requires_grad=True, dtype=torch.float32)
-    adj_model = TDAdjuster(n_hidden)
 
     # Make sure data is on the same device
     device = observed_lags.device
@@ -277,13 +281,12 @@ def optimize_positions(
     )
     sp_nl = torch.zeros(len(sp_learnable), 1)
 
-    lrs = torch.tensor([1e-3, 2e-4, 1e-1, 1e-4], dtype=torch.float32) * lr
+    lrs = torch.tensor([2e-3, 1e-3, 1e-2], dtype=torch.float32) * lr
     optimizer = optim.Adam(
         [
             {"params": [sensor_positions], "lr": lrs[0]},
             {"params": [sp_learnable], "lr": lrs[1]},
             {"params": C, "lr": lrs[2]},
-            {"params": adj_model.parameters(), "lr": lrs[3]},
         ]
     )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -299,33 +302,26 @@ def optimize_positions(
         optimizer.zero_grad()
         # Compute distances from each sound to each sensor
         sound_positions = torch.cat((sp_learnable, sp_nl), dim=1)
-        distance_sound_sensor = torch.sqrt(
+        distances = torch.sqrt(
             torch.sum(
                 (sound_positions[:, None, :] - sensor_positions[None, :, :])
                 ** 2,
                 dim=-1,
             )
         )
-        # distances will be in seconds across each direction
-        # distances = torch.sqrt(torch.sum(diff**2, dim=-1)) / C
-        # speed_adjustment = torch.exp(-distance_sound_sensor / decay)
-        # # The time it takes sound to travel the distance between sound source
-        # # and sensor position
-        # time_per_distance = distance_sound_sensor / (
-        #     C * (1 + speed_adjustment)
-        # )
-        # # Compute lags in number of samples
-        # lags = torch.diff(time_per_distance) * sr
-        # difference in sound_sensor distances of two sensor pairs
-        # tdoa = torch.diff(distance_sound_sensor) / C
+        # Difference in sound tosensor distances of two sensor pairs, in s
+        # Time difference of arrival
         tdoa = (
-            distance_sound_sensor[:, 1:] - distance_sound_sensor[:, :1]
-        ) / C
-        tdoa = adj_model(tdoa)
-        # diff in msamp/s
-        lags = tdoa * sr
-        # print(lags[:2], observed_lags[:2])
-        error = torch.abs(lags - observed_lags) ** 1
+            torch.cat(
+                (
+                    distances[:, 1:] - distances[:, :1],
+                    distances[:, 1:2] - distances[:, 2:],
+                ),
+                dim=1,
+            )
+            / C
+        )
+        error = torch.abs(tdoa * sr - observed_lags) ** 2
         loss = error.mean()
         # Additional loss for max radius
         # penalties = torch.relu(
@@ -335,7 +331,7 @@ def optimize_positions(
         if loss < last_loss - eps:
             last_loss = loss
             counter = 0 if counter == 0 else counter - 1
-        elif counter < n_es:
+        elif counter < patience:
             counter += 1
         else:
             break
@@ -344,49 +340,86 @@ def optimize_positions(
         loss.backward()
         optimizer.step()
         scheduler.step()
-        # Print progress
         if epoch % print_every == 0:
             print(
                 f"Epoch {epoch}, Loss {loss.item()}, LL"
                 f" {last_loss.item() - eps}"
             )
     print(f"Epoch {epoch}, Loss {loss.item()}")
-    print(lags[:10], observed_lags[:10])
+    if debug:
+        print(tdoa * sr[:10], "\n", observed_lags[:10])
     return (
         sensor_positions.detach(),
         sound_positions.detach(),
         C.detach(),
-        adj_model,
     )
 
 
-# # Usage: Initialize your observed_lags, initial_sensor_positions, and
-# # initial_sound_positions here Then call optimize_positions to get the
-# # optimized positions
-# mask = (mins == 2) | (mins == 5)
+def train_location_model(
+    observed_lags: torch.Tensor,
+    sound_positions: torch.Tensor,
+    lr: float = 0.01,
+    loss: Callable = F.l1_loss,
+    num_epochs: int = 1000,
+    eps: float = 1e-2,
+    patience: int = 10,
+    print_every: int = 10,
+    debug: bool = False,
+    **kwargs,
+):
+    """
+    Train an FCNN to predict sound locations based on observed lags between
+    sensor pairs.
 
-# # initial_sensor_positions = torch.tensor(
-# #     initial_sensor_positions, dtype=torch.float32
-# # )
-# initial_sensor_positions = torch.tensor(
-#     [*sensors[:2], snare_pos, sensors[2]],
-#     dtype=torch.float32,
-# )
-# ns = len(initial_sensor_positions)
-# tmins = mins[mask]
-# tmins[tmins == 5] = 3
-# tmins += torch.arange(0, ns * len(mins[mask]), ns)
-# initial_sound_positions = torch.zeros(len(mins), 3)
+    :param observed_lags: Tensor of observed lags for sound and sensor pairs,
+        shape (num_sounds, num_sensors - 1)
+    :param sound_positions: sound/hit positions, shape (num_sounds, 3)
+    :param lr: Learning rate for optimizer
+    :param loss: loss function of form loss(input, target)
+    :param num_epochs: Number of epochs for optimization
+    :param patience: early stopping patience
+    :param eps: epsilon for early stopping
+    :param print_every: print loss every this many epochs
+    :param debug: print some additional info
+    :param kwargs: parameters for FCNN to control the model to train
+    """
 
-# # Initialize likely snare hits at 0
+    errors = []
 
-# initial_sound_positions[mins == 2] = 0.0
-# # initial_sound_positions[mins == 4] = initial_sensor_positions[4]
-# initial_sound_positions[mins == 3] = initial_sensor_positions[3]
-# # initial_sound_positions += (torch.rand(len(mins), 3) - 0.5) * 0.1
-# senp, sonp = optimize_positions(
-#     ol[mask][:, [0, 1, 2, 5]],
-#     initial_sensor_positions,
-#     initial_sound_positions[mask],
-#     num_epochs=10000,
-# )
+    # Make sure data is on the same device
+    device = observed_lags.device
+    sound_positions = sound_positions.to(device)
+    model = FCNN(observed_lags.shape[1], 2, **kwargs)
+    model = model.to(device)
+
+    optimizer = optim.Adam([{"params": model.parameters(), "lr": lr}])
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, num_epochs
+    )
+    errors.clear()
+    last_loss = torch.inf
+    counter = 0
+    for epoch in range(num_epochs):
+        optimizer.zero_grad()
+        pos = model(observed_lags)
+        error = loss(pos, sound_positions[:, :2])
+        errors.append(error.detach().numpy())
+        loss = error.mean()
+        # Crude early stopping on own training loss
+        if loss < last_loss - eps:
+            last_loss = loss
+            counter = 0 if counter == 0 else counter - 1
+        elif counter < patience:
+            counter += 1
+        else:
+            break
+
+        loss.backward()
+        optimizer.step()
+        scheduler.step()
+        if epoch % print_every == 0:
+            print(f"Epoch {epoch}, Loss {loss.item()}")
+    print(f"Epoch {epoch}, Loss {loss.item()}")
+    if debug:
+        print(pos[:10], "\n", sound_positions[:10])
+    return model, errors
