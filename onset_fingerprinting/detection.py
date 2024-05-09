@@ -159,11 +159,17 @@ def cross_correlation_lag(
     # TODO: add tolerance zone to legality? : perhaps better to add before call
     if legal_lags is not None:
         cc = cc[n - legal_lags[1] : n - legal_lags[0]]
+        max_adjust = legal_lags[1]
     elif onsets is not None:
         # lag_center is the current lag between onsets as index in the cc
-        lag_center = n - (onsets[1] - onsets[0])
+        current_lag = onsets[1] - onsets[0]
+        lag_center = n - current_lag
         cc = cc[lag_center - onset_tolerance : lag_center + onset_tolerance]
-    return -(np.argmax(cc) - legal_lags[1])
+        max_adjust = current_lag + onset_tolerance
+    if len(cc) == 0:
+        return None
+
+    return -(np.argmax(cc) - max_adjust)
 
 
 def adjust_onset(
