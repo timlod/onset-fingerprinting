@@ -341,7 +341,8 @@ class Multilaterate3D:
         """
         self.c = speed_of_sound(100, medium=medium) if c is None else c * 100
         self.model = model
-        self.model.eval()
+        if model is not None:
+            self.model.eval()
         self.radius = drum_diameter / 2
         self.sensor_locs = [
             spherical_to_cartesian(x[0] * self.radius, x[1], x[2])
