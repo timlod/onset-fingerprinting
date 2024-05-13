@@ -281,7 +281,7 @@ def optimize_positions(
     )
     sp_nl = torch.zeros(len(sp_learnable), 1)
 
-    lrs = torch.tensor([2e-3, 1e-3, 1e-2], dtype=torch.float32) * lr
+    lrs = torch.tensor([2e-3, 1e-4, 1e-0], dtype=torch.float32) * lr
     optimizer = optim.Adam(
         [
             {"params": [sensor_positions], "lr": lrs[0]},
@@ -311,17 +311,8 @@ def optimize_positions(
         )
         # Difference in sound tosensor distances of two sensor pairs, in s
         # Time difference of arrival
-        tdoa = (
-            torch.cat(
-                (
-                    distances[:, 1:] - distances[:, :1],
-                    distances[:, 1:2] - distances[:, 2:],
-                ),
-                dim=1,
-            )
-            / C
-        )
-        error = torch.abs(tdoa * sr - observed_lags) ** 2
+        tdoa = (distances[:, 1:] - distances[:, :1]) / C
+        error = torch.abs(tdoa - observed_lags) ** 2
         loss = error.mean()
         # Additional loss for max radius
         # penalties = torch.relu(
