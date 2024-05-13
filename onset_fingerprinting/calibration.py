@@ -4,9 +4,183 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
+from scipy import optimize
 from torch import nn
 
 from onset_fingerprinting import calibration, multilateration
+
+
+def tdoa_calib_loss(
+    params: np.ndarray,
+    sound_positions: np.ndarray,
+    observed_tdoa: np.ndarray,
+    C: float = 343.0,
+    errors=None,
+):
+    """Error function for calibration of sensor positions using TDoA.
+    To be used within a call to scipy.optimize.
+
+    :param sensor_positions: sensor positions (this will be optimized)
+    :param sound_positions: sound positions for each observed lag
+    :param observed_tdoa: lags observed between sensors for each sound
+    :param C: speed of sound
+    """
+    sensor_positions = params.reshape(-1, 3)
+    error = 0.0
+    if errors is not None:
+        errors.clear()
+    for i, sound in enumerate(sound_positions):
+        distances = (
+            np.sqrt(np.sum((sound - sensor_positions) ** 2, axis=1)) / C
+        )
+        tdoa = np.diff(distances)
+        # will have 1 - 0, 2 - 1 as lags in tdoa
+        e = np.abs(tdoa - observed_tdoa[i])
+        error += e
+        if errors is not None:
+            errors.append(e)
+    return np.mean(error)
+
+
+def tdoa_calib_loss_with_sp(
+    params: np.ndarray,
+    observed_tdoa: np.ndarray,
+    n_lugs: int = 10,
+    n_each: int = 4,
+    center_hits: int = 4,
+    norm=1,
+    opt_c: bool = False,
+    C: float = 343.0,
+    errors=None,
+):
+    """Error function for calibration of sensor positions using TDoA.  To be
+    used within a call to scipy.optimize.
+
+    :param params: parameters to optimize.  Flat array including hit radius,
+        potentially c, and sensor positions
+    :param observed_tdoa: lags observed between sensors for each sound
+    :param n_lugs: number of lugs on the drum
+    :param n_each: number of hits at each lug
+    :param center_hits: number of center hits (assumed to be at the beginning
+        of the data)
+    :param norm: 1 for MAE, 2 for MSE
+    :param opt_c: True to take C from params[1], which will be optimized in
+        conjunction with hit radius and sensor positions
+    """
+    sound_positions = [(0, 0, 0)] * center_hits + [
+        multilateration.spherical_to_cartesian(*pos)
+        for pos in calibration.calibration_locations(
+            n_lugs, n_each, params[0], 0
+        )
+    ]
+    if opt_c:
+        C = params[1]
+
+    if errors is not None:
+        errors.clear()
+    sensor_positions = params[(1 + opt_c) :].reshape(-1, 3)
+    error = 0.0
+    for i, sound in enumerate(sound_positions):
+        distances = (
+            np.sqrt(np.sum((sound - sensor_positions) ** 2, axis=1)) / C
+        )
+        tdoa = np.diff(distances)
+        # will have 1 - 0, 2 - 1 as lags in tdoa
+        e = np.abs(tdoa - observed_tdoa[i]) ** norm
+        if errors is not None:
+            errors.append(e)
+        error += e
+    return np.mean(error)
+
+
+def calibrate(
+    onsets,
+    sr: int = 96000,
+    C: float = 343.0,
+    diameter: float = 14 * 2.54,
+    n_lugs: int = 10,
+    n_each: int = 4,
+    hits_at: int = 0.9,
+    center_hits: int = 4,
+    norm: int = 1,
+    filter_errors_above: float = 2,
+    opt_c: bool = False,
+):
+    errors = []
+    radius = diameter / 2 / 100
+    tdoa = np.diff(onsets) / sr
+
+    sound_positions = [(0, 0, 0)] * center_hits + [
+        multilateration.spherical_to_cartesian(*pos)
+        for pos in calibration.calibration_locations(
+            n_lugs, n_each, hits_at * radius, 0
+        )
+    ]
+
+    initial_sensor_positions = np.array(
+        [
+            multilateration.spherical_to_cartesian(*pos)
+            for pos in np.array(
+                [
+                    (0.9, 140, 75),
+                    (0.9, 10, 55),
+                    (radius, 100, 15),
+                ]
+            )
+        ]
+    )
+
+    result = optimize.minimize(
+        tdoa_calib_loss_with_sp,
+        (
+            [radius * hits_at]
+            + ([C] if opt_c else [])
+            + list(initial_sensor_positions.flatten())
+        ),
+        args=(tdoa, n_lugs, n_each, center_hits, norm, opt_c, C, errors),
+        method="TNC",
+        bounds=[(0.5 * radius, 1.1 * radius)]
+        + ([(336.0, 345.0)] if opt_c else [])
+        + [(None, None), (None, None), (0, None)] * 2
+        + [(-radius, radius), (-radius, radius), (0, radius)],
+        options={"maxfun": 10000},
+    )
+    r = result.x[0]
+    if opt_c:
+        C = result.x[1]
+    print(r, C)
+    sound_positions = np.array(
+        [(0, 0, 0)] * center_hits
+        + [
+            multilateration.spherical_to_cartesian(*pos)
+            for pos in calibration.calibration_locations(n_lugs, n_each, r, 0)
+        ]
+    )
+
+    final_sensor_positions = result.x[1 + opt_c :].reshape(-1, 3)
+
+    # Find error spikes to remove, assuming that in those cases we have bad
+    # lags
+    errors1 = np.array(errors).sum(axis=1)
+    med = np.median(errors1)
+    good_idx = np.where(errors1 < filter_errors_above * med)[0]
+    print(good_idx.shape)
+    print(f"Removing {len(tdoa) - len(good_idx)} hits!")
+
+    errors = []
+    # Retry
+    result = optimize.minimize(
+        tdoa_calib_loss,
+        final_sensor_positions.flatten(),
+        args=(sound_positions[good_idx], tdoa[good_idx], C),
+        method="TNC",
+        bounds=[(None, None), (None, None), (0, None)] * 2
+        + [(-radius, radius), (-radius, radius), (0, radius)],
+        options={"maxfun": 10000},
+    )
+    errors = np.array(errors)
+    final_sensor_positions = result.x.reshape(-1, 3)
+    return final_sensor_positions
 
 
 def calibration_locations(
@@ -103,31 +277,6 @@ def find_onset_groups(
         return np.array(groups, dtype=int)
     else:
         return None
-
-
-def tdoa_calibration_loss(
-    sensor_positions, sound_positions, observed_lags, sr=96000
-):
-    """Error function for calibration of sensor positions using TDoA.
-    To be used within a call to scipy.optimize.
-
-    :param sensor_positions: sensor positions (this will be optimized)
-    :param sound_positions: sound positions for each observed lag
-    :param observed_lags: lags observed between sensors for each sound
-    :param sr: sampling rate
-    """
-    # sp assumed in meters
-    C = sensor_positions[0]
-    sensor_positions = sensor_positions.reshape(-1, 3)
-    error = 0.0
-    for i, sound in enumerate(sound_positions):
-        distances = (
-            np.sqrt(np.sum((sound - sensor_positions) ** 2, axis=1)) / C
-        )
-        lags_samples = np.diff(distances) * sr
-        # will have 1 - 0, 2 - 1 as lags in number of samples
-        error += np.abs(lags_samples - observed_lags[i]) ** 1
-    return np.mean(error)
 
 
 class FCNN(nn.Module):
