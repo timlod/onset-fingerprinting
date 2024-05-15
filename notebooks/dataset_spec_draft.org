@@ -319,7 +319,7 @@ One can load this ahead of time to know what to expect of the dataset.
 }
 #+end_src
 
-*** TODO Sessions
+*** Sessions
 In this example there are two sessions, one recording the snare, one the kick.
 These JSON files will accompany .wav files, namely one for each channel, in the
 same folder. Note: all data and metadata will share the same name. Audio files
@@ -402,6 +402,23 @@ in the session metadata!
     }
 }
 #+end_src
+
+** REVIEW Multichannel onsets
+Multichannel onsets pose an extra challenge if we require the onset to be
+reflecting the same moment in time across each channel. For example, we can
+trilaterate a sound source by using Time Difference of Arrival (TDoA) -
+essentially, comparing the difference in arrival times of the sound source at
+each channel. However, this only works well if the onset is very consistent
+across channels.
+
+We can use the same format as the normal POSD to represent multichannel data.
+However, it is possible to leave out the =onset_start= for some of the channels
+if we can't readily determine consistent multichannel onsets. We could then use
+cross-correlation or some advanced onset detection methods to get consistent
+onsets to record later.
+
+If data is used for calibration of multilateration methods, we need to include
+location information in at least one of the channels.
 
 * Conventions
 POSD can refer to any dataset which adhers to the specification described in
