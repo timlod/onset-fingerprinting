@@ -322,7 +322,7 @@ One can load this ahead of time to know what to expect of the dataset.
 *** TODO Sessions
 In this example there are two sessions, one recording the snare, one the kick.
 These JSON files will accompany .wav files, namely one for each channel, in the
-same folder. Note: all data and metadata will share the same name. WAV files
+same folder. Note: all data and metadata will share the same name. Audio files
 will be post-fixed by _<channel>, where <channel> one of the channels specified
 in the session metadata!
 
@@ -372,14 +372,15 @@ in the session metadata!
     "meta":
     {
         "sampling_rate": 96000,
+        "filetype": "wav",
         "channels": {
             "SP": {
                 "location": [0.98, 45],
-                "distance": 10
+                "coordinate_system": "polar",
             },
             "OP": {
                 "location": [0.98, 60],
-                "distance": 8
+                "coordinate_system": "polar",
             }
         },
         "instrument": "kick",
