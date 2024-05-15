@@ -160,12 +160,12 @@ tambourine, timpani, etc.), please use a tuple of [[https://en.wikipedia.org/wik
 following system:
 - Distance from center between 0 and 1 (0 meaning dead on center, 1 meaning on
   edge)
-- Angle in degrees (0 to 360), where 0/360° are the top of the drum (from
-  player's perspective), and angles increase clockwise
+- Angle in degrees (0 to 360), where 0/360° are the right side of the drum
+  (from player's perspective), and angles increase counter-clockwise
 
-For example, hits toward top and bottom of a snare drum might be at (0.8, 0)
-and (0.8, 180) respectively; hits towards center right/left might at (0.1, 90)
-and (0.1, 270).
+For example, hits toward top and bottom of a snare drum might be at (0.8, 90)
+and (0.8, 270) respectively; hits towards center right/left might at (0.1, 0)
+and (0.1, 180).
 For a dead-center hit, the angle component does not matter - in that case, we
 recommend recording 0°.
 
