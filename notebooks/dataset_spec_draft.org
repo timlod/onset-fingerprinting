@@ -187,7 +187,8 @@ metadata about context in that session.
 
 Required:
 1. =sampling_rate= (in Hz)
-2. =channels= - for each recording device/channel:
+2. =filetype= - file ending of each individual file, usually wav (omit the dot)
+3. =channels= - for each recording device/channel:
    - Name of the recording device
    Optional:
    - Additional details such as:
@@ -331,6 +332,7 @@ in the session metadata!
     "meta":
     {
         "sampling_rate": 96000,
+        "filetype": "wav",
         "channels": {
             "SP": {
                 "location": [0.95, 0],
@@ -347,7 +349,7 @@ in the session metadata!
         "size": "13x5.75",    
         "head_top": "ambassador",
         "head_bottom": "ambassador_ss",
-        "rim": "3f",
+        "rim": "triple-flange",
         "tuning": "low",
         "player": "rodrigo",
         "context": "full kit"
