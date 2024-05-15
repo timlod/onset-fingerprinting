@@ -169,6 +169,11 @@ and (0.1, 180).
 For a dead-center hit, the angle component does not matter - in that case, we
 recommend recording 0°.
 
+You can also use another, e.g. cartesian, coordinate system. In either case,
+add a field =coordinate_system= indicating which one is used (here it would be
+"polar" or "cartesian"). Coordinate systems which should be easy to support
+are: cartesian, polar, spherical, cylindrical.
+
 For other types of instruments, please document clearly how locations are
 represented.
 
@@ -329,11 +334,11 @@ in the session metadata!
         "channels": {
             "SP": {
                 "location": [0.95, 0],
-                "distance": 10
+                "coordinate_system": "polar"
             },
             "OP": {
                 "location": [0.95, 30],
-                "distance": 8
+                "coordinate_system": "polar"
             }
         },
         "instrument": "snare",
