@@ -198,19 +198,21 @@ dataset.
 **** Instrument
 
 Required:
-1. =name=: Instrument name
+1. =instrument=: Instrument name
    - If present, has to match metadata in [[*Instrument class][Instrument class]]
    - use something informative, like 'snare' or 'kick'
 
 Optional:
 1. =isolated=
-   - A boolean flag specifying whether the hit is isolated or in-context
+   - A boolean flag specifying whether the hit is isolated (just audio of that
+     hit playing) or in-context (other instruments/audio playing at the same
+     time)
 2. Additional session-level instrument metadata like the following:
    - =tuning=
    - =pitch=
    - =manufacturer=
    - =model=
-   - =stick_type=, =beater_material= and similar
+   - =stick_type=, =beater_material= and similar, as needed
    - etc.
 
 Use Hertz/Hz to record tuning or pitch, if present.
