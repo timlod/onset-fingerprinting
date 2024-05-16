@@ -15,6 +15,7 @@ def tdoa_calib_loss(
     sound_positions: np.ndarray,
     observed_tdoa: np.ndarray,
     C: float = 343.0,
+    norm: int = 1,
     errors=None,
 ):
     """Error function for calibration of sensor positions using TDoA.
@@ -34,8 +35,7 @@ def tdoa_calib_loss(
             np.sqrt(np.sum((sound - sensor_positions) ** 2, axis=1)) / C
         )
         tdoa = np.diff(distances)
-        # will have 1 - 0, 2 - 1 as lags in tdoa
-        e = np.abs(tdoa - observed_tdoa[i])
+        e = np.abs(tdoa - observed_tdoa[i]) ** norm
         error += e
         if errors is not None:
             errors.append(e)
