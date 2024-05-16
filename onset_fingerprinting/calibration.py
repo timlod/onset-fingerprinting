@@ -94,7 +94,7 @@ def tdoa_calib_loss_with_sp(
 
 
 def calibrate(
-    onsets,
+    onsets: np.ndarray,
     sr: int = 96000,
     C: float = 343.0,
     diameter: float = 14 * 2.54,
@@ -106,6 +106,21 @@ def calibrate(
     filter_errors_above: float = 2,
     opt_c: bool = False,
 ):
+    """Calibration function for sensor positions given calibration hits.
+
+    :param onsets: onset array of shape [n_onsets, n_channels]
+    :param sr: sampling rate
+    :param C: speed of sound
+    :param diameter: diameter of drum
+    :param n_lugs: number of lugs on the drum
+    :param n_each: number of hits at each lug
+    :param hits_at: where along the radius the calibration hits are in [0, 1]
+    :param center_hits: number of center hits (0, 0) preceding the lug hits
+    :param norm: 1 for MAE, 2 for MSE
+    :param filter_errors_above: removes the hits with errors this times as
+        large as the median error
+    :param opt_c: if True, optimize the speed of sound as well
+    """
     errors = []
     radius = diameter / 2 / 100
     tdoa = np.diff(onsets) / sr
