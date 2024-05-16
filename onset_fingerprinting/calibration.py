@@ -138,6 +138,7 @@ def calibrate(
             + list(initial_sensor_positions.flatten())
         ),
         args=(tdoa, n_lugs, n_each, center_hits, norm, opt_c, C, errors),
+        jac=tdoa_calib_loss_with_sp_jac,
         method="TNC",
         bounds=[(0.5 * radius, 1.1 * radius)]
         + ([(336.0, 345.0)] if opt_c else [])
@@ -487,7 +488,7 @@ def optimize_positions(
             )
     print(f"Epoch {epoch}, Loss {loss.item()}")
     if debug:
-        print(tdoa * sr[:10], "\n", observed_lags[:10])
+        print(tdoa[:10], "\n", observed_lags[:10])
     return (
         sensor_positions.detach(),
         sound_positions.detach(),
