@@ -26,7 +26,7 @@ def speed_of_sound(
     :param medium: 'air' or 'drumhead'
     """
     if medium == "air":
-        return scale * 331.5 + 0.6 * temperature + 0.012 * humidity
+        return scale * (331.3 + 0.606 * temperature) * (1 + 0.0124 * humidity)
     else:
         return scale * C_drumhead
 
