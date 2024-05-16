@@ -205,6 +205,106 @@ def tdoa_calib_loss_with_sp_jac(
             print(f"Gradient with respect to C: {jac[:3]}")
     return jac
 
+
+def optimize_C(
+    tdoa,
+    n_lugs,
+    n_each,
+    center_hits,
+    norm,
+    C_range=(336, 345),
+    initial_C=343.0,
+    radius=14 * 2.54 / 100 / 2,
+    hits_at=0.155,
+    filter_errors_above=3,
+    **kwargs,
+):
+    """Optimize both sensor positions and the speed of sound.
+
+    :param tdoa: observed TDoA
+    :param n_lugs: number of lugs on the drum
+    :param n_each: number of hits at each lug
+    :param center_hits: number of center hits preceding lug hits
+    :param norm: 1 for MAE, 2 for MSE
+    :param C_range: range of values to search for C
+    :param initial_C: initial guess for C
+    :param radius: drum radius
+    :param hits_at: distance of hits from origin (something <1 * radius)
+    :param filter_errors_above: removes hits with particularly large errors
+        after a first pass with initial_C.  If optimizing for a membrane speed,
+        it makes sense to call this function twice, first without filtering,
+        and then again with the optimized C as the initial guess and filtering
+    """
+    errors = []
+
+    sound_positions = np.array(
+        [(0, 0, 0)] * center_hits
+        + [
+            multilateration.spherical_to_cartesian(*pos)
+            for pos in calibration.calibration_locations(
+                n_lugs, n_each, hits_at, 0
+            )
+        ]
+    )
+
+    initial_sensor_positions = np.array(
+        [
+            multilateration.spherical_to_cartesian(*pos)
+            for pos in np.array(
+                [
+                    (0.9, 140, 75),
+                    (0.9, 10, 55),
+                    (hits_at, 100, 15),
+                ]
+            )
+        ]
+    )
+    bounds = [(None, None), (None, None), (0, None)] * 2 + [
+        (-radius, radius),
+        (-radius, radius),
+        (0, radius),
+    ]
+    result = optimize.minimize(
+        tdoa_calib_loss,
+        initial_sensor_positions.flatten(),
+        args=(sound_positions, tdoa, initial_C, norm, errors),
+        jac=tdoa_calib_loss_jac,
+        method="TNC",
+        bounds=bounds,
+        options={"maxfun": 10000},
+    )
+    initial_sensor_positions = result.x
+    errors1 = np.array(errors).sum(axis=1)
+    med = np.median(errors1)
+    good_idx = np.where(errors1 < filter_errors_above * med)[0]
+    print(f"Removing {len(tdoa) - len(good_idx)} hits!")
+
+    def objective(C):
+        fun = optimize.minimize(
+            tdoa_calib_loss,
+            initial_sensor_positions,
+            args=(sound_positions[good_idx], tdoa[good_idx], C, norm),
+            jac=tdoa_calib_loss_jac,
+            method="TNC",
+            bounds=bounds,
+            options={"maxfun": 1000},
+        ).fun
+        return fun
+
+    res = optimize.minimize_scalar(objective, bounds=C_range, method="bounded")
+    best_C = res.x
+    final_result = optimize.minimize(
+        tdoa_calib_loss,
+        initial_sensor_positions,
+        args=(sound_positions[good_idx], tdoa[good_idx], best_C, norm),
+        jac=tdoa_calib_loss_jac,
+        method="TNC",
+        bounds=bounds,
+        options={"maxfun": 100000},
+    )
+    return final_result.x.reshape(-1, 3), best_C
+
+
 def calibrate(
     onsets: np.ndarray,
     sr: int = 96000,
