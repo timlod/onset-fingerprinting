@@ -42,6 +42,49 @@ def tdoa_calib_loss(
     return np.mean(error)
 
 
+def tdoa_calib_loss_jac(
+    params: np.ndarray,
+    sound_positions: np.ndarray,
+    observed_tdoa: np.ndarray,
+    C: float = 343.0,
+    norm: int = 1,
+    e=None,
+):
+    """Jacobian for tdoa_calib_loss."""
+    sensor_positions = params.reshape(-1, 3)
+    jac = np.zeros_like(params)
+    for i, sound in enumerate(sound_positions):
+        distances = (
+            np.sqrt(np.sum((sound - sensor_positions) ** 2, axis=1)) / C
+        )
+        tdoa = np.diff(distances)
+        error_term = tdoa - observed_tdoa[i]
+        sign_error_term = np.sign(error_term)
+        weighted_error_term = (
+            sign_error_term
+            if norm == 1
+            else sign_error_term * (np.abs(error_term) ** (norm - 1))
+        )
+
+        for j in range(sensor_positions.shape[0]):
+            if j > 0:
+                d_error_d_pos_j = weighted_error_term[j - 1] * (
+                    (sensor_positions[j] - sound) / (distances[j] * C)
+                )
+            if j < sensor_positions.shape[0] - 1:
+                d_error_d_pos_j_minus_1 = -weighted_error_term[j] * (
+                    (sensor_positions[j] - sound) / (distances[j] * C)
+                )
+                if j > 0:
+                    d_error_d_pos_j += d_error_d_pos_j_minus_1
+                else:
+                    d_error_d_pos_j = d_error_d_pos_j_minus_1
+
+            jac[j * 3 : (j + 1) * 3] += d_error_d_pos_j / len(sound_positions)
+
+    return jac
+
+
 def tdoa_calib_loss_with_sp(
     params: np.ndarray,
     observed_tdoa: np.ndarray,
