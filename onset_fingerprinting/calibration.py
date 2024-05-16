@@ -136,6 +136,75 @@ def tdoa_calib_loss_with_sp(
     return np.mean(error)
 
 
+def tdoa_calib_loss_with_sp_jac(
+    params: np.ndarray,
+    observed_tdoa: np.ndarray,
+    n_lugs: int = 10,
+    n_each: int = 4,
+    center_hits: int = 4,
+    norm=1,
+    opt_c: bool = False,
+    C: float = 343.0,
+    e=None,
+):
+    """Jacobian for the TDoA calibration loss function."""
+    sound_positions = [(0, 0, 0)] * center_hits + [
+        multilateration.spherical_to_cartesian(*pos)
+        for pos in calibration.calibration_locations(
+            n_lugs, n_each, params[0], 0
+        )
+    ]
+    if opt_c:
+        C = params[1]
+
+    sensor_positions = params[(1 + opt_c) :].reshape(-1, 3)
+    jac = np.zeros_like(params)
+    for i, sound in enumerate(sound_positions):
+        distances = (
+            np.sqrt(np.sum((sound - sensor_positions) ** 2, axis=1)) / C
+        )
+        tdoa = np.diff(distances)
+        error_term = tdoa - observed_tdoa[i]
+        sign_error_term = np.sign(error_term)
+        weighted_error_term = (
+            sign_error_term
+            if norm == 1
+            else sign_error_term * (np.abs(error_term) ** (norm - 1))
+        )
+
+        # Gradient w.r.t. sensor positions
+        for j in range(sensor_positions.shape[0]):
+            if j > 0:
+                d_error_d_pos_j = weighted_error_term[j - 1] * (
+                    (sensor_positions[j] - sound) / (distances[j] * C)
+                )
+            if j < sensor_positions.shape[0] - 1:
+                d_error_d_pos_j_minus_1 = -weighted_error_term[j] * (
+                    (sensor_positions[j] - sound) / (distances[j] * C)
+                )
+                if j > 0:
+                    d_error_d_pos_j += d_error_d_pos_j_minus_1
+                else:
+                    d_error_d_pos_j = d_error_d_pos_j_minus_1
+
+            jac[
+                (1 + opt_c) + j * 3 : (1 + opt_c) + (j + 1) * 3
+            ] += d_error_d_pos_j / len(sound_positions)
+
+        # Gradient w.r.t. hit radius
+        jac[0] += np.sum(weighted_error_term) / len(sound_positions)
+
+        # Gradient w.r.t. speed of sound C (if optimized)
+        if opt_c:
+            d_error_d_c = -np.sum(
+                weighted_error_term
+                * np.diff(np.sum((sound - sensor_positions) ** 2, axis=1))
+                / (C**2)
+            )
+            jac[1] += d_error_d_c / len(sound_positions) * 1000
+            print(f"Gradient with respect to C: {jac[:3]}")
+    return jac
+
 def calibrate(
     onsets: np.ndarray,
     sr: int = 96000,
