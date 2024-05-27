@@ -1,6 +1,11 @@
+from typing import Optional
+
 import numpy as np
+from scipy.ndimage import median_filter
 from scipy.optimize import fsolve
 from scipy.signal import find_peaks
+
+from onset_fingerprinting import detection
 
 TEMPERATURE = 20.0
 HUMIDITY = 50.0
@@ -418,7 +423,10 @@ class Multilaterate3D:
         return res
 
     def locate(
-        self, sensor_index: int, onset_index: int
+        self,
+        sensor_index: int,
+        onset_index: int,
+        rec_audio: Optional[detection.CircularArray] = None,
     ) -> None | tuple[float, float]:
         new_groups = []
 
@@ -426,6 +434,36 @@ class Multilaterate3D:
             # Group: ([sensor_indexes], [onset_indexes])
             lag = onset_index - group[1][0]
             if sensor_index not in group[0]:
+                # TODO: what to do if we need more samples into the future?
+                # this is the case where we get a detection towards the end of
+                # the buffer
+                # also check whether we should be always ccing wrt .cfirst onset
+                if rec_audio is not None:
+                    # take audio between last two onsets
+                    last_onset = group[0][-1]
+                    # look 50 samples further back for CC
+                    i = rec_audio.counter - last_onset + 50
+                    section = rec_audio[-i:, [last_onset, sensor_index]]
+                    section = np.abs(
+                        np.diff(median_filter(section, 5, axes=0), axis=0)
+                    )
+                    new_lag = detection.cross_correlation_lag(
+                        section[:, 0],
+                        section[:, 1],
+                        onsets=(group[1][-1], onset_index),
+                        d=0,
+                        onset_tolerance=30,
+                    )
+                    if new_lag is not None:
+                        lag = new_lag
+                        co, cn = detection.adjust_onset(
+                            [last_onset + onset_index],
+                            section[:, 0],
+                            section[:, 1],
+                            lag,
+                        )
+                        group[1][-1] += co
+                        onset_index += cn
                 if self.is_legal(group[0][0], sensor_index, lag):
                     group = (
                         group[0] + [sensor_index],
