@@ -208,10 +208,10 @@ def tdoa_calib_loss_with_sp_jac(
 
 def optimize_C(
     tdoa,
-    n_lugs,
-    n_each,
-    center_hits,
-    norm,
+    n_lugs=10,
+    n_each=4,
+    center_hits=4,
+    norm=1,
     C_range=(336, 345),
     initial_C=343.0,
     radius=14 * 2.54 / 100 / 2,
