@@ -179,7 +179,7 @@ def cross_correlation_lag(
     return -(np.argmax(cc) - max_adjust)
 
 
-def adjust_onset(
+def adjust_onset_rel(
     onsets: list[int, int], relx: np.ndarray, rely: np.ndarray, new_lag: int
 ) -> tuple[int, int]:
     """Adjust one onset in a pair based on a target lag and the signals'
@@ -205,6 +205,40 @@ def adjust_onset(
     else:
         ob -= lag_diff
     return oa, ob
+
+
+def adjust_onset(
+    onsets: list[int, int], x: np.ndarray, y: np.ndarray, new_lag: int
+) -> tuple[int, int]:
+    """Adjust one onset in a pair based on a target lag and weighted signal
+    intensities around the new lags.
+
+    :param onsets: [onset_x, onset_y]
+    :param x: signal x
+    :param y: signal y
+    :param new_lag: target lag (likely output of cross_correlation_lag)
+    """
+    oa = onsets[0]
+    ob = onsets[1]
+    lag = ob - oa
+    lag_diff = lag - new_lag
+    # if lag_diff < 0 we need to look before onsets[0] or after onsets[1] and
+    # vice versa
+    # exponential window of the size of the lag difference
+    exp = np.exp(np.linspace(0, -np.e, abs(lag_diff)))
+    # Take the signal between the old and the new lag, exponentially weighted
+    # toward the new lag, sum and normalize by the old lag
+    if lag_diff < 0:
+        da = np.sum(x[oa + lag_diff : oa] * exp) / x[oa]
+        db = np.sum(y[ob : ob - lag_diff] * exp[::-1]) / y[ob]
+    else:
+        da = np.sum(x[oa : oa + lag_diff] * exp) / x[oa]
+        db = np.sum(y[ob - lag_diff : ob] * exp[::-1]) / y[ob]
+    # Adjust the side which has a greater relative weighted peak
+    if da > db:
+        return lag_diff, 0
+    else:
+        return 0, -lag_diff
 
 
 def detect_onset_region(
