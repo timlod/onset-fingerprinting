@@ -111,7 +111,7 @@ def cross_correlation_lag(
     d: int = 0,
     normalization_cutoff: int = 10,
     onset_tolerance: int = 50,
-    take_abs: bool = True,
+    take_abs: bool = False,
 ) -> int:
     """
     Compute cross-correlation (CC) of two sequences, normalizes the resulting
