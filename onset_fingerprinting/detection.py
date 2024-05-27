@@ -111,6 +111,7 @@ def cross_correlation_lag(
     d: int = 0,
     normalization_cutoff: int = 10,
     onset_tolerance: int = 50,
+    take_abs: bool = True,
 ) -> int:
     """
     Compute cross-correlation (CC) of two sequences, normalizes the resulting
@@ -141,9 +142,15 @@ def cross_correlation_lag(
         explanation
     :param onset_tolerance: when using existing onsets to limit legal cc lags,
         allow this many lags before or after the existing lag
+    :param take_abs: if True, takes the absolute value after taking the
+        difference.  This usually helps getting higher peaks in the
+        cross-correlation.
     """
     x = np.diff(x, d)
     y = np.diff(y, d)
+    if take_abs:
+        x = np.abs(x)
+        y = np.abs(y)
     n = len(x)
     cc = np.correlate(x, y, "full")
     # Normalize such that each cc value with contributions of more than cutoff
