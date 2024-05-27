@@ -372,6 +372,7 @@ class Multilaterate3D:
                     medium=self.medium,
                     # 2cm tolerance around edge of drum
                     tol=2,
+                    c=self.c,
                 )
                 # Allow some negative values, specifically to allow some slack
                 # in the the center region if sensors are placed circularly
