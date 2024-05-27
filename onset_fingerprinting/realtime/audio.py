@@ -58,13 +58,13 @@ class PlayRec:
         )
         self.fx = fx
 
-    def detect_hits(self, audio):
+    def detect_hits(self, audio, rec_audio):
         c, d, r = self.od(audio)
         if len(c) > 0:
             d = [self.current_index + x for x in d]
             idx = np.argsort(d)
             for i in idx:
-                res = self.m.locate(c[i], d[i])
+                res = self.m.locate(c[i], d[i], rec_audio)
                 if res is not None:
                     res = Location(*res)
                     print(res)
