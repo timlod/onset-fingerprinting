@@ -767,6 +767,7 @@ def train_location_model(
     errors.clear()
     last_loss = torch.inf
     counter = 0
+    best_model = model
     for epoch in range(num_epochs):
         optimizer.zero_grad()
         pos = model(observed_lags)
@@ -776,6 +777,7 @@ def train_location_model(
         # Crude early stopping on own training loss
         if loss < last_loss - eps:
             last_loss = loss
+            best_model = model
             counter = 0 if counter == 0 else counter - 1
         elif counter < patience:
             counter += 1
@@ -790,4 +792,4 @@ def train_location_model(
     print(f"Epoch {epoch}, Loss {loss.item()}")
     if debug:
         print(pos[:10], "\n", sound_positions[:10])
-    return model, errors
+    return best_model, errors
