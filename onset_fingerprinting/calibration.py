@@ -727,7 +727,7 @@ def train_location_model(
     observed_lags: torch.Tensor,
     sound_positions: torch.Tensor,
     lr: float = 0.01,
-    loss: Callable = F.l1_loss,
+    lossfun: Callable = F.l1_loss,
     num_epochs: int = 1000,
     eps: float = 1e-9,
     patience: int = 10,
@@ -770,7 +770,7 @@ def train_location_model(
     for epoch in range(num_epochs):
         optimizer.zero_grad()
         pos = model(observed_lags)
-        error = loss(pos, sound_positions[:, :2])
+        error = lossfun(pos, sound_positions[:, :2])
         errors.append(error.detach().numpy())
         loss = error.mean()
         # Crude early stopping on own training loss
