@@ -6,7 +6,7 @@ import librosa
 import numpy as np
 from loopmate.circular_array import CircularArray
 from scipy import signal as sig
-from scipy.ndimage import binary_opening, maximum_filter1d
+from scipy.ndimage import binary_opening, maximum_filter1d, median_filter
 
 
 def detect_onsets(x: np.ndarray, sr: int = 96000, method="amp"):
@@ -239,6 +239,68 @@ def adjust_onset(
         return lag_diff, 0
     else:
         return 0, -lag_diff
+
+
+def fix_onsets(
+    audio: np.ndarray,
+    onsets: np.ndarray,
+    filter_size: int = 5,
+    d: int = 1,
+    take_abs: bool = True,
+    normalization_cutoff: int = 10,
+    onset_tolerance: int = 30,
+):
+    """Fix groups of onsets by paired cross-correlation such that onsets become
+    consistent across channels.
+
+    :param audio: array containing audio channels whose onsets to align (NxC)
+    :param onsets: array containing paired onsets for each channel (OxC), where
+        O is the number of onsets
+    :param filter_size: size of median filter used to smoothe the signal
+    :param d: number of differences to take after median filtering
+    :param take_abs: whether to use the absolute value of the differenced,
+        filtered signals - helps with making cross-correlation 'peakier'
+    :param normalization_cutoff: number of elements which need to be present in
+        one lag of the CC to be normalized such that that lag can contribute
+        equally to lag as other lags above cutoff.  See description in
+        cross_correlation_lag for better explanation
+    :param onset_tolerance: when using existing onsets to limit legal cc lags,
+        allow this many lags before or after the existing lag
+    """
+    # Minimum lookaround to still allow to cc-match fully normalized items
+    lookaround = normalization_cutoff + onset_tolerance
+    onsets = onsets.copy()
+    for j, og in enumerate(onsets):
+        idx = np.argsort(og)
+        a = og[idx[0]]
+        b = og[idx[2]]
+        section = audio[a - lookaround : b + lookaround]
+        section = np.abs(
+            np.diff(median_filter(section, filter_size, axes=0), axis=0)
+        )
+        section_og = og - (a - lookaround)
+        for i in idx[1:]:
+            onsets = [section_og[idx[0]], section_og[i]]
+            x = np.diff(section[:, idx[0]], d)
+            y = np.diff(section[:, i], d)
+            if take_abs:
+                x = np.abs(x)
+                y = np.abs(y)
+            new_lag = cross_correlation_lag(
+                x,
+                y,
+                onsets,
+                d=0,
+                normalization_cutoff=normalization_cutoff,
+                onset_tolerance=onset_tolerance,
+            )
+            if new_lag is not None:
+                ca, cb = adjust_onset(onsets, x, y, new_lag)
+                og[idx[0]] += ca
+                og[i] += cb
+                section_og[idx[0]] += ca
+                section_og[i] += cb
+        return onsets
 
 
 def detect_onset_region(
