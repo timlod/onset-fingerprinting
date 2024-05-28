@@ -329,6 +329,7 @@ def fix_onsets(
     filter_size: int = 5,
     d: int = 1,
     take_abs: bool = True,
+    null_direction: Optional[str] = None,
     normalization_cutoff: int = 10,
     onset_tolerance: int = 30,
 ):
@@ -342,6 +343,9 @@ def fix_onsets(
     :param d: number of differences to take after median filtering
     :param take_abs: whether to use the absolute value of the differenced,
         filtered signals - helps with making cross-correlation 'peakier'
+    :param null_direction: "up" if onset transient points downward, "down" if
+        it points upwards.  Nulls signal when derivative is positive/negative
+        to focus aligned onsets in the correct direction.
     :param normalization_cutoff: number of elements which need to be present in
         one lag of the CC to be normalized such that that lag can contribute
         equally to lag as other lags above cutoff.  See description in
@@ -360,6 +364,10 @@ def fix_onsets(
         section = np.diff(
             median_filter(section, filter_size, axes=0), d, axis=0
         )
+        if null_direction == "up":
+            section[section >= 0] = 0
+        elif null_direction == "down":
+            section[section <= 0] = 0
         if take_abs:
             section = np.abs(section)
         section_og = og - (a - lookaround)
