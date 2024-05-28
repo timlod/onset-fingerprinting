@@ -23,14 +23,35 @@ def detect_onsets_amplitude(
     hipass_freq: float = 2000.0,
     fast_ar: tuple[float, float] = (3.0, 383.0),
     slow_ar: tuple[float, float] = (2205.0, 2205.0),
-    on_threshold: float = 0.5,
-    off_threshold: float = 0.1,
+    on_threshold: float | tuple[float] = 0.5,
+    off_threshold: float | tuple[float] = 0.1,
     cooldown: int = 1323,
     backtrack: bool = False,
-    backtrack_buffer_size: int = 80,
+    backtrack_buffer_size: int = 128,
     backtrack_smooth_size: int = 5,
     sr: int = 96000,
 ):
+    """Detects onsets using amplitude followers.
+
+    :param x: signal to analyse (NxC)
+    :param block_size: process x in blocks of this size
+    :param floor: noise floor
+    :param hipass_freq: hi-pass filters the signal at this frequency
+    :param fast_ar: attack/release settings for the fast enevelope follower
+    :param slow_ar: attack/release settings for the slow enevelope follower
+    :param on_threshold: threshold above which onsets are registered.  single
+        value, or one for each channel
+    :param off_threshold: threshold below which signal has to pass to allow a
+        new onset.  single value, or one for each channel
+    :param cooldown: number of samples to wait before allowing a new onset
+    :param backtrack: if True, backtracks each onset to the likely start
+    :param backtrack_buffer_size: size of the buffer to keep for backtracking
+        onsets.  Should be at least equal to block_size
+    :param backtrack_smooth_size: uses smoothing of signal for backtracking (to
+        jump across small rises in amplitude).  Smoothing filter is IIR
+        corresponding to an average FIR filter with this many samples
+    :param sr: sampling rate
+    """
     od = AmplitudeOnsetDetector(
         x.shape[1],
         block_size,
