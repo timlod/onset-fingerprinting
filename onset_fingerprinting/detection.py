@@ -108,6 +108,7 @@ def find_onset_groups(
     channels: list[int],
     max_distance: int = 1000,
     min_channels: int = 3,
+    close_channel: Optional[int] = None,
 ) -> np.ndarray | None:
     """
     Find groups of onsets based on sample distance and number of channels.
@@ -121,6 +122,8 @@ def find_onset_groups(
         onset samples in a group
     :param min_channels: Minimum number of different channels required in a
         group
+    :param close_channel: one of channels.  If provided, this function will
+        remove all groups where the first onset is not from this channel.
 
     :return: 2D numpy array, each row represents a group, or None if no groups
              are found
@@ -153,6 +156,8 @@ def find_onset_groups(
             group_array[ch] = s
         groups.append(group_array)
 
+    if close_channel is not None:
+        groups = list(filter(lambda x: all(x[close_channel] <= x), groups))
     if groups:
         return np.array(groups, dtype=int)
     else:
