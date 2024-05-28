@@ -18,13 +18,16 @@ def tdoa_calib_loss(
     norm: int = 1,
     errors=None,
 ):
-    """Error function for calibration of sensor positions using TDoA.
-    To be used within a call to scipy.optimize.
+    """Error function for calibration of sensor positions using TDoA.  To be
+    used within a call to scipy.optimize.
 
     :param sensor_positions: sensor positions (this will be optimized)
     :param sound_positions: sound positions for each observed lag
     :param observed_tdoa: lags observed between sensors for each sound
     :param C: speed of sound
+    :param norm: 1 for MAE, 2 for MSE
+    :param errors: list to save errors of each sound (can be used to filter out
+        bad data)
     """
     sensor_positions = params.reshape(-1, 3)
     error = 0.0
