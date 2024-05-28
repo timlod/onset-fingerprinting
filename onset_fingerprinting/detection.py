@@ -103,6 +103,62 @@ def detect_onsets_spectral(
         return peaks
 
 
+def find_onset_groups(
+    onsets: list[int],
+    channels: list[int],
+    max_distance: int = 1000,
+    min_channels: int = 3,
+) -> np.ndarray | None:
+    """
+    Find groups of onsets based on sample distance and number of channels.
+    Given onsets detected on calibration hits, these are potential candidates
+    where an onset has been detected on each channel of interest close to each
+    other.
+
+    :param onsets: List of onset sample indexes
+    :param channels: List of channels corresponding to sample_indexes
+    :param max_distance: Maximum allowable distance between first and last
+        onset samples in a group
+    :param min_channels: Minimum number of different channels required in a
+        group
+
+    :return: 2D numpy array, each row represents a group, or None if no groups
+             are found
+    """
+    groups = []
+    current_group = []
+    max_channel = max(channels)
+
+    for sample, channel in zip(onsets, channels):
+        if not current_group:
+            current_group.append((sample, channel))
+            continue
+
+        if abs(sample - current_group[0][0]) <= max_distance:
+            current_group.append((sample, channel))
+        else:
+            unique_channels = len(set(ch for _, ch in current_group))
+            if unique_channels >= min_channels:
+                group_array = np.full((max_channel + 1,), np.nan)
+                for s, ch in current_group:
+                    group_array[ch] = s
+                groups.append(group_array)
+            current_group = [(sample, channel)]
+
+    # Check the last group
+    unique_channels = len(set(ch for _, ch in current_group))
+    if unique_channels >= min_channels:
+        group_array = np.full((max_channel + 1,), np.nan)
+        for s, ch in current_group:
+            group_array[ch] = s
+        groups.append(group_array)
+
+    if groups:
+        return np.array(groups, dtype=int)
+    else:
+        return None
+
+
 def cross_correlation_lag(
     x: np.ndarray,
     y: np.ndarray,
