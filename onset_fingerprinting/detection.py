@@ -357,32 +357,32 @@ def fix_onsets(
         a = og[idx[0]]
         b = og[idx[2]]
         section = audio[a - lookaround : b + lookaround]
-        section = np.abs(
-            np.diff(median_filter(section, filter_size, axes=0), axis=0)
+        section = np.diff(
+            median_filter(section, filter_size, axes=0), d, axis=0
         )
+        if take_abs:
+            section = np.abs(section)
         section_og = og - (a - lookaround)
         for i in idx[1:]:
-            onsets = [section_og[idx[0]], section_og[i]]
-            x = np.diff(section[:, idx[0]], d)
-            y = np.diff(section[:, i], d)
-            if take_abs:
-                x = np.abs(x)
-                y = np.abs(y)
+            o = [section_og[idx[0]], section_og[i]]
+            x = section[:, idx[0]]
+            y = section[:, i]
+
             new_lag = cross_correlation_lag(
                 x,
                 y,
-                onsets,
+                o,
                 d=0,
                 normalization_cutoff=normalization_cutoff,
                 onset_tolerance=onset_tolerance,
             )
             if new_lag is not None:
-                ca, cb = adjust_onset(onsets, x, y, new_lag)
+                ca, cb = adjust_onset(o, x, y, new_lag)
                 og[idx[0]] += ca
                 og[i] += cb
                 section_og[idx[0]] += ca
                 section_og[i] += cb
-        return onsets
+    return onsets
 
 
 def detect_onset_region(
