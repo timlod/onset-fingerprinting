@@ -4,6 +4,31 @@ import numpy as np
 from onset_fingerprinting import multilateration
 
 
+def get_color_from_cmap(
+    cmap_name: str, min_val: float, max_val: float, value: float
+) -> tuple:
+    """
+    Get the RGBA color corresponding to a value mapped to a given colormap,
+    scaled between specified minimum and maximum values.
+
+    :param cmap_name: Name of the colormap as a string.
+    :param min_val: The minimum value of the range.
+    :param max_val: The maximum value of the range.
+    :param value: The value to map to the colormap.
+    :return: RGBA color tuple.
+    """
+    # Load the colormap
+    cmap = plt.get_cmap(cmap_name)
+
+    # Normalize the value
+    norm = (value - min_val) / (max_val - min_val)
+
+    # Get color from colormap
+    color = cmap(norm)
+
+    return color
+
+
 def plot_group(
     audio: np.ndarray,
     onsets: np.ndarray,
