@@ -312,8 +312,8 @@ def adjust_onset(
     # Take the signal between the old and the new lag, exponentially weighted
     # toward the new lag, sum and normalize by the old lag
     if lag_diff < 0:
-        da = np.sum(x[oa + lag_diff : oa] * exp) / x[oa]
-        db = np.sum(y[ob : ob - lag_diff] * exp[::-1]) / y[ob]
+        da = np.sum(x[oa + lag_diff : oa] * exp) / x.max()
+        db = np.sum(y[ob : ob - lag_diff] * exp[::-1]) / y.max()
     else:
         da = np.sum(x[oa : oa + lag_diff] * exp) / x[oa]
         db = np.sum(y[ob - lag_diff : ob] * exp[::-1]) / y[ob]
