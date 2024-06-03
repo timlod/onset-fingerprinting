@@ -55,16 +55,17 @@ def detect_onsets_amplitude(
     od = AmplitudeOnsetDetector(
         x.shape[1],
         block_size,
-        hipass_freq=2000,
-        fast_ar=(1, 1000),
-        slow_ar=(10000, 10000),
-        on_threshold=0.6,
-        off_threshold=0.01,
-        cooldown=1323,
+        floor=floor,
+        hipass_freq=hipass_freq,
+        fast_ar=fast_ar,
+        slow_ar=slow_ar,
+        on_threshold=on_threshold,
+        off_threshold=off_threshold,
+        cooldown=cooldown,
         sr=sr,
-        backtrack=True,
-        backtrack_buffer_size=2 * block_size,
-        backtrack_smooth_size=1,
+        backtrack=backtrack,
+        backtrack_buffer_size=backtrack_buffer_size,
+        backtrack_smooth_size=backtrack_smooth_size,
     )
     od.init_minmax_tracker(x[: int(0.5 * sr)])
     channels, onsets = [], []
