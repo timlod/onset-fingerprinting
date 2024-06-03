@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.signal import find_peaks
 
 from onset_fingerprinting import multilateration
 
@@ -58,6 +59,30 @@ def plot_group(
         plot_audio.max(),
         colors=plt.colormaps["tab10"].colors,
     )
+def plot_cc(cc, n, lag_center, onset_tolerance, n_peaks=0, figsize=(6, 4)):
+    fig = plt.figure(figsize=figsize)
+    fig.suptitle(
+        "Cross-correlation"
+        + (f" with top {n_peaks} peaks" if n_peaks > 0 else "")
+    )
+    ax = fig.add_subplot(111)
+    lags = np.arange(-n, n)
+    lags = lags[lag_center - onset_tolerance : lag_center + onset_tolerance]
+    ax.plot(lags, cc)
+    ax.set_xlabel("Lag")
+    ax.set_ylabel("Correlation")
+    if n_peaks > 0:
+        peaks, _ = find_peaks(cc)
+        peak_values = cc[peaks]
+        pmin = peak_values.min()
+        pmax = peak_values.max()
+        picks = peak_values.argsort()[-n_peaks:]
+        peaks = peaks[picks]
+        peak_values = peak_values[picks]
+        colors = [
+            get_color_from_cmap("Reds", pmin, pmax, p) for p in peak_values
+        ]
+        ax.vlines(lags[peaks], cc.min(), cc.max(), colors=colors)
     return ax
 
 
