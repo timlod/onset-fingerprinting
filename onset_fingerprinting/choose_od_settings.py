@@ -7,46 +7,22 @@ from matplotlib.widgets import Slider
 
 from onset_fingerprinting import detection
 
-data_dir = Path("../data/calibration/2023-03-19")
-sr = 96000
-datasets = {
-    "snare": ["snare_far", "snare_2cm", "snare_2cm_with_hihat"],
-    "ss": ["ss1", "ss2"],
-    "tom": ["tom"],
-    "floor": ["bad", "better"],
-    "hihat": ["calib"],
-    "ride": ["ride"],
-    "misc": [],
-}
-sensor_names = [
-    " - " + x
-    for x in [
-        "OH L",
-        "OH R",
-        "Snare Top",
-        "Snare Bottom",
-        "Side Snare",
-        "Tom",
-        "Floor",
-        "Kick",
-    ]
-]
-data = []
-instrument = "snare"
-dataset = "snare_2cm"
-for sensor in sensor_names:
-    x, sr = sf.read(
-        data_dir
-        / instrument
-        / "calib"
-        / (datasets[instrument][0] + sensor + ".wav"),
-        dtype=np.float32,
-    )
-    data.append(x)
+# data_dir = Path("../data/calibration/2023-03-19")
+# data = []
+# for sensor in ["OH L", "OH R", "Snare Top"]:
+#     x, sr = sf.read(
+#         data_dir / "snare" / "calib" / ("snare_2cm" + sensor + ".wav"),
+#         dtype=np.float32,
+#     )
+#     data.append(x)
+# data = np.array(data).T
+# audio_calib = np.ascontiguousarray(data).copy()[: sr * 20]
+# close_channel = 2
 
-data = np.array(data).T
-mic_idx = np.array([0, 1, 2])
-audio_calib = np.ascontiguousarray(data[:, mic_idx]).copy()[: sr * 20]
+data_dir = Path("../data/location/Recordings3")
+data, sr = sf.read(data_dir / "Setup 2" / "155 hits.wav", dtype=np.float32)
+audio_calib = data[15 * sr :, :3][: sr * 10]
+close_channel = None
 
 
 class InteractivePlot:
@@ -233,7 +209,9 @@ class InteractivePlot:
             backtrack_smooth_size=1,
         )
 
-        oc = detection.find_onset_groups(of, cf, 600, close_channel=2)
+        oc = detection.find_onset_groups(
+            of, cf, 600, close_channel=close_channel
+        )
         self.plot_vlines(np.array(of), np.array(cf))
         self.plot_grouped_vlines(oc)
 
