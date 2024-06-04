@@ -35,7 +35,9 @@ def plot_group(
     onsets: np.ndarray,
     n_around: int = 64,
     ax=None,
-    title="",
+    title="Audio + detected onsets",
+    channel_labels=None,
+    line_darkener=0.6,
     **kwargs,
 ):
     """Plot a group of audio onsets
@@ -52,13 +54,19 @@ def plot_group(
         ax = fig.add_subplot(111)
     os = sorted(onsets)
     plot_audio = audio[os[0] - n_around : os[-1] + n_around]
-    ax.plot(plot_audio)
+    if channel_labels is None:
+        channel_labels = [f"Channel {i}" for i in range(audio.shape[1])]
+    ax.plot(plot_audio, label=channel_labels)
     ax.vlines(
         np.array(onsets) - os[0] + n_around,
         plot_audio.min(),
         plot_audio.max(),
-        colors=plt.colormaps["tab10"].colors,
+        colors=np.array(plt.colormaps["tab10"].colors) * line_darkener,
     )
+    ax.legend()
+    return ax
+
+
 def plot_cc(cc, n, lag_center, onset_tolerance, n_peaks=0, figsize=(6, 4)):
     fig = plt.figure(figsize=figsize)
     fig.suptitle(
