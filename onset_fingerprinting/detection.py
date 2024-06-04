@@ -315,8 +315,8 @@ def adjust_onset(
         da = np.sum(x[oa + lag_diff : oa] * exp) / x.max()
         db = np.sum(y[ob : ob - lag_diff] * exp[::-1]) / y.max()
     else:
-        da = np.sum(x[oa : oa + lag_diff] * exp) / x[oa]
-        db = np.sum(y[ob - lag_diff : ob] * exp[::-1]) / y[ob]
+        da = np.sum(x[oa : oa + lag_diff] * exp) / x.max()
+        db = np.sum(y[max(ob - lag_diff, 0) : ob] * exp[::-1]) / y.max()
     # Adjust the side which has a greater relative weighted peak
     if da > db:
         return lag_diff, 0
