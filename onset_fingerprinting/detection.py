@@ -188,6 +188,9 @@ def find_onset_groups(
         return None
 
 
+# TODO: For sensor data, we'll pretty much always detect an onset before the F0
+# transient, so we could use this information to only consider lags after
+# detections.
 def cross_correlation_lag(
     x: np.ndarray,
     y: np.ndarray,
@@ -351,7 +354,8 @@ def fix_onsets(
     :param onsets: array containing paired onsets for each channel (OxC), where
         O is the number of onsets
     :param filter_size: size of median filter used to smoothe the signal
-    :param d: number of differences to take after median filtering
+    :param d: number of differences to take after median filtering.  Should
+              stay at 1
     :param take_abs: whether to use the absolute value of the differenced,
         filtered signals - helps with making cross-correlation 'peakier'
     :param null_direction: "up" if onset transient points downward, "down" if
@@ -738,6 +742,7 @@ class AmplitudeOnsetDetector:
         return channels, deltas, relative_envelope
 
     def backtrack_onsets(self, channels, deltas):
+        # TODO: incorporate transient direction
         N = self.buffer.N
         buffer = self.buffer[-N:]
         alpha = self.b_alpha
