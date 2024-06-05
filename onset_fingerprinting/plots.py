@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.colors import Normalize
 from scipy.signal import find_peaks
 
 from onset_fingerprinting import multilateration
@@ -103,6 +104,7 @@ def plot_3d_scene(
     labels: list[str] = None,
     label: bool = False,
     figsize=(6, 6),
+    gradient=False,
 ) -> None:
     """
     Plot the upper half of a 3D ball as the area of interest around a drum,
@@ -136,7 +138,18 @@ def plot_3d_scene(
 
     # Plot points
     x_values, y_values, z_values = zip(*points)
-    ax.scatter(x_values, y_values, z_values, c="red")
+    if gradient:
+        cmap = plt.get_cmap("Reds")
+        norm = Normalize(vmin=0, vmax=len(x_values))
+        ax.scatter(
+            x_values,
+            y_values,
+            c=np.arange(len(x_values)),
+            cmap=cmap,
+            norm=norm,
+        )
+    else:
+        ax.scatter(x_values, y_values, z_values, c="red")
     if label:
         for i, (x, y, z) in enumerate(points):
             ax.text(x, y, z, str(labels[i]))
