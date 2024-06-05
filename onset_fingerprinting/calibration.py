@@ -220,6 +220,9 @@ def optimize_C(
     radius=14 * 2.54 / 100 / 2,
     hits_at=0.155,
     filter_errors_above=3,
+    sound_positions=None,
+    initial_sensor_positions=None,
+    bounds=None,
     **kwargs,
 ):
     """Optimize both sensor positions and the speed of sound.
@@ -240,33 +243,36 @@ def optimize_C(
     """
     errors = []
 
-    sound_positions = np.array(
-        [(0, 0, 0)] * center_hits
-        + [
-            multilateration.spherical_to_cartesian(*pos)
-            for pos in calibration.calibration_locations(
-                n_lugs, n_each, hits_at, 0
-            )
-        ]
-    )
+    if sound_positions is None:
+        sound_positions = np.array(
+            [(0, 0, 0)] * center_hits
+            + [
+                multilateration.spherical_to_cartesian(*pos)
+                for pos in calibration.calibration_locations(
+                    n_lugs, n_each, hits_at, 0
+                )
+            ]
+        )
 
-    initial_sensor_positions = np.array(
-        [
-            multilateration.spherical_to_cartesian(*pos)
-            for pos in np.array(
-                [
-                    (0.9, 140, 75),
-                    (0.9, 10, 55),
-                    (hits_at, 100, 15),
-                ]
-            )
+    if initial_sensor_positions is None:
+        initial_sensor_positions = np.array(
+            [
+                multilateration.spherical_to_cartesian(*pos)
+                for pos in np.array(
+                    [
+                        (0.9, 140, 75),
+                        (0.9, 10, 55),
+                        (hits_at, 100, 15),
+                    ]
+                )
+            ]
+        )
+    if bounds is None:
+        bounds = [(None, None), (None, None), (0, None)] * 2 + [
+            (-radius, radius),
+            (-radius, radius),
+            (0, radius),
         ]
-    )
-    bounds = [(None, None), (None, None), (0, None)] * 2 + [
-        (-radius, radius),
-        (-radius, radius),
-        (0, radius),
-    ]
     result = optimize.minimize(
         tdoa_calib_loss,
         initial_sensor_positions.flatten(),
