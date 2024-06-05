@@ -71,6 +71,8 @@ def detect_onsets_amplitude(
     channels, onsets = [], []
     rel = []
     for i in range(0, len(x), block_size):
+        if i + block_size > len(x):
+            break
         samples = x[i : i + block_size]
         c, d, r = od(samples)
         rel.append(r)
