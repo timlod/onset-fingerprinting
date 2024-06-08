@@ -1,0 +1,757 @@
+#+TITLE: Working with Rodrigo's mesh data
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Tuesday, 4 June 2024
+#+STARTUP: showall
+#+PROPERTY: header-args :exports both :session mesh :kernel lm :cache no
+:PROPERTIES:
+OPTIONS: ^:nil
+#+LATEX_COMPILER: xelatex
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [logo, color, author]
+#+LATEX_HEADER: \insertauthor
+#+LATEX_HEADER: \usepackage{minted}
+#+LATEX_HEADER: \usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+:END:
+
+* Imports and Environment Variables
+:PROPERTIES:
+:visibility: folded
+:END:
+
+#+name: imports
+#+begin_src python
+import json
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pedalboard
+import sounddevice as sd
+import soundfile as sf
+from onset_fingerprinting import calibration, detection, multilateration, plots
+#+end_src
+
+#+name: env
+#+begin_src python
+data_dir = Path("../data/location/Recordings3")
+# Rodrigos data is defined in millimeter:
+diameter = 14 * 2.54 * 10
+radius = diameter / 2
+#+end_src
+
+* Introduction
+Rodrigo has created a new dataset with fine markings on a new drumhead, using
+three different types of sensor configurations. We can use this to:
+
+1. Get better error estimates when it comes to hit positioning
+2. Trial methods developed for calibrating air mics on sensor data
+3. Evaluate which sensor placement is best
+
+* Data
+Rodrigo has captured a lot of data, with three bits included in all datasets:
+
+- 8x hits on all 157 points*
+- 8x hits for lug calibration (8x center, then 8x per each of the 8 lugs,
+  starting at 1 o’clock and going clockwise)
+- 8x hits for the oldschool cardinal directions (NESW)
+
+The 157 points are spaced 2cm apart like such (note the picture is flipped
+upside down here):
+[[file:../data/location/Recordings3/Images/setup.jpg]]
+
+** JSON
+He also provides some JSON data with hit locations, which we'll load here for
+the 2cm mesh:
+#+begin_src python
+with open(data_dir / "Data" / "20mesh_position.json") as f:
+    mesh_locs = []
+    ml = json.load(f)
+    for i in range(157):
+        mesh_locs.append(ml["data"][str(i)])
+
+mesh_locs = np.array(mesh_locs)
+        #+end_src
+
+and here for the hit locations next to the lugs:
+#+begin_src python
+with open(data_dir / "Data" / "8lugpositions.json") as f:
+    lug_locs = []
+    ml = json.load(f)
+    for i in range(8):
+        lug_locs.append(ml["data"][str(i)])
+
+lug_locs = np.array(lug_locs)
+#+end_src
+
+Let's quickly plot them to make sure the data is correct:
+#+begin_src python
+theta = np.linspace(0, 2 * np.pi, 100)
+x_circle = np.sin(theta) * radius
+y_circle = np.cos(theta) * radius
+plt.plot(x_circle, y_circle, label="Unit Circle")
+plt.scatter(mesh_locs[:, 0], mesh_locs[:, 1])
+for i, (x, y) in enumerate(mesh_locs):
+    plt.text(x, y, str(i), fontsize="xx-small")
+plt.scatter(lug_locs[:, 0], lug_locs[:, 1])
+for i, (x, y) in enumerate(lug_locs):
+    plt.text(x, y, str(i), c="darkred", fontsize="x-small")
+plt.axis("equal")
+plt.tight_layout()
+#+end_src
+
+#+RESULTS:
+[[./.ob-jupyter/de6788a2a0c656b04ad4465bd2858cb44e11b4b8.png]]
+
+
+Looks fine! Let's load some data and see how we get on:
+
+** Setup 2
+
+*** Loading
+The audio is 96kHz, n-channel audio. Let's start with the 3-channel wide-array
+data, as I've been mostly working with 3-channel audio (thus the other tools
+should work) and I'm most interested in whether that'll work.
+
+This is also 4-channel, but the 4th channel is just zero'd out, so we can
+remove it.
+#+begin_src python
+data, sr = sf.read(data_dir / "Setup 2" / "155 hits.wav", dtype=np.float32)
+data = data[15 * sr :, :3]
+print(data.shape[0] / sr)
+ref, sr = sf.read(
+    data_dir / "Setup 2" / "DPA Reference" / "155 hits.wav", dtype=np.float32
+)
+ref = ref[15 * sr :, :1]
+
+lugdata, sr = sf.read(data_dir / "Setup 2" / "lug calibration.wav", dtype=np.float32)
+lugdata = lugdata[10 * sr :, :3]
+#+end_src
+
+#+RESULTS:
+: 304.3629375
+
+In setup 2, 2 points were obscured by the sensors, so we'll have to remove those:
+#+begin_src python
+mesh_locs2 = mesh_locs[
+    ~(
+        (mesh_locs == (-80, 120)).all(axis=1)
+        | (mesh_locs == (80, 120)).all(axis=1)
+    )
+]
+#+end_src
+
+About 5min of hitting the drum, quite a lot!
+Let's have a look at the first hit:
+#+name: first_hit
+#+begin_src python :file ./figures/dpa_vs_wide_sensors_hit1.png
+plt.plot(data[70480:71000], label=["L", "C", "R"])
+plt.plot(ref[70480:71000], label="DPA")
+plt.legend();
+#+end_src
+
+#+RESULTS: first_hit
+[[./figures/dpa_vs_wide_sensors_hit1.png]]
+
+
+*** Detect onsets, 155 hits
+Based on that very first hit, I already have some fears whether we can reliably
+detect onset groups here - the pre-ringing will probably make things difficult:
+
+#+begin_src python
+cf, of = detection.detect_onsets_amplitude(
+    data,
+    128,
+    hipass_freq=2000,
+    fast_ar=(10, 966),
+    slow_ar=(8410, 8410),
+    on_threshold=0.45,
+    off_threshold=0.3,
+    cooldown=1323,
+    sr=sr,
+    backtrack=False,
+    backtrack_buffer_size=256,
+    backtrack_smooth_size=1,
+)
+oc = detection.find_onset_groups(of, cf, 600)
+occ = detection.fix_onsets(
+    data, oc, onset_tolerance=200, take_abs=True
+)
+#+end_src
+
+#+begin_src python
+for og in oc[:2]:
+    plots.plot_group(data, og, line_darkener=0.8)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+[[./.ob-jupyter/114ec2e10569b299881125c6a37c917c6b85fa02.png]]
+[[./.ob-jupyter/90c7fe47b3dbb911b8badafac64572a1043331da.png]]
+:END:
+
+*** Detect onsets, lug calibration data
+
+#+begin_src python
+lcf, lof = detection.detect_onsets_amplitude(
+    lugdata,
+    128,
+    hipass_freq=2000,
+    fast_ar=(1, 966),
+    slow_ar=(8410, 8410),
+    on_threshold=0.45,
+    off_threshold=0.3,
+    cooldown=1323,
+    sr=sr,
+    backtrack=False,
+    backtrack_buffer_size=256,
+    backtrack_smooth_size=1,
+)
+loc = detection.find_onset_groups(lof, lcf, 600)
+locc = detection.fix_onsets(
+    lugdata, loc, onset_tolerance=150, take_abs=True, d=1, filter_size=7
+)
+#+end_src
+
+#+begin_src python
+from scipy import optimize
+def tdoa_calib_loss(
+    params: np.ndarray,
+    sound_positions: np.ndarray,
+    observed_tdoa: np.ndarray,
+    C: float = 343.0,
+    norm: int = 1,
+    errors=None,
+):
+    """Error function for calibration of sensor positions using TDoA.  To be
+    used within a call to scipy.optimize.
+
+    :param sensor_positions: sensor positions (this will be optimized)
+    :param sound_positions: sound positions for each observed lag
+    :param observed_tdoa: lags observed between sensors for each sound
+    :param C: speed of sound
+    :param norm: 1 for MAE, 2 for MSE
+    :param errors: list to save errors of each sound (can be used to filter out
+        bad data)
+    """
+    sensor_positions = params.reshape(-1, 3)
+    error = 0.0
+    if errors is not None:
+        errors.clear()
+    for i, sound in enumerate(sound_positions):
+        distances = (
+            np.sqrt(np.sum((sound - sensor_positions) ** 2, axis=1)) / C
+        )
+        tdoa = np.diff(distances)
+        e = np.abs(tdoa - observed_tdoa[i]) ** norm
+        error += e
+        if errors is not None:
+            errors.append(e)
+    return np.mean(error)
+
+
+def tdoa_calib_loss_jac(
+    params: np.ndarray,
+    sound_positions: np.ndarray,
+    observed_tdoa: np.ndarray,
+    C: float = 343.0,
+    norm: int = 1,
+    e=None,
+):
+    """Jacobian for tdoa_calib_loss."""
+    sensor_positions = params.reshape(-1, 3)
+    jac = np.zeros_like(params)
+    for i, sound in enumerate(sound_positions):
+        distances = (
+            np.sqrt(np.sum((sound - sensor_positions) ** 2, axis=1)) / C
+        )
+        tdoa = np.diff(distances)
+        error_term = tdoa - observed_tdoa[i]
+        sign_error_term = np.sign(error_term)
+        weighted_error_term = (
+            sign_error_term
+            if norm == 1
+            else sign_error_term * (np.abs(error_term) ** (norm - 1))
+        )
+
+        for j in range(sensor_positions.shape[0]):
+            if j > 0:
+                d_error_d_pos_j = weighted_error_term[j - 1] * (
+                    (sensor_positions[j] - sound) / (distances[j] * C)
+                )
+            if j < sensor_positions.shape[0] - 1:
+                d_error_d_pos_j_minus_1 = -weighted_error_term[j] * (
+                    (sensor_positions[j] - sound) / (distances[j] * C)
+                )
+                if j > 0:
+                    d_error_d_pos_j += d_error_d_pos_j_minus_1
+                else:
+                    d_error_d_pos_j = d_error_d_pos_j_minus_1
+
+            jac[j * 3 : (j + 1) * 3] += d_error_d_pos_j / len(sound_positions)
+
+    return jac
+
+
+
+def optimize_C(
+    tdoa,
+    norm=1,
+    C_range=(336, 345),
+    initial_C=343.0,
+    filter_errors_above=3,
+    sound_positions=None,
+    initial_sensor_positions=None,
+    bounds=None,
+    **kwargs,
+):
+    errors = []
+    result = optimize.minimize(
+        tdoa_calib_loss,
+        initial_sensor_positions.flatten(),
+        args=(sound_positions, tdoa, initial_C, norm, errors),
+        jac=tdoa_calib_loss_jac,
+        method="TNC",
+        bounds=bounds,
+        options={"maxfun": 1000},
+    )
+    initial_sensor_positions = result.x
+    errors1 = np.array(errors).sum(axis=1)
+    plt.plot(errors1)
+    med = np.median(errors1)
+    good_idx = np.where(errors1 < filter_errors_above * med)[0]
+    print(f"Removing {len(tdoa) - len(good_idx)} hits!")
+
+    def objective(C):
+        fun = optimize.minimize(
+            tdoa_calib_loss,
+            initial_sensor_positions,
+            args=(sound_positions[good_idx], tdoa[good_idx], C, norm),
+            jac=tdoa_calib_loss_jac,
+            method="TNC",
+            bounds=bounds,
+            options={"maxfun": 1000},
+        ).fun
+        return fun
+
+    res = optimize.minimize_scalar(objective, bounds=C_range, method="bounded")
+    best_C = res.x
+    final_result = optimize.minimize(
+        tdoa_calib_loss,
+        initial_sensor_positions,
+        args=(sound_positions[good_idx], tdoa[good_idx], best_C, norm),
+        jac=tdoa_calib_loss_jac,
+        method="TNC",
+        bounds=bounds,
+        options={"maxfun": 1000},
+    )
+    return final_result.x.reshape(-1, 3), best_C
+#+end_src
+
+#+begin_src python
+import torch
+from torch import nn
+from torch.nn import functional as F
+
+__file__ = (
+    "/home/tim/projects/onset-fingerprinting/onset_fingerprinting/detection.py"
+)
+sound_positions = (
+    np.concatenate((lug_locs.repeat(8, axis=0), np.zeros((64, 1))), axis=1)
+    / 1000
+)
+sound_positions = np.concatenate((np.zeros((8, 3)), sound_positions))
+initial_sensor_positions = np.array(
+    [[-0.055, 0.13, 0], [0, 0.14, 0], [0.055, 0.13, 0]]
+)
+bounds = [(None, None), (None, None), (0, 0)] * 3
+sp2, c2 = optimize_C(
+    np.diff(loc) / sr,
+    norm=1,
+    C_range=(60, 100),
+    initial_C=80.0,
+    filter_errors_above=2,
+    sound_positions=sound_positions,
+    initial_sensor_positions=initial_sensor_positions,
+    bounds=bounds,
+)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: /home/tim/projects/onset-fingerprinting/onset_fingerprinting/calibration.py:79: RuntimeWarning: invalid value encountered in divide
+:   (sensor_positions[j] - sound) / (distances[j] * C)
+: Removing 0 hits!
+# [goto error]
+[[./.ob-jupyter/6a64d0995a61424a1b8e40434e808a030edf96f4.png]]
+:END:
+
+
+#+begin_src python
+# Physical calibration uses standard diff, but RT and model needs to subtract
+# first onset from following onsets
+od = locc[:, :2] - locc[:, 2:]
+model, errors = calibration.train_location_model(
+    torch.tensor(od, dtype=torch.float32),
+    torch.tensor(sound_positions, dtype=torch.float32),
+    0.004,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    hidden_layers=[11],
+    batch_norm=True,
+    print_every=100,
+    bias=True,
+    debug=True,
+)
+sensor_positions_spherical = [
+    multilateration.cartesian_to_spherical(*(x / 0.1778)) for x in sp2
+]
+sensor_positions_spherical = np.array(sensor_positions_spherical)
+m = multilateration.Multilaterate3D(
+    sensor_locations=sensor_positions_spherical,
+    sr=sr,
+    medium="drumhead",
+    c=c2,
+    #model=model,
+)
+coords = []
+for o in locc:
+    sortkey = o.argsort()
+    for c, d in zip(sortkey, o[sortkey]):
+        coord = m.locate(c, d)
+        if coord is not None:
+            coords.append(coord)
+
+for i in range(0, 40, 2):
+    coord = m.locate(2, 0)
+    coord = m.locate(0, 200 + i)
+    coord = m.locate(1, 200 + i)
+    if coord is not None:
+        coords.append(coord)
+
+coords = np.array(coords)
+ax = plots.polar_circle(coords, label=True)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+[[./.ob-jupyter/aa234ec6613a1012d82bbc8dfe2bab65f6a6d791.png]]
+:END:
+
+
+*** CNN WIP
+
+#+begin_src python
+def extract_windows(
+    data: np.ndarray, onsets: np.ndarray, window_size: int, pre_samp: int = 32
+) -> np.ndarray:
+    """
+    """
+    n, c = data.shape
+    k = onsets.shape[0]
+    post_samp = window_size - pre_samp
+    output = np.zeros((k, c, window_size), dtype=np.float32)
+
+    for i, onset in enumerate(onsets):
+        for j in range(c):
+            first_onset = min(onset)
+            start_index = max(0, first_onset - pre_samp)
+            end_index = min(n, first_onset + post_samp)
+            # Compute start and end positions in the output array for edges
+            start_pos = pre_samp - (first_onset - start_index)
+            end_pos = post_samp + (end_index - first_onset)
+            output[i, j, start_pos:end_pos] = data[start_index:end_index, j]
+
+    return output
+#+end_src
+
+Let's define a simple CNN to trial this.
+#+begin_src python
+import torch
+import torch.nn as nn
+from torch import optim
+from torch.nn import functional as F
+
+
+class CNN(nn.Module):
+    def __init__(
+        self,
+        window_size: int,
+        output_size: int,
+        channels: int = 3,
+        conv_layers_config: list[dict] = None,
+        dropout_rate: float = 0.5,
+        groups=1,
+    ) -> None:
+        """
+        A flexible CNN architecture for audio processing tasks.
+
+        :param window_size: The size of the 1D audio window for each sensor.
+        :param output_size: The dimensionality of the output (e.g., 2D
+            coordinates).
+        :param channels: Number of input channels (sensors).
+        :param conv_layers_config: List of dictionaries defining each
+            convolutional layer configuration.
+        :param dropout_rate: Dropout rate applied after all convolutional
+            layers.
+        """
+        super(CNN, self).__init__()
+
+        if conv_layers_config is None:
+            conv_layers_config = [
+                {
+                    "out_channels": 16,
+                    "kernel_size": 3,
+                    "stride": 1,
+                    "padding": 1,
+                    "dilation": 1,
+                },
+                {
+                    "out_channels": 32,
+                    "kernel_size": 3,
+                    "stride": 1,
+                    "padding": 1,
+                    "dilation": 1,
+                },
+                {
+                    "out_channels": 64,
+                    "kernel_size": 3,
+                    "stride": 1,
+                    "padding": 1,
+                    "dilation": 1,
+                },
+            ]
+
+        self.conv_layers = nn.Sequential()
+
+        current_channels = channels
+        # Input size to the first layer
+        conv_output_size = window_size
+        for idx, config in enumerate(conv_layers_config):
+            self.conv_layers.add_module(
+                f"conv{idx+1}",
+                nn.Conv1d(
+                    in_channels=current_channels,
+                    out_channels=config["out_channels"],
+                    kernel_size=config["kernel_size"],
+                    stride=config["stride"],
+                    padding=config["padding"],
+                    dilation=config["dilation"],
+                    groups=groups,
+                ),
+            )
+            self.conv_layers.add_module(f"relu{idx+1}", nn.ReLU())
+            self.conv_layers.add_module(
+                f"bn{idx+1}", nn.BatchNorm1d(config["out_channels"])
+            )
+            self.conv_layers.add_module(
+                f"pool{idx+1}", nn.MaxPool1d(kernel_size=2, stride=2)
+            )
+
+            # Compute the output size after convolution
+            effective_kernel_size = (config["kernel_size"] - 1) * config[
+                "dilation"
+            ] + 1
+            conv_output_size = (
+                conv_output_size
+                + 2 * config["padding"]
+                - effective_kernel_size
+            ) // config["stride"] + 1
+
+            # Calculate the output size after pooling
+            conv_output_size = (conv_output_size - 2) // 2 + 1
+
+            current_channels = config["out_channels"]
+
+        self.dropout = nn.Dropout(dropout_rate)
+        self.fc = nn.Linear(current_channels * conv_output_size, output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.conv_layers(x)
+        x = torch.flatten(x, start_dim=1)
+        x = self.dropout(x)
+        x = self.fc(x)
+        return x
+#+end_src
+
+#+begin_src python
+num_epochs = 3000
+lr = 0.01
+print_every = 100
+patience = 10000
+w = 320
+
+n = 6
+out_channels = [12] * n
+#out_channels = [9, 12, 15, 33, 9]
+kernel_sizes = [5] * n
+strides = [1] * n
+dilations = [1] * n
+conv_layers_config = [
+    {
+        "out_channels": oc,
+        "kernel_size": k,
+        "stride": s,
+        "padding": 1,
+        "dilation": d,
+    }
+    for oc, k, s, d in zip(out_channels, kernel_sizes, strides, dilations)
+]
+
+model = CNN(w, 2, 3, conv_layers_config, dropout_rate=0.33, groups=1)
+
+errors = []
+soundpos = torch.tensor(sound_positions, dtype=torch.float32)[:, :2]
+
+test = torch.tensor(extract_windows(data, oc, w))
+optimizer = optim.NAdam([{"params": model.parameters(), "lr": lr}])
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs)
+errors.clear()
+last_loss = torch.inf
+counter = 0
+best_model = model
+for epoch in range(num_epochs):
+    optimizer.zero_grad(set_to_none=True)
+    inputs = torch.tensor(
+        extract_windows(lugdata, loc, w, np.random.randint(0, 32))
+    )
+    pos = model(inputs)
+    error = F.l1_loss(pos, soundpos)
+    #error = F.mse_loss(pos, soundpos)
+    errors.append(error.detach().numpy())
+    loss = error.mean()
+    # Crude early stopping on own training loss
+    if loss < last_loss - 1e-4:
+        last_loss = loss
+        best_model = model
+        counter = 0 if counter == 0 else counter - 1
+    elif counter < patience:
+        counter += 1
+    else:
+        break
+
+    loss.backward()
+    optimizer.step()
+    scheduler.step()
+    if epoch % print_every == 0:
+        print(f"Epoch {epoch}, Loss {loss.item()}")
+print(f"Epoch {epoch}, Loss {loss.item()}")
+print(pos[:10], "\n", sound_positions[:10])
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Epoch 0, Loss 0.6421986818313599
+Epoch 100, Loss 0.04302139952778816
+Epoch 200, Loss 0.03030324913561344
+Epoch 300, Loss 0.02755330316722393
+Epoch 400, Loss 0.017304416745901108
+Epoch 500, Loss 0.018467701971530914
+Epoch 600, Loss 0.016493473201990128
+Epoch 700, Loss 0.015422817319631577
+Epoch 800, Loss 0.014681264758110046
+Epoch 900, Loss 0.015129142440855503
+Epoch 1000, Loss 0.013480890542268753
+Epoch 1100, Loss 0.01655290275812149
+Epoch 1200, Loss 0.016225971281528473
+Epoch 1300, Loss 0.012498494237661362
+Epoch 1400, Loss 0.013755387626588345
+Epoch 1500, Loss 0.01266628596931696
+Epoch 1600, Loss 0.014016479253768921
+Epoch 1700, Loss 0.014348762109875679
+Epoch 1800, Loss 0.0131307952105999
+Epoch 1900, Loss 0.013966158032417297
+Epoch 2000, Loss 0.01403858233243227
+Epoch 2100, Loss 0.012475545518100262
+Epoch 2200, Loss 0.011694434098899364
+Epoch 2300, Loss 0.012990402057766914
+Epoch 2400, Loss 0.01375761441886425
+Epoch 2500, Loss 0.011447313241660595
+Epoch 2600, Loss 0.013487029820680618
+Epoch 2700, Loss 0.01033258531242609
+Epoch 2800, Loss 0.014055690728127956
+Epoch 2900, Loss 0.010417627170681953
+Epoch 2999, Loss 0.011726667173206806
+tensor([[ 1.2533e-03,  2.4433e-03],
+        [-2.9517e-03, -2.8301e-04],
+        [ 2.5684e-04, -2.6747e-03],
+        [-2.8122e-03,  7.3225e-03],
+        [ 8.2061e-04,  8.4579e-03],
+        [-1.3199e-03, -1.1057e-03],
+        [-1.5687e-04, -1.5168e-03],
+        [ 1.4211e-04,  8.2639e-04],
+        [ 5.1320e-02,  1.5935e-01],
+        [ 5.5815e-02,  1.6316e-01]], grad_fn=<SliceBackward0>) 
+ [[0.    0.    0.   ]
+ [0.    0.    0.   ]
+ [0.    0.    0.   ]
+ [0.    0.    0.   ]
+ [0.    0.    0.   ]
+ [0.    0.    0.   ]
+ [0.    0.    0.   ]
+ [0.    0.    0.   ]
+ [0.054 0.132 0.   ]
+ [0.054 0.132 0.   ]]
+#+end_example
+
+
+MAE:
+0.008
+0.007:
+out_channels = [3, 6, 9, 12, 15]
+kernel_sizes = [5] * n
+no dilation, groups=3
+
+kernel_size and lr have interplay
+
+#+begin_src python
+best_model.eval()
+plots.plot_3d_scene(
+    radius / 1000,
+    radius / 1000,
+    torch.cat(
+        (best_model(inputs).detach(), torch.zeros((len(inputs), 1))), dim=1
+    ).numpy(),
+    figsize=(4, 4),
+)
+plots.plot_3d_scene(
+    radius / 1000,
+    radius / 1000,
+    torch.cat(
+        (best_model(test).detach(), torch.zeros((len(test), 1))), dim=1
+    ).numpy()[[0,1,2,3,4,5,6,7,8] + list(range(1230, 1238))],
+    figsize=(4, 4),
+)
+#+end_src
+
+*** Match onsets with mesh locations
+In theory, if we were able to detect 155 * 8 = 1240 hits exactly, we might just
+index into the =mesh_locs= array - however, it's likely that there's some
+mistakes in between.
+I think the least-work-required effort might involve looking at the path of the
+hits, and resetting the number when we detect a longer break between onsets.
+
+Then there will still be small errors, which we can simply filter out as those
+will have larger errors on some model than the others.
+
+
+* Notes
+
+** Differences in air mic and sensors
+As seen in [[first_hit][first_hit]], the air mic has a sharp transient significantly before
+the sensors get it - the first hit is relatively far away, but this is still
+significant. In this example, there's a 2ms delay before the 
+
+#+begin_src python :file ./figures/widearray_onsets_wref.png
+plot_group(
+    np.concatenate((data, ref), axis=1),
+    oc[0],
+    line_darkener=0.8,
+    title="Detected onsets with DPA reference",
+    channel_labels=["L", "C", "R", "DPA"]
+);
+#+end_src
+
+#+RESULTS:
+[[./figures/widearray_onsets_wref.png]]
