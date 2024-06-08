@@ -42,3 +42,8 @@ packages = ["onset_fingerprinting"]
 
 [tool.mypy]
 python_version = "3.10"
+
+[tool.black]
+preview = true
+# https://black.readthedocs.io/en/stable/the_black_code_style/future_style.html
+enable-unstable-feature = ["string_processing"]
