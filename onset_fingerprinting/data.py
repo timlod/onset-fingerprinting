@@ -52,6 +52,52 @@ def parse_hits(d: dict) -> pd.DataFrame:
     return pd.DataFrame(d)
 
 
+class FrameExtractor2D:
+    """
+    Given an n-dimensional audio waveform and corresponding onsets of interest,
+    select for each onset the frame of interest, where the last dimension is
+    treated as the time axis.
+    """
+
+    def __init__(
+        self,
+        frame_length: int,
+        pre_samples: int,
+        add_pre_samples: bool = False,
+    ):
+        """
+        Initialize the frame extractor.
+
+        :param frame_length: int
+            The length of the frame to extract after the onset.
+        :param pre_samples: int
+            The number of samples to include before the onset.
+        """
+        self.frame_length = frame_length
+        self.pre_samples = pre_samples
+        if add_pre_samples:
+            self.frame_length += self.pre_samples
+
+    def __call__(self, audio: np.ndarray, onsets: np.ndarray) -> np.ndarray:
+        """
+        Extract frames from the audio at given onsets.
+
+        :param audio: np.ndarray The n-dimensional audio data array.
+        :param onsets: np.ndarray The n-dimensional array of onset indices
+            along the last dimension of the audio.
+
+        :return: np.ndarray The extracted frames of audio data around each
+                 onset.
+        """
+        # Create a sliding window view
+        view = np.lib.stride_tricks.sliding_window_view(
+            audio, window_shape=self.frame_length, axis=0
+        )
+        return np.take_along_axis(
+            view, (onsets - self.pre_samples)[:, :, None], 0
+        )
+
+
 class FrameExtractor:
     """
     Given a full audio waveform and onsets of interest, select for each onset
