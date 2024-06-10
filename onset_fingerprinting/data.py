@@ -121,11 +121,16 @@ class FrameExtractor:
 
 class StretchFrameExtractor(FrameExtractor):
     def __init__(
-        self, frame_length: int, pre_samples: int, max_stretch: float = 0.03
+        self,
+        frame_length: int,
+        pre_samples: int,
+        max_stretch: float = 0.03,
+        use_min_onset=True,
     ):
         super().__init__(frame_length, pre_samples)
-        self.max_shift = int((frame_length + pre_samples) * max_stretch)
-        self.full_length = frame_length + pre_samples
+        if not use_min_onset:
+            raise NotImplementedError("use_min_onset=False not supported yet!")
+        self.max_shift = int(self.frame_length * max_stretch)
 
     def __call__(self, audio, onsets):
         shifts = np.random.randint(1, self.max_shift, len(onsets))
@@ -134,14 +139,18 @@ class StretchFrameExtractor(FrameExtractor):
             out=shifts,
             where=np.random.randint(2, size=len(shifts), dtype=bool),
         )
-        out = np.empty((len(onsets), self.full_length), dtype=np.float32)
+        shape = onsets.shape + (self.frame_length,)
+        out = np.empty(shape, dtype=np.float32)
+        if audio.ndim == 2:
+            onsets = onsets.min(axis=1)
         for i, (onset, shift) in enumerate(
             zip(onsets - self.pre_samples, shifts)
         ):
             out[i] = resample(
-                audio[onset : onset + self.full_length + shift],
-                self.full_length,
-            )
+                audio[onset : onset + self.frame_length + shift],
+                self.frame_length,
+                axis=0,
+            ).T
         return out
 
 
