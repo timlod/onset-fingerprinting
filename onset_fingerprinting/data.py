@@ -154,6 +154,61 @@ class StretchFrameExtractor(FrameExtractor):
         return out
 
 
+class MCPOSD(Dataset):
+    def __init__(
+        self,
+        data,
+        onsets,
+        sound_positions,
+        frame_extractor=FrameExtractor(256, 0, 0),
+        aug_extractors: list[FrameExtractor] = [],
+        n_aug_rounds: int = 0,
+        single_batch: bool = False,
+    ):
+        x = [frame_extractor(data, onsets)]
+        y = [sound_positions]
+        for fe in aug_extractors:
+            for i in range(n_aug_rounds):
+                x.append(fe(data, onsets))
+                y.append(sound_positions)
+        self.x = torch.tensor(np.concatenate(x), dtype=torch.float32)
+        self.y = torch.tensor(np.concatenate(y), dtype=torch.float32)
+        self.single_batch = single_batch
+
+    @classmethod
+    def from_xy(
+        cls, x: torch.Tensor, y: torch.Tensor, single_batch: bool = False
+    ):
+        ds = cls.__new__(cls)
+        ds.x = x
+        ds.y = y
+        ds.single_batch = single_batch
+        return ds
+
+    def split(self, r: float = 0.8):
+        n = len(self.x)
+        idx = torch.randperm(n)
+        split = int(n * r)
+        ds1 = self.from_xy(
+            self.x[idx[:split]], self.y[idx[:split]], self.single_batch
+        )
+        ds2 = self.from_xy(
+            self.x[idx[split:]], self.y[idx[split:]], self.single_batch
+        )
+        return ds1, ds2
+
+    def __getitem__(self, index):
+        if self.single_batch:
+            return self.x, self.y
+        return self.x[index], self.y[index]
+
+    def __len__(self):
+        if self.single_batch:
+            return 1
+        else:
+            return len(self.x)
+
+
 class POSD(Dataset):
     """PyTorch onset audio classification dataset."""
 
