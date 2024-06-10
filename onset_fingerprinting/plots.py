@@ -173,6 +173,27 @@ def plot_3d_scene(
     ax.set_zlabel("Z-axis")
 
 
+def cartesian_circle(coords, radius=0.1778, ax=None, figsize=(4, 4)):
+    if ax is None:
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111)
+    theta = np.linspace(0, 2 * np.pi, 100)
+    x_circle = np.sin(theta) * radius
+    y_circle = np.cos(theta) * radius
+    ax.plot(x_circle, y_circle, linewidth=1.0)
+    cmap = plt.get_cmap("Reds")
+    norm = Normalize(vmin=0, vmax=len(coords))
+    ax.scatter(
+        coords[:, 0],
+        coords[:, 1],
+        c=np.arange(len(coords)),
+        cmap=cmap,
+        norm=norm,
+    )
+    ax.scatter(coords[:8, 0], coords[:8, 1], c="blue")
+    ax.scatter(coords[-8:, 0], coords[-8:, 1], c="black")
+
+
 def polar_circle(
     polar_coords: list[tuple[float, float]], label=False, **kwargs
 ) -> None:
