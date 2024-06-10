@@ -63,6 +63,7 @@ class FrameExtractor:
         pre_samples: int,
         max_shift: int = 0,
         add_pre_samples: bool = False,
+        use_min_onset: bool = True,
     ):
         """
         :param frame_length: The length of the frame to extract after the onset
@@ -71,12 +72,16 @@ class FrameExtractor:
             many samples left or right
         :param add_pre_samples: if True, extract frames of length frame_length
             + pre_samples
+        :param use_min_onset: if False, for 2D arrays extract frames for each
+            onset individually.  If True (default) it extracts the same window
+            for each channel, starting at the first onset per group
         """
         self.frame_length = frame_length
         self.pre_samples = pre_samples
         if add_pre_samples:
             self.frame_length += self.pre_samples
         self.max_shift = max_shift
+        self.use_min_onset = use_min_onset
 
     def __call__(self, audio: np.ndarray, onsets: np.ndarray) -> np.ndarray:
         """
@@ -100,13 +105,16 @@ class FrameExtractor:
             audio, window_shape=self.frame_length, axis=0
         )
         if audio.ndim == 2:
-            return np.stack(
-                [
-                    view[onsets[:, i] - offset, i, :]
-                    for i in range(audio.shape[1])
-                ],
-                axis=1,
-            )
+            if self.use_min_onset:
+                return view[onsets.min(axis=1) - offset]
+            else:
+                return np.stack(
+                    [
+                        view[onsets[:, i] - offset, i, :]
+                        for i in range(audio.shape[1])
+                    ],
+                    axis=1,
+                )
         else:
             return view[onsets - offset]
 
