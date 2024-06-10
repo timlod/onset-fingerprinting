@@ -99,7 +99,7 @@ class FrameExtractor:
                 where=np.random.randint(2, size=len(shifts), dtype=bool),
             )
             offset -= shifts
-            if audio.ndim == 2:
+            if (audio.ndim == 2) and not self.use_min_onset:
                 offset = offset[:, None]
         view = np.lib.stride_tricks.sliding_window_view(
             audio, window_shape=self.frame_length, axis=0
