@@ -51,85 +51,58 @@ def parse_hits(d: dict) -> pd.DataFrame:
     return pd.DataFrame(d)
 
 
-class FrameExtractor2D:
+class FrameExtractor:
     """
-    Given an n-dimensional audio waveform and corresponding onsets of interest,
-    select for each onset the frame of interest, where the last dimension is
-    treated as the time axis.
+    Given a 1- or 2-dimensional audio array and corresponding onsets of
+    interest, select a frame for each onset.
     """
 
     def __init__(
         self,
         frame_length: int,
         pre_samples: int,
+        max_shift: int = 0,
         add_pre_samples: bool = False,
     ):
         """
-        Initialize the frame extractor.
-
-        :param frame_length: int
-            The length of the frame to extract after the onset.
-        :param pre_samples: int
-            The number of samples to include before the onset.
+        :param frame_length: The length of the frame to extract after the onset
+        :param pre_samples: The number of samples to include before the onset
+        :param max_shift: if > 0, randomly shift each frame by at most this
+            many samples left or right
+        :param add_pre_samples: if True, extract frames of length frame_length
+            + pre_samples
         """
         self.frame_length = frame_length
         self.pre_samples = pre_samples
         if add_pre_samples:
             self.frame_length += self.pre_samples
+        self.max_shift = max_shift
 
     def __call__(self, audio: np.ndarray, onsets: np.ndarray) -> np.ndarray:
         """
         Extract frames from the audio at given onsets.
 
-        :param audio: np.ndarray The n-dimensional audio data array.
-        :param onsets: np.ndarray The n-dimensional array of onset indices
-            along the last dimension of the audio.
-
-        :return: np.ndarray The extracted frames of audio data around each
-                 onset.
+        :param audio: 2D audio data array of shape (NxC)
+        :param onsets: 2D array of onset indices of shape (OxC)
         """
-        # Create a sliding window view
+        offset = self.pre_samples
+        if self.max_shift:
+            shifts = np.random.randint(0, self.max_shift, len(onsets))
+            np.negative(
+                shifts,
+                out=shifts,
+                where=np.random.randint(2, size=len(shifts), dtype=bool),
+            )
+            offset -= shifts
+            if audio.ndim == 2:
+                offset = offset[:, None]
         view = np.lib.stride_tricks.sliding_window_view(
             audio, window_shape=self.frame_length, axis=0
         )
-        return np.take_along_axis(
-            view, (onsets - self.pre_samples)[:, :, None], 0
-        )
-
-
-class FrameExtractor:
-    """
-    Given a full audio waveform and onsets of interest, select for each onset
-    the frame of interest.
-    """
-
-    def __init__(self, frame_length: int, pre_samples: int):
-        self.frame_length = frame_length
-        self.pre_samples = pre_samples
-
-    def __call__(self, audio: np.ndarray, onsets: np.ndarray):
-        view = np.lib.stride_tricks.sliding_window_view(
-            audio, window_shape=(self.frame_length + self.pre_samples)
-        )
-        return view[onsets - self.pre_samples]
-
-
-class SampleShiftFrameExtractor(FrameExtractor):
-    def __init__(self, frame_length: int, pre_samples: int, max_shift: int):
-        super().__init__(frame_length, pre_samples)
-        self.max_shift = max_shift
-
-    def __call__(self, audio: np.ndarray, onsets: np.ndarray):
-        shifts = np.random.randint(1, self.max_shift, len(onsets))
-        np.negative(
-            shifts,
-            out=shifts,
-            where=np.random.randint(2, size=len(shifts), dtype=bool),
-        )
-        view = np.lib.stride_tricks.sliding_window_view(
-            audio, window_shape=(self.frame_length + self.pre_samples)
-        )
-        return view[onsets + shifts - self.pre_samples]
+        if audio.ndim == 2:
+            return np.take_along_axis(view, (onsets - offset)[:, :, None], 0)
+        else:
+            return view[onsets - offset]
 
 
 class StretchFrameExtractor(FrameExtractor):
