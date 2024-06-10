@@ -100,7 +100,13 @@ class FrameExtractor:
             audio, window_shape=self.frame_length, axis=0
         )
         if audio.ndim == 2:
-            return np.take_along_axis(view, (onsets - offset)[:, :, None], 0)
+            return np.stack(
+                [
+                    view[onsets[:, i] - offset, i, :]
+                    for i in range(audio.shape[1])
+                ],
+                axis=1,
+            )
         else:
             return view[onsets - offset]
 
