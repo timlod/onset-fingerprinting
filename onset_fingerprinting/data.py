@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Callable
 
 import audiomentations
-import fcwt
 import librosa
 import numpy as np
 import pandas as pd
