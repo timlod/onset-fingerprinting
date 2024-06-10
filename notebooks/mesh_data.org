@@ -139,6 +139,12 @@ mesh_locs2 = mesh_locs[
         | (mesh_locs == (80, 120)).all(axis=1)
     )
 ]
+
+sound_positions = (
+    np.concatenate((lug_locs.repeat(8, axis=0), np.zeros((64, 1))), axis=1)
+    / 1000
+)
+sound_positions = np.concatenate((np.zeros((8, 3)), sound_positions))
 #+end_src
 
 About 5min of hitting the drum, quite a lot!
@@ -349,18 +355,9 @@ def optimize_C(
 #+end_src
 
 #+begin_src python
-import torch
-from torch import nn
-from torch.nn import functional as F
-
 __file__ = (
     "/home/tim/projects/onset-fingerprinting/onset_fingerprinting/detection.py"
 )
-sound_positions = (
-    np.concatenate((lug_locs.repeat(8, axis=0), np.zeros((64, 1))), axis=1)
-    / 1000
-)
-sound_positions = np.concatenate((np.zeros((8, 3)), sound_positions))
 initial_sensor_positions = np.array(
     [[-0.055, 0.13, 0], [0, 0.14, 0], [0.055, 0.13, 0]]
 )
@@ -468,12 +465,6 @@ def extract_windows(
 
 Let's define a simple CNN to trial this.
 #+begin_src python
-import torch
-import torch.nn as nn
-from torch import optim
-from torch.nn import functional as F
-
-
 class CNN(nn.Module):
     def __init__(
         self,
