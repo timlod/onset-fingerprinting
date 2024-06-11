@@ -192,6 +192,8 @@ def cartesian_circle(coords, radius=0.1778, ax=None, figsize=(4, 4)):
     )
     ax.scatter(coords[:8, 0], coords[:8, 1], c="blue")
     ax.scatter(coords[-8:, 0], coords[-8:, 1], c="black")
+    ax.axis("equal")
+    return ax
 
 
 def polar_circle(
