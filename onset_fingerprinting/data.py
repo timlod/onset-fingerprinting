@@ -268,27 +268,19 @@ class MCPOSD(Dataset):
         return 1
 
     @classmethod
-    def from_xy(
-        cls, x: torch.Tensor, y: torch.Tensor, single_batch: bool = False
-    ):
+    def from_xy(cls, x: torch.Tensor, y: torch.Tensor):
         ds = cls.__new__(cls)
         ds.x = x
         ds.y = y
-        ds.single_batch = single_batch
-        # fix
-        ds.train = False
+        ds.straight = True
         return ds
 
     def split(self, r: float = 0.8):
         n = len(self.y)
         idx = torch.randperm(n)
         split = int(n * r)
-        ds1 = self.from_xy(
-            self.x[idx[:split]], self.y[idx[:split]], self.single_batch
-        )
-        ds2 = self.from_xy(
-            self.x[idx[split:]], self.y[idx[split:]], self.single_batch
-        )
+        ds1 = self.from_xy(self.x[idx[:split]], self.y[idx[:split]])
+        ds2 = self.from_xy(self.x[idx[split:]], self.y[idx[split:]])
         return ds1, ds2
 
 
