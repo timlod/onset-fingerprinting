@@ -246,12 +246,16 @@ class MCPOSD(Dataset):
         )
 
         if (n_extractions == 1) and (max_shift == 0):
-            self.y = torch.tensor(sound_positions, dtype=torch.float32)
+            self.y = torch.tensor(
+                sound_positions, dtype=torch.float32, device=device
+            )
             self.x = self.frame_extractor()
             self.straight = True
         else:
             y = [sound_positions for i in range(n_extractions)]
-            self.y = torch.tensor(np.concatenate(y), dtype=torch.float32)
+            self.y = torch.tensor(
+                np.concatenate(y), dtype=torch.float32, device=device
+            )
             self.straight = False
         self.n_extractions = n_extractions
 
