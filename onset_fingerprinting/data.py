@@ -55,6 +55,9 @@ class FrameExtractor:
     """
     Given a 1- or 2-dimensional audio array and corresponding onsets of
     interest, select a frame for each onset.
+
+    Use if you have multiple, possibly big or unknown, files to extract from.
+    For single small datasets, use FastFrameExtractor.
     """
 
     def __init__(
@@ -114,6 +117,78 @@ class FrameExtractor:
                 )
         else:
             return view[onsets - offset]
+
+
+class FastFrameExtractor:
+    """
+    Given a 1- or 2-dimensional audio array and corresponding onsets of
+    interest, select a frame for each onset and return its tensor.  Precomputes
+    as much as possible by holding the data, and always takes the minimum of
+    each group of onsets as the start in indexing (if onset input is 2D).
+
+    Use if you have small, known datasets which should be loaded as quickly as
+    possible as tensors.
+    """
+
+    def __init__(
+        self,
+        audio: np.ndarray,
+        onsets: np.ndarray,
+        frame_length: int,
+        pre_samples: int,
+        max_shift: int = 0,
+        add_pre_samples: bool = False,
+        device=None,
+    ):
+        """
+        :param audio: 1/2D audio data array of shape N(xC)
+        :param onsets: 1/2D array of onset indices of shape O(xC)
+        :param frame_length: The length of the frame to extract after the onset
+        :param pre_samples: The number of samples to include before the onset
+        :param max_shift: if > 0, randomly shift each frame by at most this
+            many samples left or right
+        :param add_pre_samples: if True, extract frames of length frame_length
+            + pre_samples
+        :param device: load onto the specified device.  Use to load small (!)
+            datasets into GPU memory to speed up data delivery.  Make sure
+            everything fits!
+        """
+        self.device = device
+        self.frame_length = frame_length
+        self.pre_samples = pre_samples
+        if add_pre_samples:
+            self.frame_length += self.pre_samples
+        self.max_shift = max_shift
+
+        if onsets.ndim == 2:
+            onsets = torch.tensor(onsets.min(1), device=device)
+        else:
+            onsets = torch.tensor(onsets, device=device)
+
+        audio = torch.tensor(audio, dtype=torch.float32, device=device)
+        audio_view = audio.unfold(0, self.frame_length, 1)
+        if self.max_shift > 0:
+            self.audio_view = audio_view
+            self.onsets = onsets
+        else:
+            self.frames = audio_view[onsets - self.pre_samples]
+
+    def __call__(self) -> np.ndarray:
+        """
+        Extract frames.
+        """
+        if self.max_shift:
+            offset = self.pre_samples
+            shifts = torch.randint(
+                -self.max_shift,
+                self.max_shift + 1,
+                (len(self.onsets),),
+                device=self.device,
+            )
+            offset -= shifts
+            return self.audio_view[self.onsets - offset]
+        else:
+            return self.frames
 
 
 class StretchFrameExtractor(FrameExtractor):
