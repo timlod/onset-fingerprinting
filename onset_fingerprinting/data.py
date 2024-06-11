@@ -131,11 +131,7 @@ class StretchFrameExtractor(FrameExtractor):
 
     def __call__(self, audio, onsets):
         shifts = np.random.randint(1, self.max_shift, len(onsets))
-        np.negative(
-            shifts,
-            out=shifts,
-            where=np.random.randint(2, size=len(shifts), dtype=bool),
-        )
+        shifts *= np.random.choice((-1, 1), size=len(shifts))
         shape = onsets.shape + (self.frame_length,)
         out = np.empty(shape, dtype=np.float32)
         if audio.ndim == 2:
