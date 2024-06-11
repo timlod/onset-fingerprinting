@@ -9,6 +9,7 @@ import pandas as pd
 import soundfile as sf
 import torch
 from scipy.signal import resample
+from torch.nn import functional as F
 from torch.utils.data import Dataset
 
 ## TODO: listen to examples which are constantly misclassified to check if I
@@ -220,6 +221,13 @@ class StretchFrameExtractor(FrameExtractor):
                 axis=0,
             ).T
         return out
+
+
+def batch_cc(a: torch.Tensor, b: torch.Tensor):
+    n, length = a.shape
+    a = a[:, :].reshape(1, n, length)
+    b = b[:, None, :]
+    return F.conv1d(a, b, padding=length - 1, groups=n)[0]
 
 
 class MCPOSD(Dataset):
