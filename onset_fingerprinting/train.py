@@ -31,13 +31,14 @@ test_onsets = np.load(data_dir / "onsets.npy")
 lugonsets = np.load(data_dir / "lugonsets.npy")
 test_sp = np.load(data_dir / "sp.npy")
 lugsp = np.load(data_dir / "lugsp.npy")
-fe = data.FrameExtractor(w, 0, 0)
-aug_fe = data.FrameExtractor(w, 0, 32)
-
-dataset = data.MCPOSD(lugdata, lugonsets, lugsp, fe, single_batch=True)
+pre_samp = 16
+# This is quite slow, so it might be better to precompute some stretches and
+# shift those
+sfe = data.StretchFrameExtractor(w, 0, 0.03)
+dataset = data.MCPOSD(lugdata, lugonsets, lugsp, w, pre_samp, 32, 10)
 train = dataset
 # train, val = dataset.split()
-test_dataset = data.MCPOSD(test, test_onsets, test_sp, fe, single_batch=True)
+test_dataset = data.MCPOSD(test, test_onsets, test_sp, w)
 val, test = test_dataset.split(0.1)
 tdl = DataLoader(train, batch_size=None)
 vdl = DataLoader(val, batch_size=None)
