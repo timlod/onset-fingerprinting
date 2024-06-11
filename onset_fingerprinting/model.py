@@ -109,13 +109,18 @@ class CNN(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        optimizer = optim.NAdam(self.parameters(), lr=self.lr)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, factor=0.5, patience=100
+        # )
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 3000)
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, 250, 1
+        )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
-                "scheduler": optim.lr_scheduler.ReduceLROnPlateau(
-                    optimizer, factor=0.5, patience=200
-                ),
+                "scheduler": scheduler,
                 "monitor": "val_loss",
                 "frequency": 1,
             },
