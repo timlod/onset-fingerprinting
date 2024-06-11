@@ -30,6 +30,7 @@ class CNN(L.LightningModule):
         dilation=0,
         groups=1,
         lr=1e-3,
+        activation=nn.SiLU,
     ) -> None:
         """
         A flexible CNN architecture for audio processing tasks.
@@ -60,7 +61,7 @@ class CNN(L.LightningModule):
             )
             inp = conv(inp)
             self.conv_layers.add_module(f"conv{i+1}", conv)
-            self.conv_layers.add_module(f"relu{i+1}", nn.ReLU())
+            self.conv_layers.add_module(f"act{i+1}", activation())
             if batch_norm:
                 self.conv_layers.add_module(
                     f"bn{i+1}", nn.BatchNorm1d(layer_size)
