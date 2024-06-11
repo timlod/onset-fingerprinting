@@ -223,34 +223,45 @@ class StretchFrameExtractor(FrameExtractor):
 
 
 class MCPOSD(Dataset):
+    """Works only with batch_size=None - meant for tiny datasets."""
+
     def __init__(
         self,
         data,
         onsets,
-        sound_positions,
-        frame_extractor=FrameExtractor(256, 0, 0),
-        aug_extractors: list[FrameExtractor] = [],
-        n_aug_rounds: int = 0,
-        single_batch: bool = False,
-        train: bool = True,
+        sound_positions: np.ndarray,
+        frame_length: int = 256,
+        pre_samples: int = 0,
+        max_shift: int = 0,
+        n_extractions: int = 1,
+        device=None,
     ):
         self.data = data
-        self.onsets = onsets
-        self.frame_extractor = frame_extractor
-        self.aug_extractors = aug_extractors
+        self.frame_extractor = FastFrameExtractor(
+            data, onsets, frame_length, pre_samples, max_shift, device=device
+        )
 
-        # self.y = torch.tensor(sound_positions, dtype=torch.float32)
-        x = [frame_extractor(data, onsets)]
-        y = [sound_positions]
-        for fe in aug_extractors:
-            for i in range(n_aug_rounds):
-                x.append(fe(data, onsets))
-                y.append(sound_positions)
-        self.x = torch.tensor(np.concatenate(x), dtype=torch.float32)
-        self.y = torch.tensor(np.concatenate(y), dtype=torch.float32)
-        self.single_batch = single_batch
-        self.train = train
-        self.n_aug_rounds = n_aug_rounds
+        if (n_extractions == 1) and (max_shift == 0):
+            self.y = torch.tensor(sound_positions, dtype=torch.float32)
+            self.x = self.frame_extractor()
+            self.straight = True
+        else:
+            y = [sound_positions for i in range(n_extractions)]
+            self.y = torch.tensor(np.concatenate(y), dtype=torch.float32)
+            self.straight = False
+        self.n_extractions = n_extractions
+
+    def __getitem__(self, index):
+        if self.straight:
+            return self.x, self.y
+        else:
+            x = torch.cat(
+                [self.frame_extractor() for i in range(self.n_extractions)]
+            )
+            return x, self.y
+
+    def __len__(self):
+        return 1
 
     @classmethod
     def from_xy(
@@ -275,26 +286,6 @@ class MCPOSD(Dataset):
             self.x[idx[split:]], self.y[idx[split:]], self.single_batch
         )
         return ds1, ds2
-
-    def __getitem__(self, index):
-        if self.single_batch:
-            if not self.train:
-                return self.x, self.y
-            else:
-                x = [self.frame_extractor(self.data, self.onsets)]
-                for fe in self.aug_extractors:
-                    for i in range(self.n_aug_rounds):
-                        x.append(fe(self.data, self.onsets))
-
-                x = torch.tensor(np.concatenate(x), dtype=torch.float32)
-                return x, self.y
-        return self.x[index], self.y[index]
-
-    def __len__(self):
-        if self.single_batch:
-            return 1
-        else:
-            return len(self.x)
 
 
 class POSD(Dataset):
