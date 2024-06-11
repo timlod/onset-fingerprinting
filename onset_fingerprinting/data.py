@@ -164,7 +164,14 @@ class MCPOSD(Dataset):
         aug_extractors: list[FrameExtractor] = [],
         n_aug_rounds: int = 0,
         single_batch: bool = False,
+        train: bool = True,
     ):
+        self.data = data
+        self.onsets = onsets
+        self.frame_extractor = frame_extractor
+        self.aug_extractors = aug_extractors
+
+        # self.y = torch.tensor(sound_positions, dtype=torch.float32)
         x = [frame_extractor(data, onsets)]
         y = [sound_positions]
         for fe in aug_extractors:
@@ -174,6 +181,8 @@ class MCPOSD(Dataset):
         self.x = torch.tensor(np.concatenate(x), dtype=torch.float32)
         self.y = torch.tensor(np.concatenate(y), dtype=torch.float32)
         self.single_batch = single_batch
+        self.train = train
+        self.n_aug_rounds = n_aug_rounds
 
     @classmethod
     def from_xy(
@@ -183,10 +192,12 @@ class MCPOSD(Dataset):
         ds.x = x
         ds.y = y
         ds.single_batch = single_batch
+        # fix
+        ds.train = False
         return ds
 
     def split(self, r: float = 0.8):
-        n = len(self.x)
+        n = len(self.y)
         idx = torch.randperm(n)
         split = int(n * r)
         ds1 = self.from_xy(
@@ -199,7 +210,16 @@ class MCPOSD(Dataset):
 
     def __getitem__(self, index):
         if self.single_batch:
-            return self.x, self.y
+            if not self.train:
+                return self.x, self.y
+            else:
+                x = [self.frame_extractor(self.data, self.onsets)]
+                for fe in self.aug_extractors:
+                    for i in range(self.n_aug_rounds):
+                        x.append(fe(self.data, self.onsets))
+
+                x = torch.tensor(np.concatenate(x), dtype=torch.float32)
+                return x, self.y
         return self.x[index], self.y[index]
 
     def __len__(self):
