@@ -225,6 +225,10 @@ class StretchFrameExtractor(FrameExtractor):
 class MCPOSD(Dataset):
     """Works only with batch_size=None - meant for tiny datasets."""
 
+    # The alternative would be to pre-compute a large number of augmentations,
+    # keep those in RAM, and deliver standard batches to GPU memory. This is
+    # simpler for now.
+
     def __init__(
         self,
         data,
