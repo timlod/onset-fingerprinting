@@ -92,11 +92,8 @@ class FrameExtractor:
         """
         offset = self.pre_samples
         if self.max_shift:
-            shifts = np.random.randint(0, self.max_shift, len(onsets))
-            np.negative(
-                shifts,
-                out=shifts,
-                where=np.random.randint(2, size=len(shifts), dtype=bool),
+            shifts = np.random.randint(
+                -self.max_shift, self.max_shift + 1, len(onsets)
             )
             offset -= shifts
             if (audio.ndim == 2) and not self.use_min_onset:
