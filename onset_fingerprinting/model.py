@@ -128,3 +128,122 @@ class CNN(L.LightningModule):
 
     def on_validation_epoch_end(self):
         pass
+
+
+class RNN(L.LightningModule):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        channels: int = 3,
+        hidden_size: int = 64,
+        num_layers: int = 2,
+        dropout_rate: float = 0.5,
+        loss=F.l1_loss,
+        rnn_type: str = "GRU",  # Options: 'LSTM', 'GRU', 'RNN'
+        batch_first: bool = True,
+        bidirectional: bool = False,
+        lr: float = 1e-3,
+        activation=nn.SiLU,
+    ) -> None:
+        """
+        A flexible RNN architecture for audio processing tasks.
+
+        :param input_size: The size of the 1D audio window for each sensor.
+        :param output_size: The dimensionality of the output (e.g., 2D
+            coordinates).
+        :param channels: Number of input channels (sensors).
+        :param hidden_size: Number of features in the hidden state.
+        :param num_layers: Number of recurrent layers.
+        :param dropout_rate: Dropout rate applied after the RNN layers.
+        :param rnn_type: Type of RNN ('LSTM', 'GRU', 'RNN').
+        :param batch_first: If True, then the input and output tensors are
+            provided as (batch, seq, feature).
+        :param bidirectional: If True, becomes a bidirectional RNN.
+        """
+        super().__init__()
+        self.channels = channels
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.batch_first = batch_first
+        self.bidirectional = bidirectional
+        self.lr = lr
+        self.loss = loss
+
+        rnn_class = {"LSTM": nn.LSTM, "GRU": nn.GRU, "RNN": nn.RNN}[rnn_type]
+
+        self.rnn = rnn_class(
+            input_size=channels,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout_rate if num_layers > 1 else 0,
+            batch_first=batch_first,
+            bidirectional=bidirectional,
+        )
+
+        multiplier = 2 if bidirectional else 1
+        self.fc = nn.Linear(hidden_size * multiplier, output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.permute(0, 2, 1)
+        h0 = torch.zeros(
+            self.num_layers * (2 if self.bidirectional else 1),
+            x.size(0),
+            self.hidden_size,
+        ).to(x.device)
+        c0 = torch.zeros(
+            self.num_layers * (2 if self.bidirectional else 1),
+            x.size(0),
+            self.hidden_size,
+        ).to(x.device)
+
+        if isinstance(self.rnn, nn.LSTM):
+            out, _ = self.rnn(x, (h0, c0))
+        else:
+            out, _ = self.rnn(x, h0)
+
+        out = out[:, -1, :]  # Take the output of the last time step
+        out = self.fc(out)
+        return out
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        y_hat = self(x)
+        loss = self.loss(y_hat, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        out = self(x)
+        loss = F.l1_loss(out, y)
+        self.log("val_loss", loss)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        out = self(x)
+        loss = F.l1_loss(out, y)
+        self.log("hp_metric", loss)
+        plots.cartesian_circle(out.cpu().detach().numpy())
+        self.logger.experiment.add_figure("test", plt.gcf())
+        plt.close()
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = optim.NAdam(self.parameters(), lr=self.lr)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, factor=0.5, patience=100
+        # )
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 3000)
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, 250, 1
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }
