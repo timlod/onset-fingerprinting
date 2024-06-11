@@ -111,11 +111,12 @@ def objective(trial: optuna.trial.Trial) -> float:
     return trainer.callback_metrics["hp_metric"].item()
 
 
+# Input paired CCs, output locations
 if __name__ == "__main__":
     pruner = optuna.pruners.MedianPruner()
 
-    study = optuna.create_study(direction="maximize", pruner=pruner)
-    study.optimize(objective, n_trials=2, timeout=600, catch=[RuntimeError])
+    study = optuna.create_study(direction="minimize", pruner=pruner)
+    study.optimize(objective, n_trials=3, catch=[RuntimeError])
 
     print("Number of finished trials: {}".format(len(study.trials)))
 
