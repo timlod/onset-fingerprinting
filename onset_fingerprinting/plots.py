@@ -38,7 +38,7 @@ def plot_group(
     ax=None,
     title="Audio + detected onsets",
     channel_labels=None,
-    line_darkener=0.6,
+    line_darkener=0.8,
     **kwargs,
 ):
     """Plot a group of audio onsets
