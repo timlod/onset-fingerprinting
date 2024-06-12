@@ -29,7 +29,11 @@ import numpy as np
 import pedalboard
 import sounddevice as sd
 import soundfile as sf
+import torch
+import torch.nn as nn
 from onset_fingerprinting import calibration, detection, multilateration, plots
+from torch import optim
+from torch.nn import functional as F
 #+end_src
 
 #+name: env
@@ -38,6 +42,7 @@ data_dir = Path("../data/location/Recordings3")
 # Rodrigos data is defined in millimeter:
 diameter = 14 * 2.54 * 10
 radius = diameter / 2
+sr = 96000
 #+end_src
 
 * Introduction
@@ -84,6 +89,16 @@ with open(data_dir / "Data" / "8lugpositions.json") as f:
 lug_locs = np.array(lug_locs)
 #+end_src
 
+Rodrigo also provided me with the indexes for his detection of the 1240 hits:
+#+begin_src python
+with open(data_dir / "Setup 2" / "1240 timestamps.json") as f:
+    mesh_idx = []
+    ts = json.load(f)["data"]
+    for i in range(len(ts)):
+        mesh_idx.append(round(ts[str(i)][0] / 1000 * sr))
+mesh_idx = np.array(mesh_idx)
+#+end_src
+
 Let's quickly plot them to make sure the data is correct:
 #+begin_src python
 theta = np.linspace(0, 2 * np.pi, 100)
@@ -101,7 +116,7 @@ plt.tight_layout()
 #+end_src
 
 #+RESULTS:
-[[./.ob-jupyter/de6788a2a0c656b04ad4465bd2858cb44e11b4b8.png]]
+[[./.ob-jupyter/c46829a839f8c15d2c0bd4f49bbc30addb543aaf.png]]
 
 
 Looks fine! Let's load some data and see how we get on:
@@ -118,6 +133,7 @@ remove it.
 #+begin_src python
 data, sr = sf.read(data_dir / "Setup 2" / "155 hits.wav", dtype=np.float32)
 data = data[15 * sr :, :3]
+mesh_idx -= 15 * sr
 print(data.shape[0] / sr)
 ref, sr = sf.read(
     data_dir / "Setup 2" / "DPA Reference" / "155 hits.wav", dtype=np.float32
@@ -145,6 +161,9 @@ sound_positions = (
     / 1000
 )
 sound_positions = np.concatenate((np.zeros((8, 3)), sound_positions))
+
+np.save(data_dir / "lugsp.npy", sound_positions[:, :2])
+np.save(data_dir / "sp.npy", mesh_locs2.repeat(8, axis=0)/ 1000)
 #+end_src
 
 About 5min of hitting the drum, quite a lot!
@@ -169,20 +188,38 @@ cf, of = detection.detect_onsets_amplitude(
     data,
     128,
     hipass_freq=2000,
-    fast_ar=(10, 966),
+    fast_ar=(3, 966),
     slow_ar=(8410, 8410),
-    on_threshold=0.45,
-    off_threshold=0.3,
-    cooldown=1323,
+    on_threshold=0.65,
+    off_threshold=0.55,
+    cooldown=9600,
     sr=sr,
     backtrack=False,
     backtrack_buffer_size=256,
     backtrack_smooth_size=1,
 )
-oc = detection.find_onset_groups(of, cf, 600)
-occ = detection.fix_onsets(
-    data, oc, onset_tolerance=200, take_abs=True
-)
+oc = detection.find_onset_groups(of, cf, 700)
+# occ = detection.fix_onsets(
+#     data, oc, onset_tolerance=200, take_abs=True
+# )
+(len(oc), len(of))
+#+end_src
+
+#+RESULTS:
+| 1238 | 3715 |
+
+With these settings I'm missing two onsets - I'll copy these in from Rodrigo's
+data to align them (I subtracted some samples as my OD is quicker by 60 samples
+on average). Note: this may differ based on different OD settings.
+#+begin_src python
+ocl = oc.copy()
+ocl = list(ocl)
+ocl.insert(569, (13475300,13475300,13475300))
+ocl.insert(778, (18302570,18302570,18302570))
+ocl = np.array(ocl)
+
+np.save(data_dir / "data.npy", data)
+np.save(data_dir / "onsets.npy", ocl)
 #+end_src
 
 #+begin_src python
@@ -192,8 +229,8 @@ for og in oc[:2]:
 
 #+RESULTS:
 :RESULTS:
-[[./.ob-jupyter/114ec2e10569b299881125c6a37c917c6b85fa02.png]]
-[[./.ob-jupyter/90c7fe47b3dbb911b8badafac64572a1043331da.png]]
+[[./.ob-jupyter/c3405850a2f2d2f04b7af2a95f9c587aa6917841.png]]
+[[./.ob-jupyter/46c4bac9121ba37013c8b6192bd3f97e4bd04f28.png]]
 :END:
 
 *** Detect onsets, lug calibration data
@@ -219,6 +256,12 @@ locc = detection.fix_onsets(
 )
 #+end_src
 
+#+begin_src python
+np.save(data_dir / "lugdata.npy", lugdata)
+np.save(data_dir / "lugonsets.npy", loc)
+#+end_src
+
+*** Calib
 #+begin_src python
 from scipy import optimize
 def tdoa_calib_loss(
@@ -383,13 +426,12 @@ sp2, c2 = optimize_C(
 [[./.ob-jupyter/6a64d0995a61424a1b8e40434e808a030edf96f4.png]]
 :END:
 
-
 #+begin_src python
 # Physical calibration uses standard diff, but RT and model needs to subtract
 # first onset from following onsets
 od = locc[:, :2] - locc[:, 2:]
 model, errors = calibration.train_location_model(
-    torch.tensor(od, dtype=torch.float32),
+    torch.tensor(od, dtype=torch.float32).cuda(),
     torch.tensor(sound_positions, dtype=torch.float32),
     0.004,
     eps=1e-12,
@@ -410,7 +452,7 @@ m = multilateration.Multilaterate3D(
     sr=sr,
     medium="drumhead",
     c=c2,
-    #model=model,
+    model=model,
 )
 coords = []
 for o in locc:
@@ -433,7 +475,7 @@ ax = plots.polar_circle(coords, label=True)
 
 #+RESULTS:
 :RESULTS:
-[[./.ob-jupyter/aa234ec6613a1012d82bbc8dfe2bab65f6a6d791.png]]
+# [goto error]
 :END:
 
 
@@ -448,8 +490,7 @@ def extract_windows(
     n, c = data.shape
     k = onsets.shape[0]
     post_samp = window_size - pre_samp
-    output = np.zeros((k, c, window_size), dtype=np.float32)
-
+    output = np.zeros((k, c, window_size), dtype=np.float32)    
     for i, onset in enumerate(onsets):
         for j in range(c):
             first_onset = min(onset)
@@ -516,29 +557,29 @@ class CNN(nn.Module):
 
         self.conv_layers = nn.Sequential()
 
+        inp = torch.zeros(72, 3, 320)
         current_channels = channels
         # Input size to the first layer
         conv_output_size = window_size
         for idx, config in enumerate(conv_layers_config):
-            self.conv_layers.add_module(
-                f"conv{idx+1}",
-                nn.Conv1d(
-                    in_channels=current_channels,
-                    out_channels=config["out_channels"],
-                    kernel_size=config["kernel_size"],
-                    stride=config["stride"],
-                    padding=config["padding"],
-                    dilation=config["dilation"],
-                    groups=groups,
-                ),
+            conv = nn.Conv1d(
+                in_channels=current_channels,
+                out_channels=config["out_channels"],
+                kernel_size=config["kernel_size"],
+                stride=config["stride"],
+                padding=config["padding"],
+                dilation=config["dilation"],
+                groups=groups,
             )
+            inp = conv(inp)
+            self.conv_layers.add_module(f"conv{idx+1}", conv)
             self.conv_layers.add_module(f"relu{idx+1}", nn.ReLU())
-            self.conv_layers.add_module(
-                f"bn{idx+1}", nn.BatchNorm1d(config["out_channels"])
-            )
-            self.conv_layers.add_module(
-                f"pool{idx+1}", nn.MaxPool1d(kernel_size=2, stride=2)
-            )
+            # self.conv_layers.add_module(
+            #     f"bn{idx+1}", nn.BatchNorm1d(config["out_channels"])
+            # )
+            # self.conv_layers.add_module(
+            #     f"pool{idx+1}", nn.MaxPool1d(kernel_size=2, stride=2)
+            # )
 
             # Compute the output size after convolution
             effective_kernel_size = (config["kernel_size"] - 1) * config[
@@ -555,6 +596,8 @@ class CNN(nn.Module):
 
             current_channels = config["out_channels"]
 
+        print(inp.shape)
+        conv_output_size = inp.shape[2]
         self.dropout = nn.Dropout(dropout_rate)
         self.fc = nn.Linear(current_channels * conv_output_size, output_size)
 
@@ -567,16 +610,17 @@ class CNN(nn.Module):
 #+end_src
 
 #+begin_src python
-num_epochs = 3000
-lr = 0.01
+num_epochs = 5000
+lr = 0.001
 print_every = 100
 patience = 10000
 w = 320
 
-n = 6
-out_channels = [12] * n
+n = 5
+#out_channels = [100] * n
 #out_channels = [9, 12, 15, 33, 9]
-kernel_sizes = [5] * n
+out_channels = [16, 16, 16]
+kernel_sizes = [11] * n
 strides = [1] * n
 dilations = [1] * n
 conv_layers_config = [
@@ -584,16 +628,17 @@ conv_layers_config = [
         "out_channels": oc,
         "kernel_size": k,
         "stride": s,
-        "padding": 1,
+        "padding": 0,
         "dilation": d,
     }
     for oc, k, s, d in zip(out_channels, kernel_sizes, strides, dilations)
 ]
-
-model = CNN(w, 2, 3, conv_layers_config, dropout_rate=0.33, groups=1)
+soundpos = torch.tensor(sound_positions, dtype=torch.float32)[:, :2].cuda()
+device = soundpos.device
+model = CNN(w, 2, 3, conv_layers_config, dropout_rate=0.2, groups=1).to(device)
 
 errors = []
-soundpos = torch.tensor(sound_positions, dtype=torch.float32)[:, :2]
+
 
 test = torch.tensor(extract_windows(data, oc, w))
 optimizer = optim.NAdam([{"params": model.parameters(), "lr": lr}])
@@ -606,11 +651,11 @@ for epoch in range(num_epochs):
     optimizer.zero_grad(set_to_none=True)
     inputs = torch.tensor(
         extract_windows(lugdata, loc, w, np.random.randint(0, 32))
-    )
+    ).to(device)
     pos = model(inputs)
-    error = F.l1_loss(pos, soundpos)
-    #error = F.mse_loss(pos, soundpos)
-    errors.append(error.detach().numpy())
+    #error = F.l1_loss(pos, soundpos)
+    error = F.mse_loss(pos, soundpos)
+    #errors.append(error.detach().numpy())
     loss = error.mean()
     # Crude early stopping on own training loss
     if loss < last_loss - 1e-4:
@@ -633,47 +678,68 @@ print(pos[:10], "\n", sound_positions[:10])
 
 #+RESULTS:
 #+begin_example
-Epoch 0, Loss 0.6421986818313599
-Epoch 100, Loss 0.04302139952778816
-Epoch 200, Loss 0.03030324913561344
-Epoch 300, Loss 0.02755330316722393
-Epoch 400, Loss 0.017304416745901108
-Epoch 500, Loss 0.018467701971530914
-Epoch 600, Loss 0.016493473201990128
-Epoch 700, Loss 0.015422817319631577
-Epoch 800, Loss 0.014681264758110046
-Epoch 900, Loss 0.015129142440855503
-Epoch 1000, Loss 0.013480890542268753
-Epoch 1100, Loss 0.01655290275812149
-Epoch 1200, Loss 0.016225971281528473
-Epoch 1300, Loss 0.012498494237661362
-Epoch 1400, Loss 0.013755387626588345
-Epoch 1500, Loss 0.01266628596931696
-Epoch 1600, Loss 0.014016479253768921
-Epoch 1700, Loss 0.014348762109875679
-Epoch 1800, Loss 0.0131307952105999
-Epoch 1900, Loss 0.013966158032417297
-Epoch 2000, Loss 0.01403858233243227
-Epoch 2100, Loss 0.012475545518100262
-Epoch 2200, Loss 0.011694434098899364
-Epoch 2300, Loss 0.012990402057766914
-Epoch 2400, Loss 0.01375761441886425
-Epoch 2500, Loss 0.011447313241660595
-Epoch 2600, Loss 0.013487029820680618
-Epoch 2700, Loss 0.01033258531242609
-Epoch 2800, Loss 0.014055690728127956
-Epoch 2900, Loss 0.010417627170681953
-Epoch 2999, Loss 0.011726667173206806
-tensor([[ 1.2533e-03,  2.4433e-03],
-        [-2.9517e-03, -2.8301e-04],
-        [ 2.5684e-04, -2.6747e-03],
-        [-2.8122e-03,  7.3225e-03],
-        [ 8.2061e-04,  8.4579e-03],
-        [-1.3199e-03, -1.1057e-03],
-        [-1.5687e-04, -1.5168e-03],
-        [ 1.4211e-04,  8.2639e-04],
-        [ 5.1320e-02,  1.5935e-01],
-        [ 5.5815e-02,  1.6316e-01]], grad_fn=<SliceBackward0>) 
+torch.Size([72, 16, 290])
+Epoch 0, Loss 0.010153223760426044
+Epoch 100, Loss 0.0005336913745850325
+Epoch 200, Loss 0.0004078592173755169
+Epoch 300, Loss 0.0003808196634054184
+Epoch 400, Loss 0.00022581714438274503
+Epoch 500, Loss 0.0002630934468470514
+Epoch 600, Loss 0.00018974703561980277
+Epoch 700, Loss 0.0006208557751961052
+Epoch 800, Loss 0.00019475218141451478
+Epoch 900, Loss 0.0001777808938641101
+Epoch 1000, Loss 0.0003000546130351722
+Epoch 1100, Loss 0.000287201430182904
+Epoch 1200, Loss 0.0003676651103887707
+Epoch 1300, Loss 0.00014035323692951351
+Epoch 1400, Loss 0.00016042515926528722
+Epoch 1500, Loss 0.00019266875460743904
+Epoch 1600, Loss 0.00012929123477078974
+Epoch 1700, Loss 0.00016539107309654355
+Epoch 1800, Loss 0.00013132709136698395
+Epoch 1900, Loss 0.00011418729991419241
+Epoch 2000, Loss 0.00013872432464268059
+Epoch 2100, Loss 0.00015978557348717004
+Epoch 2200, Loss 0.00012932904064655304
+Epoch 2300, Loss 0.00012078733561793342
+Epoch 2400, Loss 9.7527532489039e-05
+Epoch 2500, Loss 9.170631528832018e-05
+Epoch 2600, Loss 0.00024791067698970437
+Epoch 2700, Loss 8.151528891175985e-05
+Epoch 2800, Loss 7.80718692112714e-05
+Epoch 2900, Loss 9.603020589565858e-05
+Epoch 3000, Loss 8.023200643947348e-05
+Epoch 3100, Loss 8.23394293547608e-05
+Epoch 3200, Loss 0.00012711451563518494
+Epoch 3300, Loss 7.65720396884717e-05
+Epoch 3400, Loss 6.987040978856385e-05
+Epoch 3500, Loss 8.249362144852057e-05
+Epoch 3600, Loss 7.34101704438217e-05
+Epoch 3700, Loss 0.00014710851246491075
+Epoch 3800, Loss 7.584245031466708e-05
+Epoch 3900, Loss 7.289485802175477e-05
+Epoch 4000, Loss 9.13851908990182e-05
+Epoch 4100, Loss 6.481259333668277e-05
+Epoch 4200, Loss 8.600758883403614e-05
+Epoch 4300, Loss 7.381827890640125e-05
+Epoch 4400, Loss 9.976435103453696e-05
+Epoch 4500, Loss 0.00011863474355777726
+Epoch 4600, Loss 8.008095028344542e-05
+Epoch 4700, Loss 7.2025453846436e-05
+Epoch 4800, Loss 8.087644528131932e-05
+Epoch 4900, Loss 7.048979023238644e-05
+Epoch 4999, Loss 0.0002142539742635563
+tensor([[-3.8341e-03, -1.2685e-03],
+        [-1.4109e-02,  5.3941e-03],
+        [-1.0962e-02, -9.1283e-03],
+        [ 1.1334e-02, -2.4108e-03],
+        [ 4.1637e-03, -8.5540e-05],
+        [ 6.9068e-03,  7.9668e-03],
+        [ 9.6061e-03,  6.3247e-03],
+        [-9.7462e-03, -4.1213e-03],
+        [ 4.0023e-02,  1.3751e-01],
+        [ 4.2340e-02,  1.3343e-01]], device='cuda:0', grad_fn=<SliceBackward0>) 
  [[0.    0.    0.   ]
  [0.    0.    0.   ]
  [0.    0.    0.   ]
@@ -697,6 +763,8 @@ no dilation, groups=3
 kernel_size and lr have interplay
 
 #+begin_src python
+best_model = best_model.cpu()
+inputs = inputs.cpu()
 best_model.eval()
 plots.plot_3d_scene(
     radius / 1000,
@@ -715,6 +783,12 @@ plots.plot_3d_scene(
     figsize=(4, 4),
 )
 #+end_src
+
+#+RESULTS:
+:RESULTS:
+[[./.ob-jupyter/a8d1d6445f5e414bcbe48ca312a3ed64cfa69dfd.png]]
+[[./.ob-jupyter/db361656f2dc27a4d33722eba58e71a4f16d4180.png]]
+:END:
 
 *** Match onsets with mesh locations
 In theory, if we were able to detect 155 * 8 = 1240 hits exactly, we might just
@@ -746,3 +820,59 @@ plot_group(
 
 #+RESULTS:
 [[./figures/widearray_onsets_wref.png]]
+
+** Plotting Rodrigo's CC values
+To check Rodrigo's data quality, we can plot the values coming out of his
+cross-correlation (which he provided).
+#+begin_src python
+rccs = []
+with open(data_dir / "Setup 2" / "1240 hits.json") as f:    
+    hits = json.load(f)["data"]
+    for i in range(1240):
+        rccs.append(hits[str(i)])
+
+rccs = np.array(rccs, dtype=int)
+#+end_src
+
+We'll look at the next n samples, weight them exponentially, and take the max
+there as our starting point.
+#+begin_src python :async no
+n = 100
+exp = np.exp(np.linspace(0, 0.2 * -np.e, n))[:, None]
+for i in range(40):
+    idx = mesh_idx[i]
+    j, c = np.unravel_index(
+        (abs(data[idx : idx + n])).argmax(), (n, 3)
+    )
+    print(i, c)
+    og = [idx + j] * 3
+    if c == 0:
+        og[1] -= rccs[i, 0]
+        og[2] += rccs[i, 2]
+    elif c == 1:
+        og[0] += rccs[i, 0]
+        og[2] -= rccs[i, 1]
+    else:
+        og[0] -= rccs[i, 2]
+        og[1] += rccs[i, 1]
+    plots.plot_group(data, og, 100, line_darkener=0.8, title=i)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: 37 1
+[[./.ob-jupyter/e5a6a0e0dc24b04800e12b7bdb5f7818b8c2605b.png]]
+:END:
+
+Alone from the differences in CCs we can tell that there'll be some issues:
+#+begin_src python :file ./figures/rodrigo-cc-mismatch.png
+plt.hist(rccs[:, 2] -(-rccs[:, 0] - rccs[:, 1]), bins=100);
+plt.title("Histogram of CC20 - (-CC01 - CC12)")
+plt.xlabel("Difference")
+plt.ylabel("Frequency");
+#+end_src
+
+#+RESULTS:
+[[./figures/rodrigo-cc-mismatch.png]]
+
+See [[file:../plot_onset_groups.py]] for the finished script.
