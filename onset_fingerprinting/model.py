@@ -27,7 +27,7 @@ class CNN(L.LightningModule):
         batch_norm=False,
         pool=False,
         padding=1,
-        dilation=0,
+        dilation=1,
         groups=1,
         lr=1e-3,
         activation=nn.SiLU,
