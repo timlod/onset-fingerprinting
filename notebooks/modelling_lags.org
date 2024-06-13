@@ -1,0 +1,608 @@
+#+TITLE: Modelling lags
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Wednesday, 12 June 2024
+#+STARTUP: showall
+#+PROPERTY: header-args :exports both :session lags :kernel lm :cache no
+:PROPERTIES:
+OPTIONS: ^:nil
+#+LATEX_COMPILER: xelatex
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [logo, color, author]
+#+LATEX_HEADER: \insertauthor
+#+LATEX_HEADER: \usepackage{minted}
+#+LATEX_HEADER: \usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+:END:
+
+* Imports and Environment Variables
+:PROPERTIES:
+:visibility: folded
+:END:
+
+#+name: imports
+#+begin_src python
+import json
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+import torch
+import torch.nn as nn
+from onset_fingerprinting import (
+    calibration,
+    detection,
+    model,
+    multilateration,
+    plots,
+)
+from torch import optim
+from torch.nn import functional as F
+#+end_src
+
+#+name: env
+#+begin_src python
+
+#+end_src
+
+* Introduction
+I would like to move towards using NNs on windows of time-correlated audio. For
+this, I need to be able to find a network architecture which can learn these
+temporal relationships between signals. If the network can figure out the lag
+between the different channels, then it should be able to learn the physical
+model relating those to the location as well.
+
+To this end, I will generate some impulse data for which I know the lags, and
+plug in a number of architectures to see which one can learn this challenge.
+
+* Generate data
+
+The simplest version of this problem finds the lags between impulses occuring
+in two signals of a length w.
+#+begin_src python
+def generate_data(w: int, c: int, n: int = 10000, device=None):
+    signals = torch.zeros(n, c, w, device=device)
+    impulses = torch.randint(0, w, (n, c), device=device)
+    signals.scatter_(2, impulses[:, :, None], 1)
+    lags = []
+    for i in range(c - 1):
+        lags.append(impulses[:, i] - impulses[:, i + 1])
+    return signals, torch.stack(lags, -1).to(torch.float32), impulses
+#+end_src
+
+
+* Learning
+
+#+begin_src python
+def train(
+    x,
+    y,
+    model,
+    lossfun,
+    optimizer,
+    scheduler,
+    num_epochs=3000,
+    x_val=None,
+    y_val=None,
+    patience=None,
+    max_norm: float = 1.0,
+    print_every: int = 100,
+    print_examples: bool = True,
+    device=None,
+):
+    model.to(device)
+    x.to(device)
+    y.to(device)
+    errors = []
+    last_loss = torch.inf
+    best_model = None
+    counter = 0
+    for epoch in range(num_epochs):
+        optimizer.zero_grad(set_to_none=True)
+        pred = model(x)
+        error = lossfun(pred, y)
+        loss = error.mean()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+        optimizer.step()
+        scheduler.step()
+        if x_val is not None:
+            with torch.no_grad():
+                vp = model(x_val)
+                ve = lossfun(vp, y_val)
+            errors.append((error.item(), ve.item()))
+            if patience is not None:
+                if ve < last_loss:
+                    last_loss = ve
+                    best_model = model
+                    counter = 0
+                elif counter < patience:
+                    counter += 1
+                else:
+                    print(f"Stopping at epoch {epoch}!")
+                    break
+        else:
+            errors.append(error.item())
+        if epoch % print_every == 0:
+            print(
+                f"Epoch {epoch}, TL"
+                f" {loss.item()} {f'VL: {ve.item()}' if x_val is not None else ''}"
+            )
+    print(f"Epoch {epoch}, Loss {loss.item()}")
+    if print_examples:
+        print(pred[:10], "\n", y[:10])
+    return errors, best_model
+
+def error_analysis(model, tx, ty, timp, n_samp=100):
+    tp = model.cpu()(tx.cpu())
+    e = F.l1_loss(tp, ty.cpu(), reduction="none").squeeze()
+    print(
+        f"Mean loss: {e.mean().item():4f}, Median loss:"
+        f" {e.median().item():.4f}"
+    )
+    fig = plt.figure(figsize=(6, 3))
+    fig.suptitle(f"First {n_samp} test samples")
+    plt.plot(tp[:n_samp].detach().cpu(), label="Predictions")
+    plt.plot(ty[:n_samp].cpu(), label="Truth")
+    plt.legend()
+    if e.ndim == 2:
+        e = e.sum(1)
+    sortidx = e.argsort()
+    plt.figure(figsize=(6, 3))
+    plt.plot(e[sortidx].detach(), label="Sorted test errors")
+    plt.legend()
+    print(
+        "Best:",
+        ty.cpu()[sortidx][:20, 0],
+        "\nWorst:",
+        ty.cpu()[sortidx][-20:, 0],
+    )
+    print(timp[sortidx][-20:])
+#+end_src
+
+** 2 channels
+Let's start with the simplest version:
+#+begin_src python
+w = 256
+c = 2
+lossfun = F.mse_loss
+lr = 0.001 * (10 if lossfun == F.mse_loss else 1)
+num_epochs = 2000
+print_every = 100
+
+errors = []
+
+# m = model.CNN(
+#     w, 1, 2, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3
+# ).cuda()
+m = model.RNN(w, 1, 2, 64, 2, dropout_rate=0.6, rnn_type="GRU").cuda()
+# m = model.CNNRNN(
+#     w, 1, 2, layer_sizes=[32, 32, 64, 8], kernel_size=8, n_hidden=64, n_rnn_layers=2, dropout_rate=0.4
+# ).cuda()
+device = m.device
+x, y, imp = generate_data(w, c, 100, device=device)
+tx, ty, timp = generate_data(w, c, 1000, device=device)
+
+optimizer = optim.NAdam(m.parameters(), lr=lr, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, 2000)
+
+errors, bm = train(
+    x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
+)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Epoch 0, TL 11543.9638671875 VL: 10786.8837890625
+Epoch 100, TL 5783.13720703125 VL: 6734.99755859375
+Epoch 200, TL 2623.471435546875 VL: 2610.785400390625
+Epoch 300, TL 600.1925659179688 VL: 790.8977661132812
+Epoch 400, TL 262.4588928222656 VL: 681.9002685546875
+Epoch 500, TL 343.9761657714844 VL: 351.92938232421875
+Epoch 600, TL 195.5120391845703 VL: 180.03790283203125
+Epoch 700, TL 241.29299926757812 VL: 133.47084045410156
+Epoch 800, TL 45.12957763671875 VL: 283.1891784667969
+Epoch 900, TL 146.55203247070312 VL: 87.25057220458984
+Epoch 1000, TL 78.15969848632812 VL: 76.52354431152344
+Epoch 1100, TL 57.92473602294922 VL: 50.88188552856445
+Epoch 1200, TL 38.52301025390625 VL: 62.50839614868164
+Epoch 1300, TL 20.898988723754883 VL: 38.35517501831055
+Epoch 1400, TL 15.77040958404541 VL: 30.45650291442871
+Epoch 1500, TL 17.36888313293457 VL: 20.64699363708496
+Epoch 1600, TL 10.306509017944336 VL: 13.10331916809082
+Epoch 1700, TL 8.617095947265625 VL: 14.911242485046387
+Epoch 1800, TL 7.604458332061768 VL: 13.964322090148926
+Epoch 1900, TL 5.704653263092041 VL: 14.124978065490723
+Epoch 2000, TL 5.207828044891357 VL: 21.856245040893555
+Epoch 2100, TL 5.603603363037109 VL: 18.538930892944336
+Epoch 2200, TL 6.716339111328125 VL: 15.012032508850098
+Stopping at epoch 2257!
+Epoch 2257, Loss 6.07482385635376
+tensor([[ 128.0966],
+        [-111.9799],
+        [   6.2948],
+        [ -41.7060],
+        [-174.1546],
+        [ 115.6447],
+        [ 139.2085],
+        [  27.7424],
+        [   6.2711],
+        [ 173.0324]], device='cuda:0', grad_fn=<SliceBackward0>) 
+ tensor([[ 129.],
+        [-110.],
+        [   7.],
+        [ -39.],
+        [-175.],
+        [ 118.],
+        [ 139.],
+        [  31.],
+        [   9.],
+        [ 171.]], device='cuda:0')
+#+end_example
+
+#+begin_src python :async no
+error_analysis(bm, tx, ty, timp)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Mean loss: 2.577049, Median loss: 1.9602
+Best: tensor([  60., -110., -105., -187.,   71., -105.,  -18.,   35.,   12.,  131.,
+          -7.,  -29., -158.,  198.,  -17.,  -52.,  -69.,  130.,   20.,  -92.]) 
+Worst: tensor([-228.,  112., -179.,  239.,   -1.,   87., -146.,   94.,   -9.,    1.,
+        -247., -189.,    0., -112.,  -66.,    7., -169., -147., -144.,    0.])
+tensor([[ 10, 238],
+        [233, 121],
+        [ 65, 244],
+        [240,   1],
+        [ 50,  51],
+        [254, 167],
+        [  0, 146],
+        [255, 161],
+        [  3,  12],
+        [196, 195],
+        [  4, 251],
+        [  1, 190],
+        [125, 125],
+        [142, 254],
+        [189, 255],
+        [  9,   2],
+        [ 86, 255],
+        [108, 255],
+        [111, 255],
+        [ 17,  17]], device='cuda:0')
+#+end_example
+[[./.ob-jupyter/930be4c4af0001ac6ec6d76dd85ae984f9faad4c.png]]
+[[./.ob-jupyter/8ef9fd4bf5c0c8a740ee0e711d9cf671c41eca90.png]]
+:END:
+
+Although it doesn't always converge, this works! Both RNN and CNN are able to
+do this, in fact.
+
+However, the loss on the full test set is still rather high! It looks like it's
+primarily very large or very small/nonexisting lags which cause this issue.
+Large lags make sense, as they're at the boundary and thus are closer to
+require extrapolation.
+
+Notes RNN:
+- I needed to have a hidden size of 128+ to be able to learn this properly, at
+  2 layers. More layers, and it becomes harder to learn. With smaller sizes, it
+  appears that the lag is limited to the hidden size, showing that it is
+  related to how far the network can look to find lags.
+- Once I added the attention, it worked also with a hidden size of 64
+Notes CNN:
+- slightly worse at this than the RNN in convergence - it gets better at larger
+  numbers of parameters, but then I'd need to tweak more to get it to converge
+
+** 3 channels
+Let's see if it can learn 2 lags at the same time. That's one step closer
+towards what we need to learn.
+
+#+begin_src python
+w = 256
+c = 3
+lossfun = F.mse_loss
+lr = 0.001 * (10 if lossfun == F.mse_loss else 1)
+num_epochs = 3000
+print_every = 100
+
+errors = []
+
+# m = model.CNN(
+#     w, c-1, c, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3, dilation=1
+# ).cuda()
+m = model.RNN(w, c - 1, c, 64, 2, dropout_rate=0.5).cuda()
+device = m.device
+x, y, imp = generate_data(w, c, 100, device=device)
+tx, ty, timp = generate_data(w, c, 1000, device=device)
+
+optimizer = optim.NAdam(m.parameters(), lr=lr, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs)
+
+errors, bm = train(
+    x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
+)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Epoch 0, TL 12731.3984375 VL: 11450.4462890625
+Epoch 100, TL 7968.9736328125 VL: 5940.49462890625
+Epoch 200, TL 2955.5166015625 VL: 3239.81396484375
+Epoch 300, TL 523.3021240234375 VL: 717.0317993164062
+Epoch 400, TL 320.8381042480469 VL: 512.6001586914062
+Epoch 500, TL 235.69398498535156 VL: 360.5601806640625
+Epoch 600, TL 109.55850982666016 VL: 343.000732421875
+Epoch 700, TL 112.4301528930664 VL: 334.3623046875
+Epoch 800, TL 167.77789306640625 VL: 273.8305358886719
+Epoch 900, TL 88.43345642089844 VL: 302.03759765625
+Epoch 1000, TL 73.77388763427734 VL: 319.9427795410156
+Epoch 1100, TL 82.66132354736328 VL: 283.0507507324219
+Epoch 1200, TL 49.167938232421875 VL: 321.13287353515625
+Epoch 1300, TL 43.59089660644531 VL: 278.8407897949219
+Epoch 1400, TL 42.160369873046875 VL: 286.0478515625
+Epoch 1500, TL 37.47077560424805 VL: 291.0827941894531
+Epoch 1600, TL 32.65715408325195 VL: 238.62306213378906
+Epoch 1700, TL 16.179521560668945 VL: 253.12425231933594
+Epoch 1800, TL 20.501623153686523 VL: 236.45606994628906
+Epoch 1900, TL 13.568408966064453 VL: 254.19973754882812
+Epoch 2000, TL 13.372800827026367 VL: 264.9991760253906
+Epoch 2100, TL 10.062007904052734 VL: 239.95846557617188
+Epoch 2200, TL 8.7745943069458 VL: 259.2027282714844
+Epoch 2300, TL 6.862649917602539 VL: 230.3787384033203
+Epoch 2400, TL 4.154443264007568 VL: 233.53456115722656
+Epoch 2500, TL 3.5878753662109375 VL: 221.15550231933594
+Epoch 2600, TL 3.6540887355804443 VL: 203.56600952148438
+Epoch 2700, TL 4.884169101715088 VL: 201.5652618408203
+Epoch 2800, TL 3.5546417236328125 VL: 208.3582763671875
+Epoch 2900, TL 3.1885643005371094 VL: 207.4295654296875
+Epoch 2999, Loss 3.4985568523406982
+tensor([[-170.7369,  106.4263],
+        [-116.4316,   18.8932],
+        [-165.0470,   89.5156],
+        [ -85.0047,  105.9716],
+        [-213.6311,  223.8503],
+        [  81.7890,  -13.6403],
+        [ -30.4246,   85.0289],
+        [   0.4911,  215.9208],
+        [  59.3867, -224.3267],
+        [ 112.0415,   -1.3033]], device='cuda:0', grad_fn=<SliceBackward0>) 
+ tensor([[-168.,  105.],
+        [-115.,   19.],
+        [-165.,   89.],
+        [ -85.,  107.],
+        [-211.,  222.],
+        [  81.,  -13.],
+        [ -31.,   85.],
+        [   4.,  214.],
+        [  58., -222.],
+        [ 109.,   -1.]], device='cuda:0')
+#+end_example
+
+Plot results on the test set:
+#+begin_src python :async no
+error_analysis(bm, tx, ty, timp)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Mean loss: 9.875212, Median loss: 6.2169
+Best: tensor([ -62.,  104.,  -41.,  141.,  106.,  111.,  126.,   40.,  134.,  -91.,
+         137.,  -17.,  -39.,   88.,  -45.,  -23.,  -25., -152.,   91.,   31.]) 
+Worst: tensor([ -67.,  114.,  -35.,  234.,  103., -162., -233.,  186.,  -55.,  111.,
+         108., -114.,  -50.,  198.,   31., -168.,  119.,    8., -118.,  185.])
+tensor([[182, 249,   1],
+        [144,  30,  19],
+        [202, 237,   2],
+        [238,   4,  21],
+        [119,  16,   5],
+        [ 92, 254,   3],
+        [  5, 238, 236],
+        [219,  33,  16],
+        [ 50, 105, 255],
+        [164,  53,  49],
+        [151,  43,  37],
+        [ 54, 168, 250],
+        [ 24,  74, 254],
+        [233,  35,  23],
+        [247, 216, 243],
+        [ 24, 192, 252],
+        [143,  24,  20],
+        [  8,   0, 248],
+        [ 12, 130, 255],
+        [234,  49,  45]], device='cuda:0')
+#+end_example
+[[./.ob-jupyter/b9c3dfab05fa52f1d0dd2a0f2e175f1f6d52ee25.png]]
+[[./.ob-jupyter/872c88deef784cceb148e33e7b03f9bc8a49dffe.png]]
+:END:
+
+Error analysis:
+The MSE is still very high on this, possibly because we overfit, having lowered
+the dropout.
+let's see at which values of lags the model struggles most:
+#+begin_src python
+e = (tp - ty.cpu()).square().sum(1)
+sortidx = e.argsort()
+print("Best:\n",ty.cpu()[sortidx][:10].T, "\nWorst:\n", ty.cpu()[sortidx][-10:].T)
+#+end_src
+
+#+RESULTS:
+: Best:
+:  tensor([[ -55., -136.,  -55.,  119., -185.,   88., -182.,  206.,  104., -106.],
+:         [ 105.,  115.,  -46., -141.,   88., -140.,  122., -101., -169.,   58.]]) 
+: Worst:
+:  tensor([[ 254.,  244.,  246.,    5.,  -89.,  240.,   29.,  -76., -187.,  -45.],
+:         [ -76.,  -31.,  -53.,    0.,  166.,  -16.,  158.,  201.,  251.,  233.]])
+
+There are somewhat more extreme values at the large errors, but in general I
+think it's just overfit.
+
+** Non-binary impulses
+This is a contrived case where we learn impulses, but in reality we'll never
+have such data. Let's transform these into gaussian impulses for a further
+step, and check whether it still works as well.
+
+#+begin_src python
+def transform_impulse1(x, n=11, ramp_up: int = 0):
+    c = x.shape[1]
+    ls = torch.linspace(-3 * np.e, 0, n, device=x.device)
+    exp = torch.exp(ls)
+    if ramp_up > 0:
+        exp[-ramp_up:] = torch.exp(
+            torch.linspace(ls[-ramp_up], 2 * -np.e, ramp_up, device=x.device)
+        )
+    return F.conv1d(F.pad(x, (n - 1, 0)), exp.repeat(c, 1, 1), groups=c)
+#+end_src
+
+#+begin_src python
+w = 256
+c = 3
+lossfun = F.mse_loss
+lr = 0.001 * (10 if lossfun == F.mse_loss else 1)
+num_epochs = 3000
+print_every = 100
+
+errors = []
+
+# m = model.CNN(
+#     w, c-1, c, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3, dilation=1
+# ).cuda()
+m = model.RNN(w, c - 1, c, 64, 2, dropout_rate=0.5).cuda()
+device = m.device
+x, y, imp = generate_data(w, c, 100, device=device)
+x = transform_impulse1(x, 200, 20)
+tx, ty, timp = generate_data(w, c, 1000, device=device)
+tx = transform_impulse1(tx, 200, 20)
+
+optimizer = optim.NAdam(m.parameters(), lr=lr, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs)
+
+errors, bm = train(
+    x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
+)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Epoch 0, TL 12211.345703125 VL: 11416.25
+Epoch 100, TL 9197.626953125 VL: 7733.55224609375
+Epoch 200, TL 3807.451171875 VL: 4885.4306640625
+Epoch 300, TL 4407.03173828125 VL: 4050.215576171875
+Epoch 400, TL 2561.33349609375 VL: 2492.228515625
+Epoch 500, TL 299.5813903808594 VL: 1014.9505004882812
+Epoch 600, TL 138.01806640625 VL: 659.119384765625
+Epoch 700, TL 113.76472473144531 VL: 274.64849853515625
+Epoch 800, TL 69.99571990966797 VL: 552.5557861328125
+Epoch 900, TL 71.6298599243164 VL: 658.5573120117188
+Epoch 1000, TL 48.61688995361328 VL: 306.512451171875
+Epoch 1100, TL 45.00432586669922 VL: 380.31256103515625
+Epoch 1200, TL 36.14167785644531 VL: 382.5483093261719
+Epoch 1300, TL 31.345603942871094 VL: 326.2035827636719
+Epoch 1400, TL 28.344194412231445 VL: 264.8557434082031
+Epoch 1500, TL 10.929678916931152 VL: 373.4873352050781
+Epoch 1600, TL 10.318696022033691 VL: 218.59613037109375
+Epoch 1700, TL 9.076703071594238 VL: 349.08123779296875
+Epoch 1800, TL 8.98659896850586 VL: 234.24945068359375
+Epoch 1900, TL 7.997524261474609 VL: 209.8710479736328
+Epoch 2000, TL 6.906770706176758 VL: 222.49273681640625
+Epoch 2100, TL 4.634193420410156 VL: 210.64273071289062
+Stopping at epoch 2120!
+Epoch 2120, Loss 4.5808587074279785
+tensor([[ -49.3043, -116.6973],
+        [-150.8542,  131.4894],
+        [ 155.0165,   29.2837],
+        [ -81.7957,   15.7040],
+        [  -3.7997, -199.3646],
+        [-148.1194,   69.3505],
+        [ -90.9283,   60.8984],
+        [ -65.9522,   15.6159],
+        [ 161.7395,  -68.1006],
+        [  -1.3266,    7.2720]], device='cuda:0', grad_fn=<SliceBackward0>) 
+ tensor([[ -48., -115.],
+        [-151.,  130.],
+        [ 157.,   30.],
+        [ -81.,   14.],
+        [  -5., -196.],
+        [-151.,   67.],
+        [ -91.,   59.],
+        [ -66.,   15.],
+        [ 167.,  -66.],
+        [  -1.,   10.]], device='cuda:0')
+#+end_example
+
+#+begin_src python :async no
+error_analysis(bm, tx, ty, timp)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Mean loss: 9.445278, Median loss: 5.6184
+Best: tensor([  39.,  -49.,  -44.,  -67.,  -40.,  111.,  -37., -162., -106., -128.,
+         124., -170.,  -53.,  -44.,  -30.,   25.,   47.,  -28.,  -80.,  -84.]) 
+Worst: tensor([ 14.,  28., 131., 205.,  79.,  39.,  14.,   4., 153.,  17.,  80.,  67.,
+          4.,   7., 131.,  23.,  31., 126.,  18.,  15.])
+tensor([[ 49,  35, 131],
+        [ 36,   8, 173],
+        [189,  58, 170],
+        [224,  19, 139],
+        [115,  36, 129],
+        [235, 196, 242],
+        [ 44,  30, 130],
+        [ 15,  11,  47],
+        [168,  15, 197],
+        [ 41,  24, 141],
+        [236, 156, 249],
+        [228, 161, 234],
+        [  9,   5,  38],
+        [ 14,   7, 155],
+        [137,   6, 115],
+        [ 40,  17, 158],
+        [ 36,   5, 148],
+        [158,  32, 146],
+        [ 26,   8, 146],
+        [ 28,  13, 147]], device='cuda:0')
+#+end_example
+[[./.ob-jupyter/1509f73eb04dd81f9b7ef20e6727add86c379c1d.png]]
+[[./.ob-jupyter/ec35be82e83567c04ac4b240bad18d9c2796bce7.png]]
+:END:
+
+Nice, it performs pretty much the same!
+
+*** Additional changes
+This is still very idealized - here are more things we can do to make it look
+more real:
+- peaks at different amplitudes
+- modulate with sine wave
+- add noise
+
+
+Note: frequencies should be the same in each of the channels, phase could be
+slightly shifted, but very little. The sine needs to start at the impulse in
+each case, so currently this is wrong.
+#+begin_src python
+def transform_impulse2(x, sr=96000, random_phase: bool = False):
+    c = x.shape[1]
+    ls = torch.linspace(0, x.shape[-1] / sr, x.shape[-1], device=x.device)
+    phase = (
+        torch.rand(x.shape[0], x.shape[1], 1) * 0.1 * np.pi
+        if random_phase
+        else 0
+    )
+    f = torch.randint(300, 1000, (x.shape[0], 1, 1))
+    sin = torch.sin(2 * np.pi * ls[None, None, :] * f + phase)
+    return x * sin
+#+end_src
+
+
+* Pre-training
+Start with impulse data, and epoch-by-epoch morph it into something looking
+more like a real signal
+
+* Idea
+Random tone generator based on FM synthesis or just adding different modulated
+sines with a huge space. Then feedback the system by saying like/dislike on
+single tones to find a space of settings which are pleasing to the ear.
