@@ -661,7 +661,7 @@ for epoch in range(num_epochs):
     if loss < last_loss - 1e-4:
         last_loss = loss
         best_model = model
-        counter = 0 if counter == 0 else counter - 1
+        counter = 0
     elif counter < patience:
         counter += 1
     else:
