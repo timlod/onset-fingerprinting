@@ -715,14 +715,14 @@ def train_location_model(
 
     optimizer = optim.Adam([{"params": model.parameters(), "lr": lr}])
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, num_epochs
+        optimizer, num_epochs / 10
     )
     errors.clear()
     last_loss = torch.inf
     counter = 0
     best_model = model
     for epoch in range(num_epochs):
-        optimizer.zero_grad()
+        optimizer.zero_grad(set_to_none=True)
         pos = model(observed_lags)
         error = lossfun(pos, sound_positions[:, :2])
         errors.append(error.detach().numpy())
@@ -731,13 +731,13 @@ def train_location_model(
         if loss < last_loss - eps:
             last_loss = loss
             best_model = model
-            counter = 0 if counter == 0 else counter - 1
+            counter = 0
         elif counter < patience:
             counter += 1
         else:
             break
-
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1)
         optimizer.step()
         scheduler.step()
         if epoch % print_every == 0:
