@@ -16,7 +16,7 @@ class PlayRec:
     and list of audio tracks to loop, and the global action queue.
     """
 
-    def __init__(self, recording, ml_conf, fx):
+    def __init__(self, recording, ml_conf, fx, model=None):
         self.current_index = 0
         self.rec = recording
         # Always record audio buffers so we can easily look back for loopables
@@ -55,19 +55,20 @@ class PlayRec:
             sr=config.SR,
             medium=ml_conf["medium"],
             c=ml_conf["c"],
+            model=model,
         )
         self.fx = fx
 
-    def detect_hits(self, audio, rec_audio):
+    def detect_hits(self, audio):
         c, d, r = self.od(audio)
         if len(c) > 0:
             d = [self.current_index + x for x in d]
             idx = np.argsort(d)
             for i in idx:
-                res = self.m.locate(c[i], d[i], rec_audio)
+                res = self.m.locate(c[i], d[i], self.rec_audio)
                 if res is not None:
                     res = Location(*res)
-                    print(res)
+                    print(f"Result: {res}")
                     return res
         return None
 
