@@ -197,7 +197,11 @@ def cartesian_circle(coords, radius=0.1778, ax=None, figsize=(4, 4)):
 
 
 def polar_circle(
-    polar_coords: list[tuple[float, float]], label=False, **kwargs
+    polar_coords: list[tuple[float, float]],
+    label=False,
+    radius=1,
+    title="",
+    **kwargs,
 ) -> None:
     """
     Plot a unit circle and scatter a list of polar coordinates on it.
@@ -209,15 +213,15 @@ def polar_circle(
     ax = fig.add_subplot(111)
 
     theta = np.linspace(0, 2 * np.pi, 100)
-    x_circle = np.sin(theta)
-    y_circle = np.cos(theta)
-    ax.plot(x_circle, y_circle, label="Unit Circle")
+    x_circle = np.sin(theta) * radius
+    y_circle = np.cos(theta) * radius
+    ax.plot(x_circle, y_circle)
 
     x_values = np.zeros(len(polar_coords))
     y_values = np.zeros(len(polar_coords))
     for i, (r, angle) in enumerate(polar_coords):
-        x_values[i] = r * np.cos(np.radians(angle))
-        y_values[i] = r * np.sin(np.radians(angle))
+        x_values[i] = r * np.cos(np.radians(angle)) * radius
+        y_values[i] = r * np.sin(np.radians(angle)) * radius
 
     # Scatter plot with colormap
     ax.scatter(
@@ -233,10 +237,9 @@ def polar_circle(
 
     # Set aspect ratio and labels
     ax.axis("equal")
-    ax.set_xlabel("X-axis")
-    ax.set_ylabel("Y-axis")
-    ax.legend()
-    ax.set_title("Circle and Scatter Plot")
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_title(title)
     return ax
 
 
