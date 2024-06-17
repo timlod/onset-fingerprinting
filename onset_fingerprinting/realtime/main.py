@@ -64,8 +64,8 @@ def ondemand_target():
 
 
 if __name__ == "__main__":
-    ml_conf = config.load_setup(
-        Path(__file__).parent.parent.parent / "data" / "demo" / "conf.json"
+    ml_conf, model = config.load_setup(
+        Path(__file__).parent.parent.parent / "data" / "demo"
     )
     print(ml_conf)
     with recording.RecAudio(config.REC_N, config.N_CHANNELS, name="rt") as rec:
@@ -80,7 +80,7 @@ if __name__ == "__main__":
         cc.bypass = False
 
         print(sd.query_devices())
-        pr = audio.PlayRec(rec, ml_conf, [cc])
+        pr = audio.PlayRec(rec, ml_conf, [cc], model=model)
         pr.start()
         # Add parameterchange
         # 1. Bounds for entire playing surface:

@@ -1,11 +1,12 @@
 # Global configuration for loopmate
 import json
-from math import ceil
 from pathlib import Path
 
+import torch
 from numpy import array, ndarray
+from onset_fingerprinting.calibration import FCNN, nn
 
-WRITE_DIR = Path(__file__).parent.parent.parent / "data" / "demo"
+WRITE_DIR = Path(__file__).parent.parent.parent / "data" / "demo" / "rec"
 VST_DIR = Path.home() / ".vst3"
 fx = str(VST_DIR / "HY-Filter4 free.vst3")
 
@@ -25,7 +26,7 @@ N_CHANNELS = max(CHANNELS) + 1
 CHANS_IN_OUT = N_CHANNELS, 2
 # TODO: allow configuration of this to not necessarily always record everything
 RECORD_CHANNELS = CHANNELS
-DEVICE = [19, 22]
+DEVICE = [23, 23]
 # Change this to your other device used for headphone output.
 HEADPHONE_DEVICE = "default"
 # Desired latency of audio interface, in ms
@@ -59,19 +60,49 @@ REC_N = MAX_RECORDING_LENGTH * SR
 BLEND_SAMPLES = round(SR * BLEND_LENGTH)
 
 
-def save_setup(sensor_locations: ndarray | list, medium, c, p: Path | str):
+def save_setup(
+    sensor_locations: ndarray | list,
+    medium,
+    c,
+    model,
+    model_args,
+    p: Path | str,
+    json_name="ml_conf.json",
+):
     if isinstance(sensor_locations, ndarray):
         sensor_locations = sensor_locations.tolist()
-    with open(p, "w") as f:
+    with open(p / json_name, "w") as f:
         json.dump(
-            {"sensor_locations": sensor_locations, "medium": medium, "c": c}, f
+            {
+                "sensor_locations": sensor_locations,
+                "medium": medium,
+                "c": c,
+                "model_args": model_args,
+            },
+            f,
         )
+    torch.save(model.state_dict(), p / "model.pt")
 
 
-def load_setup(p: Path, c=None):
-    with open(p) as f:
+def load_setup(p: Path, json_name="ml_conf.json", c=None):
+    with open(p / json_name) as f:
         conf = json.load(f)
     conf["sensor_locations"] = array(conf["sensor_locations"])
     if c is not None:
         conf["c"] = c
-    return conf
+    if "model_args" in conf:
+        model_args = conf["model_args"]
+        activation = nn.ReLU
+        if "activation" in model_args:
+            match model_args["activation"]:
+                case "silu":
+                    activation = nn.SiLU
+                case "leakyrelu":
+                    activation = nn.LeakyReLU
+                case "elu":
+                    activation = nn.ELU
+        model_args["activation"] = activation
+    model = FCNN(**conf["model_args"])
+    model.load_state_dict(torch.load(p / "model.pt"))
+    model.eval()
+    return conf, model
