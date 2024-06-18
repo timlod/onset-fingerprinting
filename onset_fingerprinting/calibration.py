@@ -565,11 +565,12 @@ def optimize_positions(
     initial_sensor_positions: torch.Tensor,
     initial_sound_positions: torch.Tensor,
     lr: float = 0.01,
+    lossfun=F.mse_loss,
     num_epochs: int = 1000,
     C: float = 342.29,
     sr: int = 96000,
     radius: float = 0.1778,
-    eps: float = 1e-2,
+    eps: float = 1e-12,
     patience: float = 10,
     print_every=10,
     debug: bool = False,
@@ -593,25 +594,30 @@ def optimize_positions(
     :param print_every: print loss every this many epochs
     :param debug: print some additional info
     """
-    observed_lags = observed_lags / sr
+    observed_tdoa = observed_lags / sr
     errors = []
-    # Speed of sound in m/s
-    C = torch.tensor(C, requires_grad=True, dtype=torch.float32)
 
     # Make sure data is on the same device
-    device = observed_lags.device
-    initial_sensor_positions = initial_sensor_positions.to(device)
-    initial_sound_positions = initial_sound_positions.to(device)
-
+    device = observed_tdoa.device
+    # Speed of sound in m/s
+    C = torch.tensor(C, requires_grad=True, dtype=torch.float32, device=device)
     sensor_positions = torch.tensor(
-        initial_sensor_positions, requires_grad=True, dtype=torch.float32
+        initial_sensor_positions,
+        requires_grad=True,
+        dtype=torch.float32,
+        device=device,
     )
     sp_learnable = torch.tensor(
-        initial_sound_positions[:, :2], requires_grad=True, dtype=torch.float32
+        initial_sound_positions[:, :2],
+        requires_grad=True,
+        dtype=torch.float32,
+        device=device,
     )
-    sp_nl = torch.zeros(len(sp_learnable), 1)
+    sp_nl = torch.zeros(
+        len(sp_learnable), 1, dtype=torch.float32, device=device
+    )
 
-    lrs = torch.tensor([2e-3, 1e-4, 1e-0], dtype=torch.float32) * lr
+    lrs = torch.tensor([2e-3, 1e-4, 0.1], dtype=torch.float32) * lr
     optimizer = optim.Adam(
         [
             {"params": [sensor_positions], "lr": lrs[0]},
@@ -639,11 +645,10 @@ def optimize_positions(
                 dim=-1,
             )
         )
-        # Difference in sound tosensor distances of two sensor pairs, in s
+        # Difference in sound to sensor distances of two sensor pairs, in s
         # Time difference of arrival
-        tdoa = (distances[:, 1:] - distances[:, :1]) / C
-        error = torch.abs(tdoa - observed_lags) ** 2
-        loss = error.mean()
+        tdoa = (distances[:, :2] - distances[:, 2:]) / C
+        loss = lossfun(tdoa, observed_tdoa)
         # Additional loss for max radius
         # penalties = torch.relu(
         #     (sp_learnable**2).sum(dim=1) - (0.99 * radius) ** 2
@@ -651,7 +656,7 @@ def optimize_positions(
         # Crude early stopping on own training loss
         if loss < last_loss - eps:
             last_loss = loss
-            counter = 0 if counter == 0 else counter - 1
+            counter = 0
         elif counter < patience:
             counter += 1
         else:
@@ -659,6 +664,7 @@ def optimize_positions(
         # loss += penalties.sum()
         errors.append(loss.detach().numpy())
         loss.backward()
+        torch.nn.utils.clip_grad_norm_([sensor_positions, sp_learnable, C], 1)
         optimizer.step()
         scheduler.step()
         if epoch % print_every == 0:
@@ -668,7 +674,7 @@ def optimize_positions(
             )
     print(f"Epoch {epoch}, Loss {loss.item()}")
     if debug:
-        print(tdoa[:10], "\n", observed_lags[:10])
+        print(tdoa[:10], "\n", observed_tdoa[:10])
     return (
         sensor_positions.detach(),
         sound_positions.detach(),
