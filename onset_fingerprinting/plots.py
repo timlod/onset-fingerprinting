@@ -402,11 +402,11 @@ def plot_lags_3d(
 
 def plot_heatmap(x, r, mic_a_cart, mic_b_cart, cb_label=""):
     plt.figure()
-    plt.imshow(x, cmap="RdYlGn", extent=[-r, r, -r, r])
+    plt.imshow(x, cmap="RdYlGn", extent=[-r, r, -r, r], origin="lower")
     plt.colorbar(label=cb_label)
     plt.scatter(
         mic_a_cart[0],
-        -mic_a_cart[1],
+        mic_a_cart[1],
         marker="o",
         label="Mic A",
         c="white",
@@ -414,7 +414,7 @@ def plot_heatmap(x, r, mic_a_cart, mic_b_cart, cb_label=""):
     )
     plt.scatter(
         mic_b_cart[0],
-        -mic_b_cart[1],
+        mic_b_cart[1],
         marker="o",
         label="Mic B",
         c="black",
@@ -424,7 +424,7 @@ def plot_heatmap(x, r, mic_a_cart, mic_b_cart, cb_label=""):
     # Annotate z-component of the microphones
     plt.annotate(
         f"z={mic_a_cart[2]:.1f}",
-        (mic_a_cart[0], -mic_a_cart[1]),
+        (mic_a_cart[0], mic_a_cart[1]),
         textcoords="offset points",
         xytext=(0, 10),
         ha="center",
@@ -432,7 +432,7 @@ def plot_heatmap(x, r, mic_a_cart, mic_b_cart, cb_label=""):
     )
     plt.annotate(
         f"z={mic_b_cart[2]:.1f}",
-        (mic_b_cart[0], -mic_b_cart[1]),
+        (mic_b_cart[0], mic_b_cart[1]),
         textcoords="offset points",
         xytext=(0, 10),
         ha="center",
