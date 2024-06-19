@@ -87,7 +87,6 @@ class PlayRec:
             if status:
                 print(status)
 
-            self.current_index += frames
             # These times/frame refer to the block that is processed in this
             # callback
             self.callback_time = StreamTime(time, self.current_index)
@@ -95,7 +94,6 @@ class PlayRec:
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
             self.rec_audio.write(indata[:, config.CHANNELS])
-
             # I think this will write an empty sound file in the beginning
             if self.rec_audio.write_counter < frames:
                 self.rec.data.analysis_action = 3
@@ -113,6 +111,11 @@ class PlayRec:
             self.last_out.append((self.callback_time, outdata.copy()))
             if res is not None:
                 self.actions.run(outdata, res)
+
+            # Essentially this will be the last index, or the index relative to
+            # the current audio buffer inside rec_audio (as its counter will
+            # always be updated right after writing)
+            self.current_index += frames
 
         return callback
 
