@@ -312,8 +312,7 @@ def adjust_onset(
     # if lag_diff < 0 we need to look before onsets[0] or after onsets[1] and
     # vice versa
     # exponential window of the size of the lag difference
-    ald = abs(lag_diff)
-    exp = np.exp(np.linspace(0, -np.e, ald))
+    exp = np.exp(np.linspace(0, -np.e, abs(lag_diff)))
     # Take the signal between the old and the new lag, exponentially weighted
     # toward the potential new lag, sum and normalize by maximum signal
     n = len(x)
@@ -327,8 +326,8 @@ def adjust_onset(
         x_end = min(oa + lag_diff, n)
         y_start = max(ob - lag_diff, 0)
         y_end = ob
-    da = np.sum(x[x_start:x_end] * exp[ald - x_end + x_start :]) / x.max()
-    db = np.sum(y[y_start:y_end] * exp[ald - y_end + y_start :: -1]) / y.max()
+    da = np.sum(x[x_start:x_end] * exp[-(x_end - x_start) :]) / x.max()
+    db = np.sum(y[y_start:y_end] * exp[-(y_end - y_start) :][::-1]) / y.max()
     # If da is larger, we should move oa - hence we use lag_diff directly
     # If db is larger, we should move ob - since lag_diff is ob - oa we invert
     if da > db:
