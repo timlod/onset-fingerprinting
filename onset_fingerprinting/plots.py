@@ -305,7 +305,7 @@ def plot_onsets(
         else:
             r[1] = len(x) + r[1]
     plot_x = x[r[0] : r[1] : plot_step]
-    plot_onsets = onsets[(onsets > r[0]) & (onsets < r[1])]
+    plot_onsets = onsets[(onsets > r[0]) & (onsets < r[1])] - r[0]
     ax.plot(plot_x)
     ax.vlines(plot_onsets / plot_step, plot_x.min(), plot_x.max(), "red")
     return ax
