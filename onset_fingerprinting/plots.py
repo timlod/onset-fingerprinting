@@ -277,6 +277,40 @@ def is_legal_3d_plot(m, group, tolerance=2):
     return np.unravel_index(np.argmax(legal > 0), legal.shape, "F")
 
 
+def plot_onsets(
+    x: np.ndarray,
+    onsets: np.ndarray,
+    r=[0, -1],
+    ax=None,
+    plot_step=100,
+    **kwargs,
+):
+    """Plot detected onsets on waveform in a given range.
+
+    :param x: array containing audio, shape N(xC)
+    :param onsets: onsets, 1D array
+    :param r: range indexing x which to focus on
+    :param ax: axis to plot on, creates new figure if None
+    :param plot_step: in case of very large arrays, subsample by indexing every
+        nth element, with n being plot_step
+    """
+    if ax is None:
+        fig = plt.figure(**kwargs)
+        ax = fig.add_subplot(111)
+
+    if r[1] < 0:
+        r = list(r)
+        if r[1] == -1:
+            r[1] = len(x)
+        else:
+            r[1] = len(x) + r[1]
+    plot_x = x[r[0] : r[1] : plot_step]
+    plot_onsets = onsets[(onsets > r[0]) & (onsets < r[1])]
+    ax.plot(plot_x)
+    ax.vlines(plot_onsets / plot_step, plot_x.min(), plot_x.max(), "red")
+    return ax
+
+
 def plot_around(x, peaks, i, n=256, hop=32, only_peak=True):
     peak = peaks[i]
     left = peak - n // 2
