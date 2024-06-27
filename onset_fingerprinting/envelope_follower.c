@@ -6,7 +6,7 @@
 void ar_envelope(float *x, float *y, float attack, float release, int size,
              int num_samples) {
     int i, j, index, prev_index;
-    float xi, yi;
+    float xi, yi, diff;
     for (j = 0; j < num_samples; ++j) {
         for (i = 0; i < size; ++i) {
             index = j * size + i;
@@ -14,11 +14,11 @@ void ar_envelope(float *x, float *y, float attack, float release, int size,
                 (j > 0) ? (j - 1) * size + i : (num_samples - 1) * size + i;
             xi = x[index];
             yi = y[prev_index];
-
-            if (xi > yi) {
-                y[index] = yi + attack * (xi - yi);
+            diff = xi - yi + 1e-10;
+            if (diff > 0) {
+                y[index] = yi + attack * (diff);
             } else {
-                y[index] = yi + release * (xi - yi);
+                y[index] = yi + release * (diff);
             }
         }
     }
