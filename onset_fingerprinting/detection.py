@@ -773,6 +773,8 @@ class AmplitudeOnsetDetector:
         # Compute floor-clipped, rectified dB
         x = 20 * np.log10(np.abs(x + 1e-10))
         for i in range(0, len(x), self.block_size):
+            if i + self.block_size > len(x):
+                break
             xi = x[i : i + self.block_size, :]
             self.minmax_tracker(self.fast_slide(xi) - self.slow_slide(xi))
 
