@@ -432,37 +432,69 @@ class Multilaterate3D:
 
         for group in self.ongoing:
             # Group: ([sensor_indexes], [onset_indexes])
+            # Changing from group[1][0] - comparison always to first sensor
             lag = onset_index - group[1][0]
+            if lag > self.max_max_lags[group[0][0]]:
+                continue
+            # If an adjustment moved an onset behind the next we have to swap
+            if lag < 0:
+                print(f"swapping: {lag=} {group=}")
+                inter = (group[0][0], group[1][0])
+                group[0][0] = sensor_index
+                group[1][0] = onset_index
+                sensor_index, onset_index = inter
+                lag = -lag
+            # print(f"{onset_index=}, {group=}, {lag=}")
+            # TODO: Will have to check maximum lag here
             if sensor_index not in group[0]:
                 # TODO: what to do if we need more samples into the future?
                 # this is the case where we get a detection towards the end of
                 # the buffer
-                # also check whether we should be always ccing wrt .cfirst onset
+                # also check whether we should be always ccing wrt first onset
                 if rec_audio is not None:
                     # take audio between last two onsets
-                    last_onset = group[0][-1]
-                    # look 50 samples further back for CC
-                    i = rec_audio.counter - last_onset + 50
-                    section = rec_audio[-i:, [last_onset, sensor_index]]
-                    section = np.abs(
-                        np.diff(median_filter(section, 5, axes=0), axis=0)
+                    # actually first now - otherwise change to group[1][-1]
+                    last_onset = group[1][0]
+                    # look further back for CC
+                    i = rec_audio.counter - last_onset + lookaround
+                    # indexing one more because of diff, maybe there's a better
+                    section = rec_audio[-i - 1 :][
+                        :, [group[0][0], sensor_index]
+                    ]
+                    # print(
+                    #     f"{last_onset=} {rec_audio.counter=} {i=} {section.shape=}"
+                    # )
+                    section = np.diff(
+                        median_filter(section, 5, axes=0), axis=0
                     )
+                    section[section >= 0] = 0
+                    section = abs(section)
+                    section_og = np.array([last_onset, onset_index]) - (
+                        last_onset - lookaround
+                    )
+                    # Problem: possible to move onset beyond boundary
+                    ## TODO: perhaps wait for next frame to process this?
                     new_lag = detection.cross_correlation_lag(
                         section[:, 0],
                         section[:, 1],
-                        onsets=(group[1][-1], onset_index),
+                        # if using latest, change to -1
+                        onsets=(group[1][0], onset_index),
                         d=0,
-                        onset_tolerance=30,
+                        onset_tolerance=ONSET_TOL,
+                        normalization_cutoff=NORM_CUTOFF,
                     )
+                    # print(f"{new_lag=}")
                     if new_lag is not None:
                         lag = new_lag
                         co, cn = detection.adjust_onset(
-                            [last_onset + onset_index],
+                            section_og,
                             section[:, 0],
                             section[:, 1],
                             lag,
                         )
-                        group[1][-1] += co
+                        # print(f"{co=}, {cn=}")
+                        # again, use -1 here if last onset instead of first
+                        group[1][0] += co
                         onset_index += cn
                 if self.is_legal(group[0][0], sensor_index, lag):
                     group = (
@@ -470,6 +502,9 @@ class Multilaterate3D:
                         group[1] + [onset_index],
                     )
                     if len(group[0]) == 3:
+                        # TODO: INVESTIGATE THIS
+                        if group[0][0] == group[0][1]:
+                            break
                         res = self.is_legal_3d(group)
                         if res != (0, 0):
                             # res is the index into the lag map, subtracting
@@ -481,6 +516,7 @@ class Multilaterate3D:
                             # we purge everything with the same first element
                             # if it succeeds?
                             res = self.trilaterate(group, initial_guess=res)
+                            # print(f"{res=} {group=}")
                             if res is not None:
                                 new_groups = remove_seed(new_groups, group)
                             self.ongoing = new_groups
@@ -525,8 +561,13 @@ class Multilaterate3D:
                 d_b1 / self.sr * self.c,
                 initial_guess,
             )
+            # print(
+            #     f"{sensors=}, {onsets=} | {d_a1=}, {d_b1=} |"
+            #     f" {initial_guess=} | {res=}"
+            # )
         if res is not None:
-            return cartesian_to_polar(*res, self.radius)
+            # return cartesian_to_polar(*res, self.radius)
+            return res
         else:
             return None
 
