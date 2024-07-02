@@ -15,6 +15,9 @@ STRIKE_FORCE = 1.0
 C_drumhead = 82
 # medium used in sound propagation equations (air or drumhead)
 MEDIUM = "air"
+ONSET_TOL = 50
+NORM_CUTOFF = 10
+lookaround = ONSET_TOL + NORM_CUTOFF
 
 
 def speed_of_sound(
