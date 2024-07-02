@@ -8,7 +8,10 @@ from typing import Callable, Optional
 import numpy as np
 import pedalboard
 from loopmate.actions import CrossFade, Sample
-from onset_fingerprinting.multilateration import cartesian_to_polar
+from onset_fingerprinting.multilateration import (
+    cartesian_to_polar,
+    polar_to_cartesian,
+)
 
 # Reverb/delay combo where angle works with the two
 # feedback from bottom to sides
@@ -157,11 +160,19 @@ class DelayVerb:
 
 @dataclass
 class Location:
-    x: float
-    y: float
+    x: float = None
+    y: float = None
+    r: float = None
+    phi: float = None
+    radius: float = None
 
     def __post_init__(self):
-        self.r, self.phi = cartesian_to_polar(self.x, self.y)
+        if self.x is None:
+            self.x, self.y = polar_to_cartesian(self.r, self.phi)
+        else:
+            self.r, self.phi = cartesian_to_polar(
+                self.x, self.y, r=self.radius
+            )
 
     def __repr__(self):
         return f"Location({self.x=}, {self.y=}, {self.r=}, {self.phi=})"
