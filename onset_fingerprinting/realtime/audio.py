@@ -99,18 +99,19 @@ class PlayRec:
                 self.rec.data.analysis_action = 3
 
             res = self.detect_hits(indata)
-            # TODO: Define mixing function, remove scale
-            outdata[:] = indata[:, :2]
-            for fx in self.fx:
-                outdata[:] = fx(outdata[:], config.SR, frames, reset=False)
 
             # Store last output buffer to potentially send a slightly delayed
             # version to headphones (to match the speaker sound latency). We do
             # this before running actions such that we can mute the two
             # separately
+            # TODO: Define mixing function, remove scale
+            outdata[:] = indata[:, :2] * 2
             self.last_out.append((self.callback_time, outdata.copy()))
             if res is not None:
                 self.actions.run(outdata, res)
+
+            for fx in self.fx:
+                outdata[:] = fx(outdata[:], config.SR, frames, reset=False)
 
             # Essentially this will be the last index, or the index relative to
             # the current audio buffer inside rec_audio (as its counter will
