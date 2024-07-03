@@ -523,7 +523,8 @@ class AnalysisOnDemand(RecAnalysis):
             onsets, lookaround_samples, onset_envelope
         )
         print(
-            f"RECA: Moving from {self.data.recording_start=}, {move} to {self.data.recording_start + move}!"
+            f"RECA: Moving from {self.data.recording_start=}, {move} to"
+            f" {self.data.recording_start + move}!"
         )
         self.data.recording_start += move
 
@@ -597,7 +598,7 @@ class AnalysisOnDemand(RecAnalysis):
         print("Saving.")
         sf.write(
             config.WRITE_DIR / f"{self.save_i}.wav",
-            self.audio[-self.audio.N :][:, :2],
+            self.audio[-self.audio.N :],
             config.SR,
         )
         self.save_i += 1
