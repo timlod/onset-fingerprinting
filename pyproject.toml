@@ -25,12 +25,15 @@ dependencies = [
 "numpy",
 # For dataframes
 "pandas",
+"pedalboard",
 # For modelling
 "scikit_learn",
 "scipy",
 # For audio file loading
 "sounddevice",
-"soundfile"
+"soundfile",
+"tensorboard",
+"lightning"
 ]
 
 [project.optional-dependencies]
