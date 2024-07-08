@@ -43,7 +43,7 @@ from torch.nn import functional as F
 
 #+name: env
 #+begin_src python
-
+device = "cpu"
 #+end_src
 
 * Introduction
@@ -147,7 +147,7 @@ def error_analysis(model, tx, ty, timp, n_samp=100):
     plt.plot(ty[:n_samp].cpu(), label="Truth")
     plt.legend()
     if e.ndim == 2:
-        e = e.sum(1)
+        e = e.mean(1)
     sortidx = e.argsort()
     plt.figure(figsize=(6, 3))
     plt.plot(e[sortidx].detach(), label="Sorted test errors")
@@ -171,16 +171,20 @@ lr = 0.001 * (10 if lossfun == F.mse_loss else 1)
 num_epochs = 2000
 print_every = 100
 
-errors = []
-
-# m = model.CNN(
-#     w, 1, 2, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3
-# ).cuda()
-m = model.RNN(w, 1, 2, 64, 2, dropout_rate=0.6, rnn_type="GRU").cuda()
-# m = model.CNNRNN(
-#     w, 1, 2, layer_sizes=[32, 32, 64, 8], kernel_size=8, n_hidden=64, n_rnn_layers=2, dropout_rate=0.4
-# ).cuda()
-device = m.device
+m = model.CNN(w, 1, 2, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3).to(
+    device
+)
+# m = model.RNN(w, 1, 2, 64, 2, dropout_rate=0.6, rnn_type="GRU").to(device)
+m = model.CNNRNN(
+    w,
+    1,
+    2,
+    layer_sizes=[32, 32, 64, 8],
+    kernel_size=8,
+    n_hidden=64,
+    n_rnn_layers=2,
+    dropout_rate=0.4,
+).to(device)
 x, y, imp = generate_data(w, c, 100, device=device)
 tx, ty, timp = generate_data(w, c, 1000, device=device)
 
@@ -194,51 +198,48 @@ errors, bm = train(
 
 #+RESULTS:
 #+begin_example
-Epoch 0, TL 11543.9638671875 VL: 10786.8837890625
-Epoch 100, TL 5783.13720703125 VL: 6734.99755859375
-Epoch 200, TL 2623.471435546875 VL: 2610.785400390625
-Epoch 300, TL 600.1925659179688 VL: 790.8977661132812
-Epoch 400, TL 262.4588928222656 VL: 681.9002685546875
-Epoch 500, TL 343.9761657714844 VL: 351.92938232421875
-Epoch 600, TL 195.5120391845703 VL: 180.03790283203125
-Epoch 700, TL 241.29299926757812 VL: 133.47084045410156
-Epoch 800, TL 45.12957763671875 VL: 283.1891784667969
-Epoch 900, TL 146.55203247070312 VL: 87.25057220458984
-Epoch 1000, TL 78.15969848632812 VL: 76.52354431152344
-Epoch 1100, TL 57.92473602294922 VL: 50.88188552856445
-Epoch 1200, TL 38.52301025390625 VL: 62.50839614868164
-Epoch 1300, TL 20.898988723754883 VL: 38.35517501831055
-Epoch 1400, TL 15.77040958404541 VL: 30.45650291442871
-Epoch 1500, TL 17.36888313293457 VL: 20.64699363708496
-Epoch 1600, TL 10.306509017944336 VL: 13.10331916809082
-Epoch 1700, TL 8.617095947265625 VL: 14.911242485046387
-Epoch 1800, TL 7.604458332061768 VL: 13.964322090148926
-Epoch 1900, TL 5.704653263092041 VL: 14.124978065490723
-Epoch 2000, TL 5.207828044891357 VL: 21.856245040893555
-Epoch 2100, TL 5.603603363037109 VL: 18.538930892944336
-Epoch 2200, TL 6.716339111328125 VL: 15.012032508850098
-Stopping at epoch 2257!
-Epoch 2257, Loss 6.07482385635376
-tensor([[ 128.0966],
-        [-111.9799],
-        [   6.2948],
-        [ -41.7060],
-        [-174.1546],
-        [ 115.6447],
-        [ 139.2085],
-        [  27.7424],
-        [   6.2711],
-        [ 173.0324]], device='cuda:0', grad_fn=<SliceBackward0>) 
- tensor([[ 129.],
-        [-110.],
-        [   7.],
-        [ -39.],
-        [-175.],
-        [ 118.],
-        [ 139.],
-        [  31.],
-        [   9.],
-        [ 171.]], device='cuda:0')
+Epoch 0, TL 13353.39453125 VL: 11207.1923828125
+Epoch 100, TL 882.7362670898438 VL: 3548.823486328125
+Epoch 200, TL 401.40093994140625 VL: 1276.66259765625
+Epoch 300, TL 20630.8984375 VL: 2484.170166015625
+Epoch 400, TL 194.62771606445312 VL: 957.0549926757812
+Epoch 500, TL 226.7541961669922 VL: 912.1659545898438
+Epoch 600, TL 175.46380615234375 VL: 761.9036865234375
+Epoch 700, TL 171.9024200439453 VL: 658.864501953125
+Epoch 800, TL 124.95346069335938 VL: 597.2490234375
+Epoch 900, TL 124.7151870727539 VL: 814.0574951171875
+Epoch 1000, TL 132.40663146972656 VL: 781.1972045898438
+Epoch 1100, TL 133.68292236328125 VL: 783.4812622070312
+Epoch 1200, TL 73.37845611572266 VL: 992.8904418945312
+Epoch 1300, TL 109.93061828613281 VL: 580.8544311523438
+Epoch 1400, TL 132.23275756835938 VL: 452.6700134277344
+Epoch 1500, TL 94.8537368774414 VL: 379.6468505859375
+Epoch 1600, TL 90.6557388305664 VL: 714.870361328125
+Epoch 1700, TL 68.4521484375 VL: 507.40264892578125
+Epoch 1800, TL 80.26807403564453 VL: 512.697998046875
+Epoch 1900, TL 84.19671630859375 VL: 463.88555908203125
+Stopping at epoch 1998!
+Epoch 1998, Loss 90.8318862915039
+tensor([[ 102.4355],
+        [-162.3792],
+        [ -71.8653],
+        [ -21.2326],
+        [-138.5155],
+        [ 131.6218],
+        [  78.1376],
+        [ 149.0656],
+        [ -67.5249],
+        [ -38.1569]], grad_fn=<SliceBackward0>) 
+ tensor([[ 101.],
+        [-153.],
+        [ -66.],
+        [ -22.],
+        [-137.],
+        [ 136.],
+        [  74.],
+        [ 144.],
+        [ -70.],
+        [ -43.]])
 #+end_example
 
 #+begin_src python :async no
@@ -307,8 +308,6 @@ lossfun = F.mse_loss
 lr = 0.001 * (10 if lossfun == F.mse_loss else 1)
 num_epochs = 3000
 print_every = 100
-
-errors = []
 
 # m = model.CNN(
 #     w, c-1, c, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3, dilation=1
@@ -465,13 +464,20 @@ lr = 0.001 * (10 if lossfun == F.mse_loss else 1)
 num_epochs = 3000
 print_every = 100
 
-errors = []
-
-# m = model.CNN(
-#     w, c-1, c, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3, dilation=1
-# ).cuda()
-m = model.RNN(w, c - 1, c, 64, 2, dropout_rate=0.5).cuda()
-device = m.device
+m = model.CNN(
+    w, c-1, c, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3, dilation=1
+).to(device)
+m = model.CNNRNN(
+    w,
+    c-1,
+    c,
+    layer_sizes=[8],
+    kernel_size=2,
+    n_hidden=128,
+    n_rnn_layers=1,
+    dropout_rate=0.6,
+).to(device)
+#m = model.RNN(w, c - 1, c, 64, 2, dropout_rate=0.5).to(device)
 x, y, imp = generate_data(w, c, 100, device=device)
 x = transform_impulse1(x, 200, 20)
 tx, ty, timp = generate_data(w, c, 1000, device=device)
@@ -487,50 +493,52 @@ errors, bm = train(
 
 #+RESULTS:
 #+begin_example
-Epoch 0, TL 12211.345703125 VL: 11416.25
-Epoch 100, TL 9197.626953125 VL: 7733.55224609375
-Epoch 200, TL 3807.451171875 VL: 4885.4306640625
-Epoch 300, TL 4407.03173828125 VL: 4050.215576171875
-Epoch 400, TL 2561.33349609375 VL: 2492.228515625
-Epoch 500, TL 299.5813903808594 VL: 1014.9505004882812
-Epoch 600, TL 138.01806640625 VL: 659.119384765625
-Epoch 700, TL 113.76472473144531 VL: 274.64849853515625
-Epoch 800, TL 69.99571990966797 VL: 552.5557861328125
-Epoch 900, TL 71.6298599243164 VL: 658.5573120117188
-Epoch 1000, TL 48.61688995361328 VL: 306.512451171875
-Epoch 1100, TL 45.00432586669922 VL: 380.31256103515625
-Epoch 1200, TL 36.14167785644531 VL: 382.5483093261719
-Epoch 1300, TL 31.345603942871094 VL: 326.2035827636719
-Epoch 1400, TL 28.344194412231445 VL: 264.8557434082031
-Epoch 1500, TL 10.929678916931152 VL: 373.4873352050781
-Epoch 1600, TL 10.318696022033691 VL: 218.59613037109375
-Epoch 1700, TL 9.076703071594238 VL: 349.08123779296875
-Epoch 1800, TL 8.98659896850586 VL: 234.24945068359375
-Epoch 1900, TL 7.997524261474609 VL: 209.8710479736328
-Epoch 2000, TL 6.906770706176758 VL: 222.49273681640625
-Epoch 2100, TL 4.634193420410156 VL: 210.64273071289062
-Stopping at epoch 2120!
-Epoch 2120, Loss 4.5808587074279785
-tensor([[ -49.3043, -116.6973],
-        [-150.8542,  131.4894],
-        [ 155.0165,   29.2837],
-        [ -81.7957,   15.7040],
-        [  -3.7997, -199.3646],
-        [-148.1194,   69.3505],
-        [ -90.9283,   60.8984],
-        [ -65.9522,   15.6159],
-        [ 161.7395,  -68.1006],
-        [  -1.3266,    7.2720]], device='cuda:0', grad_fn=<SliceBackward0>) 
- tensor([[ -48., -115.],
-        [-151.,  130.],
-        [ 157.,   30.],
-        [ -81.,   14.],
-        [  -5., -196.],
-        [-151.,   67.],
-        [ -91.,   59.],
-        [ -66.,   15.],
-        [ 167.,  -66.],
-        [  -1.,   10.]], device='cuda:0')
+/home/tim/projects/loopmate/venv/lib/python3.11/site-packages/torch/nn/modules/rnn.py:83: UserWarning: dropout option adds dropout after all but last recurrent layer, so non-zero dropout expects num_layers greater than 1, but got dropout=0.6 and num_layers=1
+  warnings.warn("dropout option adds dropout after all but last "
+Epoch 0, TL 10484.0703125 VL: 10384.6708984375
+Epoch 100, TL 938.7058715820312 VL: 1289.9053955078125
+Epoch 200, TL 541.3031005859375 VL: 1007.843505859375
+Epoch 300, TL 518.7640991210938 VL: 1100.35302734375
+Epoch 400, TL 894.5806274414062 VL: 573.8170166015625
+Epoch 500, TL 1772.584228515625 VL: 913.5153198242188
+Epoch 600, TL 429.4293212890625 VL: 925.192626953125
+Epoch 700, TL 237.65968322753906 VL: 594.9714965820312
+Epoch 800, TL 224.59751892089844 VL: 741.8694458007812
+Epoch 900, TL 199.71498107910156 VL: 616.1124877929688
+Epoch 1000, TL 227.0703887939453 VL: 622.5178833007812
+Epoch 1100, TL 238.2711181640625 VL: 563.7627563476562
+Epoch 1200, TL 295.89019775390625 VL: 525.790283203125
+Epoch 1300, TL 159.72988891601562 VL: 577.2315063476562
+Epoch 1400, TL 194.85133361816406 VL: 517.0321044921875
+Epoch 1500, TL 162.3317108154297 VL: 512.5814819335938
+Epoch 1600, TL 147.8549346923828 VL: 580.2058715820312
+Epoch 1700, TL 184.61245727539062 VL: 494.27886962890625
+Epoch 1800, TL 135.51132202148438 VL: 535.162353515625
+Epoch 1900, TL 99.11566162109375 VL: 567.2203369140625
+Epoch 2000, TL 136.7459716796875 VL: 691.7279052734375
+Epoch 2100, TL 159.35519409179688 VL: 484.2505187988281
+Stopping at epoch 2142!
+Epoch 2142, Loss 169.32957458496094
+tensor([[  44.7613,  -16.7507],
+        [ -45.2762,   46.2348],
+        [ -71.9179,   69.3863],
+        [  85.7112,  -42.3084],
+        [  83.9954,   -7.8040],
+        [-188.9619,  162.8197],
+        [ -32.8533,   18.9825],
+        [ -83.5417,   34.0097],
+        [  43.6509,   93.1765],
+        [ -10.9903,  -91.1194]], grad_fn=<SliceBackward0>) 
+ tensor([[  55.,  -15.],
+        [ -43.,   43.],
+        [ -99.,   89.],
+        [  97.,  -40.],
+        [  87.,   -9.],
+        [-163.,  141.],
+        [ -27.,   15.],
+        [-100.,   45.],
+        [  42.,   78.],
+        [  -5.,  -94.]])
 #+end_example
 
 #+begin_src python :async no
@@ -540,34 +548,34 @@ error_analysis(bm, tx, ty, timp)
 #+RESULTS:
 :RESULTS:
 #+begin_example
-Mean loss: 9.445278, Median loss: 5.6184
-Best: tensor([  39.,  -49.,  -44.,  -67.,  -40.,  111.,  -37., -162., -106., -128.,
-         124., -170.,  -53.,  -44.,  -30.,   25.,   47.,  -28.,  -80.,  -84.]) 
-Worst: tensor([ 14.,  28., 131., 205.,  79.,  39.,  14.,   4., 153.,  17.,  80.,  67.,
-          4.,   7., 131.,  23.,  31., 126.,  18.,  15.])
-tensor([[ 49,  35, 131],
-        [ 36,   8, 173],
-        [189,  58, 170],
-        [224,  19, 139],
-        [115,  36, 129],
-        [235, 196, 242],
-        [ 44,  30, 130],
-        [ 15,  11,  47],
-        [168,  15, 197],
-        [ 41,  24, 141],
-        [236, 156, 249],
-        [228, 161, 234],
-        [  9,   5,  38],
-        [ 14,   7, 155],
-        [137,   6, 115],
-        [ 40,  17, 158],
-        [ 36,   5, 148],
-        [158,  32, 146],
-        [ 26,   8, 146],
-        [ 28,  13, 147]], device='cuda:0')
+Mean loss: 16.629585, Median loss: 12.7509
+Best: tensor([  53.,  -45.,   51.,   95., -116.,    4.,  -22.,   58.,   83.,   21.,
+         149.,  -97.,  -77.,  148.,  -70.,  100.,  -41.,  135.,   12.,  194.]) 
+Worst: tensor([-175.,   26.,  -53.,  240.,  -76.,   59.,   23.,  -49.,   35.,  191.,
+          15., -100.,  -36.,   89.,   40.,   29.,   20., -246.,   -2.,   50.])
+tensor([[  4, 179,  52],
+        [ 43,  17,  31],
+        [121, 174, 146],
+        [244,   4,  55],
+        [175, 251, 142],
+        [ 64,   5,  46],
+        [ 69,  46,  39],
+        [ 31,  80,  48],
+        [ 61,  26, 250],
+        [192,   1, 200],
+        [ 53,  38,  30],
+        [151, 251, 124],
+        [ 78, 114,  93],
+        [110,  21, 131],
+        [ 45,   5,  28],
+        [ 30,   1, 173],
+        [ 20,   0, 221],
+        [  1, 247,   9],
+        [  1,   3,  40],
+        [ 51,   1,  29]])
 #+end_example
-[[./.ob-jupyter/1509f73eb04dd81f9b7ef20e6727add86c379c1d.png]]
-[[./.ob-jupyter/ec35be82e83567c04ac4b240bad18d9c2796bce7.png]]
+[[./.ob-jupyter/4b24b106db1f60b818317e1012fd3d1d59bfdf8a.png]]
+[[./.ob-jupyter/729e0dddeb7fd93a9fad8a31c3799117a1f60fbd.png]]
 :END:
 
 Nice, it performs pretty much the same!
@@ -584,23 +592,371 @@ Note: frequencies should be the same in each of the channels, phase could be
 slightly shifted, but very little. The sine needs to start at the impulse in
 each case, so currently this is wrong.
 #+begin_src python
-def transform_impulse2(x, sr=96000, random_phase: bool = False):
-    c = x.shape[1]
+def transform_impulse2(
+    x, imp, random_phase: bool = False, noise_std=0, sr=96000
+):
+    n, c, w = x.shape
     ls = torch.linspace(0, x.shape[-1] / sr, x.shape[-1], device=x.device)
     phase = (
         torch.rand(x.shape[0], x.shape[1], 1) * 0.1 * np.pi
         if random_phase
         else 0
     )
-    f = torch.randint(300, 1000, (x.shape[0], 1, 1))
+    f = torch.randint(300, 1000, (x.shape[0], 1, 1)).expand(n, c, 1)
     sin = torch.sin(2 * np.pi * ls[None, None, :] * f + phase)
-    return x * sin
+    for i in range(len(x)):
+        for j in range(c):
+            k = w - imp[i, j]
+            x[i, j, imp[i, j] :] *= sin[i, j, :k]
+    x += torch.randn(x.shape) * noise_std
+    return x
 #+end_src
+
+#+begin_src python
+x = transform_impulse2(x, imp, True, 0.001)
+tx = transform_impulse2(tx, timp, True, 0.001)
+
+optimizer = optim.NAdam(m.parameters(), lr=lr, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs)
+
+errors, bm = train(
+    x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
+)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Epoch 0, TL 376.1084899902344 VL: 1394.9144287109375
+Epoch 100, TL 213.19107055664062 VL: 852.169189453125
+Epoch 200, TL 186.03887939453125 VL: 1102.3375244140625
+Epoch 300, TL 234.40835571289062 VL: 1363.6737060546875
+Epoch 400, TL 222.33616638183594 VL: 994.2564697265625
+Epoch 500, TL 293.6726379394531 VL: 953.693359375
+Epoch 600, TL 157.6733856201172 VL: 910.337646484375
+Stopping at epoch 635!
+Epoch 635, Loss 179.98292541503906
+tensor([[  65.6227,   -4.7834],
+        [ -38.2449,   49.4815],
+        [ -99.8921,   87.3010],
+        [ 104.6357,  -36.9680],
+        [  94.0138,    9.1724],
+        [-158.8137,  147.9350],
+        [ -19.0425,   15.0583],
+        [ -95.2740,   48.8997],
+        [  42.6091,   86.5291],
+        [ -10.2183, -103.7110]], grad_fn=<SliceBackward0>) 
+ tensor([[  55.,  -15.],
+        [ -43.,   43.],
+        [ -99.,   89.],
+        [  97.,  -40.],
+        [  87.,   -9.],
+        [-163.,  141.],
+        [ -27.,   15.],
+        [-100.,   45.],
+        [  42.,   78.],
+        [  -5.,  -94.]])
+#+end_example
+
+#+begin_src python :async no
+error_analysis(bm, tx, ty, timp)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Mean loss: 26.891285, Median loss: 21.2385
+Best: tensor([ 121.,   82.,    6.,   56.,   57.,  -39.,  -76.,  -40.,  -33.,   11.,
+          48.,   34.,  163.,   13.,   31.,  140., -195.,  104.,   78., -177.]) 
+Worst: tensor([ -14., -174.,  -51.,  -79.,  -31.,   89., -212., -170., -114., -148.,
+        -156., -196.,  -40., -126., -170., -207., -162., -174., -152., -200.])
+tensor([[ 51,  65,  12],
+        [  1, 175, 143],
+        [204, 255,  54],
+        [ 85, 164,  63],
+        [ 39,  70,   9],
+        [ 94,   5, 123],
+        [ 15, 227, 153],
+        [ 77, 247,  70],
+        [ 87, 201,  41],
+        [ 96, 244, 105],
+        [ 90, 246, 107],
+        [  5, 201, 123],
+        [ 37,  77,   1],
+        [ 11, 137,  10],
+        [ 77, 247,  27],
+        [  6, 213, 234],
+        [  2, 164, 254],
+        [ 23, 197, 104],
+        [100, 252,  16],
+        [ 54, 254,  26]])
+#+end_example
+[[./.ob-jupyter/446d89edd4d28360d8be779f30557a7fc572f0fe.png]]
+[[./.ob-jupyter/b2f3d8a75d7a1341571bf3a6047131f020001698.png]]
+:END:
+
+#+begin_src python
+m = model.CNN(
+    w, c - 1, c, layer_sizes=[8, 16, 32, 16, 8], kernel_size=3, dilation=1
+).to(device)
+m = model.CNNRNN(
+    w,
+    c-1,
+    c,
+    layer_sizes=[8],
+    kernel_size=2,
+    n_hidden=128,
+    n_rnn_layers=1,
+    dropout_rate=0.6,
+).to(device)
+
+# m = model.RNN(w, c - 1, c, 64, 2, dropout_rate=0.5).to(device)
+x, y, imp = generate_data(w, c, 100, device=device)
+x = transform_impulse1(x, 200, 20)
+x = transform_impulse2(x, imp, True, 0.001)
+tx, ty, timp = generate_data(w, c, 1000, device=device)
+tx = transform_impulse1(tx, 200, 20)
+tx = transform_impulse2(tx, timp, True, 0.001)
+
+optimizer = optim.NAdam(m.parameters(), lr=lr, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs)
+
+errors, bm = train(
+    x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
+)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+/home/tim/projects/loopmate/venv/lib/python3.11/site-packages/torch/nn/modules/rnn.py:83: UserWarning: dropout option adds dropout after all but last recurrent layer, so non-zero dropout expects num_layers greater than 1, but got dropout=0.6 and num_layers=1
+  warnings.warn("dropout option adds dropout after all but last "
+Epoch 0, TL 11822.8984375 VL: 9356.166015625
+Epoch 100, TL 3676.6650390625 VL: 2760.324462890625
+Epoch 200, TL 1373.1256103515625 VL: 1626.67333984375
+Epoch 300, TL 807.0391235351562 VL: 2814.339599609375
+Epoch 400, TL 446.0246887207031 VL: 1248.6492919921875
+Epoch 500, TL 2555.778076171875 VL: 2435.467041015625
+Epoch 600, TL 258.6869812011719 VL: 1546.9642333984375
+Epoch 700, TL 294.29229736328125 VL: 1524.66748046875
+Stopping at epoch 770!
+Epoch 770, Loss 213.75682067871094
+tensor([[  -4.2411,   42.5790],
+        [  49.6260, -182.2782],
+        [-126.0361,  111.3190],
+        [ -29.3254,   23.7332],
+        [ 130.6279,  -26.8274],
+        [ -77.3261,  -22.0663],
+        [ -56.0428,   27.7260],
+        [ 176.5983,  -28.5900],
+        [  38.8783,   15.8158],
+        [ -44.8339, -117.8624]], grad_fn=<SliceBackward0>) 
+ tensor([[   0.,   62.],
+        [  30., -178.],
+        [-129.,  129.],
+        [ -38.,   23.],
+        [ 125.,  -22.],
+        [ -82.,  -27.],
+        [ -64.,   47.],
+        [ 187.,  -26.],
+        [  46.,   19.],
+        [ -49., -114.]])
+#+end_example
+
+
+#+begin_src python :async no
+error_analysis(bm, tx, ty, timp)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Mean loss: 41.891613, Median loss: 34.3990
+Best: tensor([  38.,   26.,   74.,  -30.,  186.,  -48.,  -10., -123., -133.,  -18.,
+           0.,  109.,   -3., -236.,   76.,   51., -201.,   50.,   21.,  -98.]) 
+Worst: tensor([ -65.,  -76.,  -45.,  145.,   -5., -211.,   30., -168.,  -16., -211.,
+         -30.,   68.,  159., -227.,  119.,  140.,  -33.,   11.,  -16.,  -63.])
+tensor([[ 27,  92, 236],
+        [ 28, 104, 127],
+        [ 38,  83, 112],
+        [224,  79, 254],
+        [  1,   6,  72],
+        [ 29, 240,  12],
+        [ 31,   1,  54],
+        [  0, 168,  65],
+        [ 19,  35, 101],
+        [ 41, 252,  13],
+        [  0,  30, 106],
+        [158,  90, 240],
+        [174,  15, 252],
+        [  4, 231,  39],
+        [200,  81, 245],
+        [193,  53, 242],
+        [ 11,  44, 126],
+        [ 29,  18, 125],
+        [ 15,  31, 132],
+        [  2,  65, 249]])
+#+end_example
+[[./.ob-jupyter/5e54fec1e73de8acfa75c583e496725a286a0f9c.png]]
+[[./.ob-jupyter/15e13324b7d0432cf8b0bdf077aa7192c61a2696.png]]
+:END:
+
+
+*** Making the data even more real
+
+In its current iteration, the data models an impulse of the fundamental - but
+as far as the modelling problem goes, it's different from what we'll see in
+realtime: There, we'll always start the window from the first onset on. In the
+current data, the first onset may start anywhere.
+
+Let's adapt the data in such a way that our first onset is always close to the
+beginning of the buffers.
+#+begin_src python
+def generate_data2(w: int, c: int, n: int = 10000, max_shift=10, device=None):
+    signals = torch.zeros(n, c, w, device=device)
+    impulses = torch.randint(0, w - max_shift, (n, c), device=device)
+    mini = impulses.min(dim=1, keepdim=True).values
+    impulses -= mini
+    impulses += torch.maximum(
+        torch.tensor(0),
+        torch.minimum(
+            w - impulses.max(dim=1, keepdim=True).values - 1,
+            torch.randint(max_shift, (len(impulses), 1)),
+        ),
+    )
+    signals.scatter_(2, impulses[:, :, None], 1)
+    lags = []
+    for i in range(c - 1):
+        lags.append(impulses[:, i] - impulses[:, i + 1])
+    return signals, torch.stack(lags, -1).to(torch.float32), impulses
+#+end_src
+
+
+#+begin_src python
+w = 256
+c = 2
+lossfun = F.mse_loss
+lr = 0.001 * (10 if lossfun == F.mse_loss else 1)
+num_epochs = 2000
+print_every = 100
+
+m = model.CNN(w, c-1, c, layer_sizes=[8,8], kernel_size=8, dropout_rate=0.9).to(
+    device
+)
+#m = model.RNN(w, c-1, c, 32, 1, dropout_rate=0.6, rnn_type="GRU").to(device)
+# m = model.CNNRNN(
+#     w,
+#     c - 1,
+#     c,
+#     layer_sizes=[9, 18, 27],
+#     kernel_size=3,
+#     n_hidden=64,
+#     n_rnn_layers=2,
+#     dropout_rate=0.8,
+#     groups=1,
+# ).to(device)
+x, y, imp = generate_data2(w, c, 100, 100, device=device)
+x = transform_impulse1(x, 200, 20)
+x = transform_impulse2(x, imp, True, 0.01)
+tx, ty, timp = generate_data2(w, c, 1000, 100, device=device)
+tx = transform_impulse1(tx, 200, 20)
+tx = transform_impulse2(tx, timp, True, 0.01)
+
+optimizer = optim.NAdam(m.parameters(), lr=lr, weight_decay=1e-4)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, num_epochs/10)
+
+errors, bm = train(
+    x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
+)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+Epoch 0, TL 4036.797607421875 VL: 3480.2412109375
+Epoch 100, TL 854.27734375 VL: 765.409423828125
+Epoch 200, TL 650.5879516601562 VL: 641.4112548828125
+Epoch 300, TL 630.3883666992188 VL: 347.8817138671875
+Epoch 400, TL 639.2597045898438 VL: 401.2127990722656
+Epoch 500, TL 371.78668212890625 VL: 363.1514587402344
+Epoch 600, TL 327.7192077636719 VL: 317.89971923828125
+Epoch 700, TL 419.5483093261719 VL: 273.0123596191406
+Epoch 800, TL 420.24371337890625 VL: 267.8271179199219
+Epoch 900, TL 391.54119873046875 VL: 206.84585571289062
+Epoch 1000, TL 366.1349182128906 VL: 231.00009155273438
+Epoch 1100, TL 270.36846923828125 VL: 250.03103637695312
+Epoch 1200, TL 257.08135986328125 VL: 168.81224060058594
+Epoch 1300, TL 205.8913116455078 VL: 182.5635223388672
+Epoch 1400, TL 212.9664306640625 VL: 249.74810791015625
+Epoch 1500, TL 221.5785369873047 VL: 202.1371307373047
+Epoch 1600, TL 199.90847778320312 VL: 229.76846313476562
+Epoch 1700, TL 293.56805419921875 VL: 220.6162109375
+Epoch 1800, TL 253.05361938476562 VL: 147.6875457763672
+Epoch 1900, TL 220.58563232421875 VL: 190.52951049804688
+Stopping at epoch 1996!
+Epoch 1996, Loss 291.4825134277344
+tensor([[-119.0528],
+        [ -42.7661],
+        [  97.4705],
+        [  -8.6875],
+        [  25.9479],
+        [  46.6725],
+        [ -29.1970],
+        [ -33.9167],
+        [  22.7498],
+        [  67.6298]], grad_fn=<SliceBackward0>) 
+ tensor([[-105.],
+        [ -40.],
+        [  66.],
+        [ -22.],
+        [  21.],
+        [  20.],
+        [ -24.],
+        [ -37.],
+        [   5.],
+        [  76.]])
+#+end_example
+
+#+begin_src python :async no
+error_analysis(bm, tx, ty, timp)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Mean loss: 12.298682, Median loss: 8.7085
+Best: tensor([ 29.,   6.,  32.,  41.,  -7., -10.,  25., -24.,  -7., -74.,  15.,  53.,
+         -1., -90.,  64.,  66.,  61.,  -6., -79.,  44.]) 
+Worst: tensor([ -83.,  -91.,  -95., -140., -122., -135.,  -76., -108., -121., -119.,
+        -128.,  107., -148.,  120., -115.,  142., -127.,  145.,  128., -134.])
+tensor([[  6,  89],
+        [ 74, 165],
+        [ 72, 167],
+        [ 11, 151],
+        [ 97, 219],
+        [ 53, 188],
+        [ 98, 174],
+        [ 61, 169],
+        [ 11, 132],
+        [ 90, 209],
+        [ 96, 224],
+        [206,  99],
+        [ 80, 228],
+        [215,  95],
+        [ 76, 191],
+        [221,  79],
+        [ 99, 226],
+        [223,  78],
+        [218,  90],
+        [ 99, 233]])
+#+end_example
+[[./.ob-jupyter/526b048f7651d0e3d3bcf7614de77de7195bf2d9.png]]
+[[./.ob-jupyter/3698ba6807602343928ece94f662fc42ac779080.png]]
+:END:
 
 
 * Pre-training
 Start with impulse data, and epoch-by-epoch morph it into something looking
-more like a real signal
+more like a real signal.
+
+
 
 * Idea
 Random tone generator based on FM synthesis or just adding different modulated
