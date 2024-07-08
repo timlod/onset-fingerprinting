@@ -40,11 +40,11 @@ class PlayRec:
             config.N_CHANNELS,
             config.BLOCKSIZE,
             hipass_freq=0,
-            fast_ar=(1, 900),
+            fast_ar=(0.3, 800),
             slow_ar=(8000, 8000),
-            on_threshold=0.4,
-            off_threshold=1,
-            cooldown=0,
+            on_threshold=0.45,
+            off_threshold=0.45,
+            cooldown=1323,
             sr=config.SR,
             backtrack=False,
             backtrack_buffer_size=2 * config.BLOCKSIZE,
@@ -65,9 +65,10 @@ class PlayRec:
             d = [self.current_index + x for x in d]
             idx = np.argsort(d)
             for i in idx:
+                # print(f"Index: {d[i]} on channel {c[i]}")
                 res = self.m.locate(c[i], d[i], self.rec_audio)
                 if res is not None:
-                    res = Location(*res)
+                    res = Location(*res, radius=self.m.radius)
                     print(f"Result: {res}")
                     return res
         return None
