@@ -82,7 +82,8 @@ def detect_onsets_amplitude(
             onsets.append(d)
     channels_flat = [x for y in channels for x in y]
     onsets_flat = [x for y in onsets for x in y]
-    return channels_flat, onsets_flat
+    rel = np.array(rel).reshape(-1, x.shape[1])
+    return channels_flat, onsets_flat, rel
 
 
 def detect_onsets_spectral(
@@ -316,18 +317,29 @@ def adjust_onset(
     # Take the signal between the old and the new lag, exponentially weighted
     # toward the potential new lag, sum and normalize by maximum signal
     n = len(x)
+    # Potentially need to add the other max cases for ends
     if lag_diff < 0:
         x_start = max(oa + lag_diff, 0)
-        x_end = oa
-        y_start = ob
+        x_end = min(oa, n)
+        y_start = min(ob, n)
         y_end = min(ob - lag_diff, n)
     else:
         x_start = oa
         x_end = min(oa + lag_diff, n)
         y_start = max(ob - lag_diff, 0)
-        y_end = ob
+        y_end = min(ob, n)
+    # print(
+    #     f"{n=}|{oa=} {ob=} {lag_diff=}, {x_start=}, {x_end=}, {y_start=},"
+    #     f" {y_end=} {x.shape=}"
+    # )
     da = np.sum(x[x_start:x_end] * exp[-(x_end - x_start) :]) / x.max()
-    db = np.sum(y[y_start:y_end] * exp[-(y_end - y_start) :][::-1]) / y.max()
+    if y_end == y_start:
+        db = 0
+    else:
+        db = (
+            np.sum(y[y_start:y_end] * exp[-(y_end - y_start) :][::-1])
+            / y.max()
+        )
     # If da is larger, we should move oa - hence we use lag_diff directly
     # If db is larger, we should move ob - since lag_diff is ob - oa we invert
     if da > db:
@@ -696,9 +708,16 @@ class AmplitudeOnsetDetector:
         """
         if self.hp is not None:
             x = self.hp(x)
+        xd = np.diff(x, axis=0)
         # Compute floor-clipped, rectified dB
         x = 20 * np.log10(np.abs(x + 1e-10))
+        x = x.clip(self.floor)
+        # TODO try this further
+        x[1:][xd >= 0] = 0
         relative_envelope = self.fast_slide(x) - self.slow_slide(x)
+        # Back to amplitude
+        relative_envelope = 10 ** (relative_envelope / 20) - 1e-10
+        relative_envelope = relative_envelope.clip(0, -self.floor)
         if self.backtrack:
             self.buffer.write(relative_envelope)
 
@@ -772,11 +791,15 @@ class AmplitudeOnsetDetector:
             x = self.hp(x)
         # Compute floor-clipped, rectified dB
         x = 20 * np.log10(np.abs(x + 1e-10))
+        x = x.clip(self.floor)
         for i in range(0, len(x), self.block_size):
             if i + self.block_size > len(x):
                 break
             xi = x[i : i + self.block_size, :]
-            self.minmax_tracker(self.fast_slide(xi) - self.slow_slide(xi))
+            rel = self.fast_slide(xi) - self.slow_slide(xi)
+            rel = 10 ** (rel / 20) - 1e-10
+            rel = rel.clip(0, -self.floor)
+            self.minmax_tracker(rel)
 
     def init(self, x):
         """Initialize onset detector with a data containing stretches of
@@ -825,4 +848,3 @@ class AmplitudeOnsetDetector:
             xi = x[i : i + self.block_size]
             self.fast_slide(xi)
             self.slow_slide(xi)
-
