@@ -92,12 +92,62 @@ def load_multi(
 #+begin_src python
 data, sr = load_multi(
     data_dir / "calibration" / "2023-03-13",
-    ["calib_snaretop", "calib_ohl", "calib_ohr"],
+    ["calib_ohl", "calib_ohr", "calib_snaretop"],
 )
 #+end_src
 
 #+begin_src python
-data.shape
+def detect(audio, close_channel=2):
+    cf, of, rel = detection.detect_onsets_amplitude(
+        audio,
+        128,
+        hipass_freq=1000,
+        fast_ar=(0.4, 100),
+        slow_ar=(8000, 8000),
+        on_threshold=[0.3, 0.3, 0.151],
+        off_threshold=0.3,
+        cooldown=9000,
+        sr=sr,
+        backtrack=False,
+        backtrack_buffer_size=256,
+        backtrack_smooth_size=1,
+    )
+    oc = detection.find_onset_groups(of, cf, 400, close_channel=close_channel)
+    occ = detection.fix_onsets(audio, oc, onset_tolerance=50, take_abs=True)
+    plots.plot_onsets(audio, oc)
+#+end_src
+
+#+begin_src python
+audio = data
+cf, of, rel = detection.detect_onsets_amplitude(
+    audio,
+    128,
+    hipass_freq=1000,
+    fast_ar=(0.4, 100),
+    slow_ar=(8000, 8000),
+    on_threshold=0.5,
+    off_threshold=0.3,
+    cooldown=9000,
+    sr=sr,
+    backtrack=False,
+    backtrack_buffer_size=256,
+    backtrack_smooth_size=1,
+)
+oc = detection.find_onset_groups(of, cf, 400, close_channel=2)
+occ = detection.fix_onsets(
+    audio, oc, onset_tolerance=150, take_abs=True
+)
+print(len(occ))
+plots.plot_onsets(audio, oc)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: 76
+: <Axes: >
+[[./.ob-jupyter/24554dfbd9c58f550084b15bc7fef87287748211.png]]
+:END:
+
 #+end_src
 
 #+RESULTS:
