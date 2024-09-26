@@ -199,6 +199,7 @@ def cartesian_circle(coords, radius=0.1778, ax=None, figsize=(4, 4)):
 def polar_circle(
     polar_coords: list[tuple[float, float]],
     label=False,
+    labels=[],
     radius=1,
     title="",
     **kwargs,
@@ -231,9 +232,12 @@ def polar_circle(
         cmap="coolwarm",
         zorder=10,
     )
+    label = label or len(labels) > 0
     if label:
-        for i, (x, y) in enumerate(zip(x_values, y_values)):
-            ax.text(x, y, str(i))
+        if len(labels) == 0:
+            labels = [str(i) for i in range(len(x_values))]
+        for x, y, label in zip(x_values, y_values, labels):
+            ax.text(x, y, label)
 
     # Set aspect ratio and labels
     ax.axis("equal")
