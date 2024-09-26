@@ -8,7 +8,7 @@ from scipy.signal import find_peaks
 from onset_fingerprinting import detection
 
 TEMPERATURE = 20.0
-HUMIDITY = 50.0
+HUMIDITY = 0.5
 DIAMETER = 14 * 2.54
 STRIKE_FORCE = 1.0
 # speed in m/s of sound through drumhead membrane
