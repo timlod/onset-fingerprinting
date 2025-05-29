@@ -1,0 +1,104 @@
+#+TITLE: Minig multi-channel hits
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Monday, 15 July 2024
+#+STARTUP: showall
+#+PROPERTY: header-args :exports both :session mh :kernel lm :cache no
+:PROPERTIES:
+OPTIONS: ^:nil
+#+LATEX_COMPILER: xelatex
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [logo, color, author]
+#+LATEX_HEADER: \insertauthor
+#+LATEX_HEADER: \usepackage{minted}
+#+LATEX_HEADER: \usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+:END:
+
+* Imports and Environment Variables
+:PROPERTIES:
+:visibility: folded
+:END:
+
+#+name: imports
+#+begin_src python
+import json
+from importlib import reload
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import sounddevice as sd
+import soundfile as sf
+import torch
+import torch.nn as nn
+from onset_fingerprinting import (
+    calibration,
+    data,
+    detection,
+    model,
+    multilateration,
+    plots,
+)
+from torch import optim
+from torch.nn import functional as F
+#+end_src
+
+#+name: env
+#+begin_src python
+data_dir = Path("../data")
+#+end_src
+
+* Introduction
+I want to train more advanced models for onset location regression. Some
+preliminary work in [[file:modelling_lags.org][Modelling Lags]] suggests that some NN architectures might be
+able to learn the lag between multiple microphones corresponding to drum hit
+onsets. However, NNs trained on simulated data fall apart when modelling real
+drum hits. I believe the problem might still be solved, but a larger dataset
+containing multi-channel onsets in real data is needed.
+
+The plan:
+- Load several recording sessions' Snare Top and Overhead channels
+- Detect onsets and find groups
+- Use thresholds on CC or perhaps visual filtering to get clean-enough
+  datasets of correct lags
+
+
+* Storage format
+I believe the most straightforward way to store this data would be:
+1. <dataset_name>.wav file containing audio channels
+2. <dataset_name>.npy file containing lags for each channel
+
+* Work
+#+begin_src python
+# 1. Load
+def load_single(file: Path, channels: list[int] = [0, 1, 2], dtype=np.float32):
+    wav, sr = sf.read(file, dtype=dtype)
+    return wav[:, channels], sr
+
+
+def load_multi(
+    folder: Path, files: list[str], suffix: str = ".wav", dtype=np.float32
+):
+    wavs = []
+    for file in files:
+        wav, sr = sf.read(folder / (file + suffix), dtype=dtype)
+        wavs.append(wav)
+    if wav.ndim == 1:
+        return np.stack(wavs, axis=1), sr
+    else:
+        return np.concatenate(wavs, axis=1), sr
+#+end_src
+
+#+begin_src python
+data, sr = load_multi(
+    data_dir / "calibration" / "2023-03-13",
+    ["calib_snaretop", "calib_ohl", "calib_ohr"],
+)
+#+end_src
+
+#+begin_src python
+data.shape
+#+end_src
+
+#+RESULTS:
+| 12078805 | 3 |

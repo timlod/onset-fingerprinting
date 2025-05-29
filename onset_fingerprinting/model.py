@@ -1,3 +1,4 @@
+import numpy as np
 import lightning as L
 import matplotlib.pyplot as plt
 import torch
@@ -146,6 +147,9 @@ class RNN(L.LightningModule):
         bias: bool = True,
         lr: float = 1e-3,
         activation=nn.SiLU,
+        num_heads: int = 2,
+        share_input_weights: bool = False,
+        permute_input: bool = True,
     ) -> None:
         """
         A flexible RNN architecture for audio processing tasks.
@@ -170,11 +174,13 @@ class RNN(L.LightningModule):
         self.bidirectional = bidirectional
         self.lr = lr
         self.loss = loss
+        self.share_input_weights = share_input_weights
+        self.permute_input = permute_input
 
         rnn_class = {"LSTM": nn.LSTM, "GRU": nn.GRU, "RNN": nn.RNN}[rnn_type]
 
         self.rnn = rnn_class(
-            input_size=channels,
+            input_size=channels if not share_input_weights else 2,
             hidden_size=hidden_size,
             num_layers=num_layers,
             dropout=dropout_rate if num_layers > 1 else 0,
@@ -182,20 +188,43 @@ class RNN(L.LightningModule):
             bidirectional=bidirectional,
             bias=bias,
         )
-        self.layer_norm = nn.LayerNorm(hidden_size)
         multiplier = 2 if bidirectional else 1
-        # maybe remove
+        multiplier *= 1 if not share_input_weights else channels - 1
+        # If we share weights we will stack the outputs for each pair of
+        # channels
+        self.layer_norm = nn.LayerNorm(hidden_size * multiplier)
         self.attention = nn.MultiheadAttention(
-            hidden_size * multiplier, 2, batch_first=True, dropout=dropout_rate
+            hidden_size * multiplier,
+            num_heads,
+            batch_first=True,
+            dropout=dropout_rate,
         )
+        # multiplier *= 1 if not share_input_weights else channels - 1
         self.fc = nn.Linear(hidden_size * multiplier, output_size)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.permute(0, 2, 1)
-        out, _ = self.rnn(x)
-        out = self.layer_norm(out)
-        # out = out[:, -1, :]  # Take the output of the last time step
-        out, _ = self.attention(out, out, out, need_weights=False)
+        if self.permute_input:
+            x = x.permute(0, 2, 1)
+        if not self.share_input_weights:
+            out, _ = self.rnn(x)
+            out = self.layer_norm(out)
+            # out = out[:, -1, :]  # Take the output of the last time step
+            out, _ = self.attention(out, out, out, need_weights=False)
+        # else:
+        #     outs = []
+        #     for i in range(self.channels - 1):
+        #         out = self.rnn(x[..., i : i + 2])[0]
+        #         out = self.layer_norm(out)
+        #         out, _ = self.attention(out, out, out, need_weights=False)
+        #         outs.append(out)
+        #     out = torch.cat(outs, dim=-1)
+        else:
+            outs = []
+            for i in range(self.channels - 1):
+                outs.append(self.rnn(x[..., i : i + 2])[0])
+            out = torch.cat(outs, dim=-1)
+            out = self.layer_norm(out)
+            out, _ = self.attention(out, out, out, need_weights=False)
         out = self.fc(out.mean(1))
         return out
 

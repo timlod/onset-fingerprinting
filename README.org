@@ -20,3 +20,6 @@ Currently several items are developed concurrently:
   - given a percussive onset, classify it as being a specific sound, under
     real-time constraints
   - used for example to electronically augment live playing
+
+* Requirements
+- Portaudio
