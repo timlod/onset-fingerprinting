@@ -485,7 +485,7 @@ class AREnvelopeFollower:
     def __init__(self, x0: np.ndarray, attack=3, release=383):
         self.attack = np.float32(1 / attack)
         self.release = np.float32(1 / release)
-        self.y = x0
+        self.y = x0.copy()
         self.c_ar_env = ctypes.CDLL(
             Path(__file__).parent / "envelope_follower.so"
         )
