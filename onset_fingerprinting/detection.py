@@ -656,6 +656,7 @@ class AmplitudeOnsetDetector:
         self.block_size = block_size
         self.floor = floor
         self.on_threshold = on_threshold
+        self.manual = True if on_threshold > 1 else False
         self.off_threshold = off_threshold
         self.cooldown = cooldown
         self.sr = sr
@@ -717,7 +718,7 @@ class AmplitudeOnsetDetector:
         x = 20 * np.log10(np.abs(x + 1e-10))
         x = x.clip(self.floor)
         # TODO try this further
-        x[1:][xd >= 0] = 0
+        # x[1:][xd >= 0] = 0
         relative_envelope = self.fast_slide(x) - self.slow_slide(x)
         # Back to amplitude
         relative_envelope = 10 ** (relative_envelope / 20) - 1e-10
@@ -725,10 +726,12 @@ class AmplitudeOnsetDetector:
         if self.backtrack:
             self.buffer.write(relative_envelope)
 
-        mi, ma = self.minmax_tracker(relative_envelope)
         # Logic for detection
-        # on_threshold = self.on_threshold
-        on_threshold = ma * self.on_threshold + mi
+        if self.manual:
+            on_threshold = self.on_threshold
+        else:
+            mi, ma = self.minmax_tracker(relative_envelope)
+            on_threshold = ma * self.on_threshold + mi
         crossed_on_threshold = (
             (relative_envelope > on_threshold)
             & (~self.state)
@@ -749,8 +752,10 @@ class AmplitudeOnsetDetector:
 
         # Update states for off_threshold crossing
         # only check for off_threshold after detection to turn off
-        # off_threshold = self.off_threshold
-        off_threshold = ma * self.off_threshold + mi
+        if self.manual:
+            off_threshold = self.off_threshold
+        else:
+            off_threshold = ma * self.off_threshold + mi
         crossed_off_threshold = relative_envelope < off_threshold
 
         crossed_off_threshold[: on_indices.max(), :] = False
