@@ -297,7 +297,7 @@ def adjust_onset_rel(
 
 
 def adjust_onset(
-    onsets: list[int, int], x: np.ndarray, y: np.ndarray, new_lag: int
+    onsets: list[int], x: np.ndarray, y: np.ndarray, new_lag: int
 ) -> tuple[int, int]:
     """Adjust one onset in a pair based on a target lag and weighted signal
     intensities around the new lags.
@@ -343,8 +343,12 @@ def adjust_onset(
     # If da is larger, we should move oa - hence we use lag_diff directly
     # If db is larger, we should move ob - since lag_diff is ob - oa we invert
     if da > db:
+        if oa + lag_diff < 0:
+            return 0, -lag_diff
         return lag_diff, 0
     else:
+        if ob + lag_diff >= n:
+            return 0, -lag_diff
         return 0, -lag_diff
 
 
