@@ -167,7 +167,7 @@ def find_onset_groups(
         else:
             unique_channels = len(set(ch for _, ch in current_group))
             if unique_channels >= min_channels:
-                group_array = np.full((max_channel + 1,), np.nan)
+                group_array = np.full((max_channel + 1,), -1, dtype=int)
                 for s, ch in current_group:
                     group_array[ch] = s
                 groups.append(group_array)
@@ -176,7 +176,7 @@ def find_onset_groups(
     # Check the last group
     unique_channels = len(set(ch for _, ch in current_group))
     if unique_channels >= min_channels:
-        group_array = np.full((max_channel + 1,), np.nan)
+        group_array = np.full((max_channel + 1,), -1, dtype=int)
         for s, ch in current_group:
             group_array[ch] = s
         groups.append(group_array)
