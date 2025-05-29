@@ -389,7 +389,7 @@ def fix_onsets(
     for j, og in enumerate(onsets):
         idx = np.argsort(og)
         a = og[idx[0]]
-        b = og[idx[2]]
+        b = og[idx[-1]]
         section = audio[a - lookaround : b + lookaround]
         section = np.diff(
             median_filter(section, filter_size, axes=0), d, axis=0
