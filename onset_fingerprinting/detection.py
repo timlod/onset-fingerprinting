@@ -374,11 +374,13 @@ def fix_onsets(
     audio: np.ndarray,
     onsets: np.ndarray,
     filter_size: int = 5,
-    d: int = 1,
-    take_abs: bool = True,
-    null_direction: Optional[str] = None,
+    d: int = 0,
+    onset_direction=None,
+    take_abs: bool = False,
+    zero_left: bool = False,
     normalization_cutoff: int = 10,
     onset_tolerance: int = 30,
+    shift_onsets: int = 0,
 ):
     """Fix groups of onsets by paired cross-correlation such that onsets become
     consistent across channels.
@@ -389,46 +391,54 @@ def fix_onsets(
     :param filter_size: size of median filter used to smoothe the signal
     :param d: number of differences to take after median filtering.  Should
               stay at 1
+    :param onset_direction: "up" if onset transient points upward, "down" if it
+        points upwards.  Nulls signal when derivative is positive/negative to
+        focus aligned onsets in the correct direction.
     :param take_abs: whether to use the absolute value of the differenced,
         filtered signals - helps with making cross-correlation 'peakier'
-    :param null_direction: "up" if onset transient points downward, "down" if
-        it points upwards.  Nulls signal when derivative is positive/negative
-        to focus aligned onsets in the correct direction.
+    :param zero_left: zeros values before original detected onset (useful if
+        we're sure the onset is during pre-ringing and we know the transient
+        will be after)
     :param normalization_cutoff: number of elements which need to be present in
         one lag of the CC to be normalized such that that lag can contribute
         equally to lag as other lags above cutoff.  See description in
         cross_correlation_lag for better explanation
     :param onset_tolerance: when using existing onsets to limit legal cc lags,
         allow this many lags before or after the existing lag
+    :param shift_onsets: shifts onsets by this much - use if we know we're
+        always in pre-ringing and want to generally get more in direction of
+        the transient peak
     """
     # Minimum lookaround to still allow to cc-match fully normalized items
     lookaround = normalization_cutoff + onset_tolerance
-    onsets = onsets.copy()
+    onsets = onsets.copy() + shift_onsets
     for j, og in enumerate(onsets):
         idx = np.argsort(og)
         a = og[idx[0]]
         b = og[idx[-1]]
-        section = audio[a - lookaround : b + lookaround]
+        section_org = audio[a - lookaround : b + lookaround]
         section = np.diff(
-            median_filter(section, filter_size, axes=0), d, axis=0
+            median_filter(section_org, filter_size, axes=0), d, axis=0
         )
-        if null_direction == "up":
-            section[section >= 0] = 0
-        elif null_direction == "down":
-            section[section <= 0] = 0
+        if onset_direction == "up":
+            section[section < 0] = 0
+        elif onset_direction == "down":
+            section[section > 0] = 0
         if take_abs:
             section = np.abs(section)
         section_og = og - (a - lookaround)
+
         for i in idx[1:]:
             o = [section_og[idx[0]], section_og[i]]
             x = section[:, idx[0]]
             y = section[:, i]
-
+            if zero_left:
+                x[: o[0]] = 0.0
+                y[: o[1]] = 0.0
             new_lag = cross_correlation_lag(
                 x,
                 y,
                 o,
-                d=0,
                 normalization_cutoff=normalization_cutoff,
                 onset_tolerance=onset_tolerance,
             )
