@@ -352,6 +352,24 @@ def adjust_onset(
         return 0, -lag_diff
 
 
+def filter_data(x: np.ndarray, direction: str) -> np.ndarray:
+    """Filter data according to onset peak direction ("up"" or "down").
+    Nulls all values with a positive/negative derivative.
+
+    :param x: input
+    :param direction: "up" or "down"
+    """
+    diff = np.diff(x, 1, axis=0, prepend=x[:1])
+    if direction == "up":
+        # take data where derivative is positive
+        x[diff < 0] = 0
+    elif direction == "down":
+        x[diff > 0] = 0
+    else:
+        raise RuntimeError(f"Unknown onset direction {direction=}!")
+    return x
+
+
 def fix_onsets(
     audio: np.ndarray,
     onsets: np.ndarray,
