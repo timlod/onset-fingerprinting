@@ -420,6 +420,13 @@ onsets to record later.
 If data is used for calibration of multilateration methods, we need to include
 location information in at least one of the channels.
 
+*** TODO Notes
+:LOGBOOK:
+- State "TODO"       from              [2025-06-03 Tue 12:06]
+:END:
+
+Give each onset a boolean flag "aligned"?
+
 * Conventions
 POSD can refer to any dataset which adhers to the specification described in
 this document. That means that anyone can create POSD datasets!

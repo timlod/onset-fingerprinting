@@ -173,7 +173,9 @@ def plot_3d_scene(
     ax.set_zlabel("Z-axis")
 
 
-def cartesian_circle(coords, radius=0.1778, ax=None, figsize=(4, 4)):
+def cartesian_circle(
+    coords, radius=0.1778, ax=None, figsize=(4, 4), s=3, cmap="Reds"
+):
     if ax is None:
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111)
@@ -181,7 +183,7 @@ def cartesian_circle(coords, radius=0.1778, ax=None, figsize=(4, 4)):
     x_circle = np.sin(theta) * radius
     y_circle = np.cos(theta) * radius
     ax.plot(x_circle, y_circle, linewidth=1.0)
-    cmap = plt.get_cmap("Reds")
+    cmap = plt.get_cmap(cmap)
     norm = Normalize(vmin=0, vmax=len(coords))
     ax.scatter(
         coords[:, 0],
@@ -189,9 +191,10 @@ def cartesian_circle(coords, radius=0.1778, ax=None, figsize=(4, 4)):
         c=np.arange(len(coords)),
         cmap=cmap,
         norm=norm,
+        s=s,
     )
-    ax.scatter(coords[:8, 0], coords[:8, 1], c="blue")
-    ax.scatter(coords[-8:, 0], coords[-8:, 1], c="black")
+    ax.scatter(coords[:8, 0], coords[:8, 1], c="blue", s=s)
+    ax.scatter(coords[-8:, 0], coords[-8:, 1], c="black", s=s)
     ax.axis("equal")
     return ax
 
@@ -199,6 +202,7 @@ def cartesian_circle(coords, radius=0.1778, ax=None, figsize=(4, 4)):
 def polar_circle(
     polar_coords: list[tuple[float, float]],
     label=False,
+    labels=[],
     radius=1,
     title="",
     **kwargs,
@@ -231,9 +235,12 @@ def polar_circle(
         cmap="coolwarm",
         zorder=10,
     )
+    label = label or len(labels) > 0
     if label:
-        for i, (x, y) in enumerate(zip(x_values, y_values)):
-            ax.text(x, y, str(i))
+        if len(labels) == 0:
+            labels = [str(i) for i in range(len(x_values))]
+        for x, y, label in zip(x_values, y_values, labels):
+            ax.text(x, y, label)
 
     # Set aspect ratio and labels
     ax.axis("equal")
@@ -350,6 +357,7 @@ def plot_lags_2D(
     sr: int = 96000,
     scale: float = 1,
     medium: str = multilateration.MEDIUM,
+    labels=["Mic A", "Mic B"],
 ):
     """Plot lag map for 2D mic locations.
 
@@ -367,13 +375,13 @@ def plot_lags_2D(
     mic_b = multilateration.polar_to_cartesian(mic_b[0] * r, mic_b[1])
     lags = multilateration.lag_map_2d(mic_a, mic_b, d, sr, scale, medium)
 
-    plt.imshow(lags, cmap="RdYlGn", extent=[-r, r, -r, r])
+    plt.imshow(lags, cmap="RdYlGn", extent=[-r, r, -r, r], origin="lower")
     plt.colorbar(label="Samples difference")
     plt.scatter(
         mic_a[0],
         -mic_a[1],
         marker="o",
-        label="Mic A",
+        label=labels[0],
         c="white",
         edgecolors="black",
     )
@@ -381,7 +389,7 @@ def plot_lags_2D(
         mic_b[0],
         -mic_b[1],
         marker="o",
-        label="Mic B",
+        label=labels[1],
         c="black",
         edgecolors="white",
     )

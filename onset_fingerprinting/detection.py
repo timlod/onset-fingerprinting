@@ -167,7 +167,7 @@ def find_onset_groups(
         else:
             unique_channels = len(set(ch for _, ch in current_group))
             if unique_channels >= min_channels:
-                group_array = np.full((max_channel + 1,), np.nan)
+                group_array = np.full((max_channel + 1,), -1, dtype=int)
                 for s, ch in current_group:
                     group_array[ch] = s
                 groups.append(group_array)
@@ -176,7 +176,7 @@ def find_onset_groups(
     # Check the last group
     unique_channels = len(set(ch for _, ch in current_group))
     if unique_channels >= min_channels:
-        group_array = np.full((max_channel + 1,), np.nan)
+        group_array = np.full((max_channel + 1,), -1, dtype=int)
         for s, ch in current_group:
             group_array[ch] = s
         groups.append(group_array)
@@ -297,7 +297,7 @@ def adjust_onset_rel(
 
 
 def adjust_onset(
-    onsets: list[int, int], x: np.ndarray, y: np.ndarray, new_lag: int
+    onsets: list[int], x: np.ndarray, y: np.ndarray, new_lag: int
 ) -> tuple[int, int]:
     """Adjust one onset in a pair based on a target lag and weighted signal
     intensities around the new lags.
@@ -343,20 +343,44 @@ def adjust_onset(
     # If da is larger, we should move oa - hence we use lag_diff directly
     # If db is larger, we should move ob - since lag_diff is ob - oa we invert
     if da > db:
+        if oa + lag_diff < 0:
+            return 0, -lag_diff
         return lag_diff, 0
     else:
+        if ob + lag_diff >= n:
+            return 0, -lag_diff
         return 0, -lag_diff
+
+
+def filter_data(x: np.ndarray, direction: str) -> np.ndarray:
+    """Filter data according to onset peak direction ("up"" or "down").
+    Nulls all values with a positive/negative derivative.
+
+    :param x: input
+    :param direction: "up" or "down"
+    """
+    diff = np.diff(x, 1, axis=0, prepend=x[:1])
+    if direction == "up":
+        # take data where derivative is positive
+        x[diff < 0] = 0
+    elif direction == "down":
+        x[diff > 0] = 0
+    else:
+        raise RuntimeError(f"Unknown onset direction {direction=}!")
+    return x
 
 
 def fix_onsets(
     audio: np.ndarray,
     onsets: np.ndarray,
     filter_size: int = 5,
-    d: int = 1,
-    take_abs: bool = True,
-    null_direction: Optional[str] = None,
+    d: int = 0,
+    onset_direction=None,
+    take_abs: bool = False,
+    zero_left: bool = False,
     normalization_cutoff: int = 10,
     onset_tolerance: int = 30,
+    shift_onsets: int = 0,
 ):
     """Fix groups of onsets by paired cross-correlation such that onsets become
     consistent across channels.
@@ -367,46 +391,54 @@ def fix_onsets(
     :param filter_size: size of median filter used to smoothe the signal
     :param d: number of differences to take after median filtering.  Should
               stay at 1
+    :param onset_direction: "up" if onset transient points upward, "down" if it
+        points upwards.  Nulls signal when derivative is positive/negative to
+        focus aligned onsets in the correct direction.
     :param take_abs: whether to use the absolute value of the differenced,
         filtered signals - helps with making cross-correlation 'peakier'
-    :param null_direction: "up" if onset transient points downward, "down" if
-        it points upwards.  Nulls signal when derivative is positive/negative
-        to focus aligned onsets in the correct direction.
+    :param zero_left: zeros values before original detected onset (useful if
+        we're sure the onset is during pre-ringing and we know the transient
+        will be after)
     :param normalization_cutoff: number of elements which need to be present in
         one lag of the CC to be normalized such that that lag can contribute
         equally to lag as other lags above cutoff.  See description in
         cross_correlation_lag for better explanation
     :param onset_tolerance: when using existing onsets to limit legal cc lags,
         allow this many lags before or after the existing lag
+    :param shift_onsets: shifts onsets by this much - use if we know we're
+        always in pre-ringing and want to generally get more in direction of
+        the transient peak
     """
     # Minimum lookaround to still allow to cc-match fully normalized items
     lookaround = normalization_cutoff + onset_tolerance
-    onsets = onsets.copy()
+    onsets = onsets.copy() + shift_onsets
     for j, og in enumerate(onsets):
         idx = np.argsort(og)
         a = og[idx[0]]
-        b = og[idx[2]]
-        section = audio[a - lookaround : b + lookaround]
+        b = og[idx[-1]]
+        section_org = audio[a - lookaround : b + lookaround]
         section = np.diff(
-            median_filter(section, filter_size, axes=0), d, axis=0
+            median_filter(section_org, filter_size, axes=0), d, axis=0
         )
-        if null_direction == "up":
-            section[section >= 0] = 0
-        elif null_direction == "down":
-            section[section <= 0] = 0
+        if onset_direction == "up":
+            section[section < 0] = 0
+        elif onset_direction == "down":
+            section[section > 0] = 0
         if take_abs:
             section = np.abs(section)
         section_og = og - (a - lookaround)
+
         for i in idx[1:]:
             o = [section_og[idx[0]], section_og[i]]
             x = section[:, idx[0]]
             y = section[:, i]
-
+            if zero_left:
+                x[: o[0]] = 0.0
+                y[: o[1]] = 0.0
             new_lag = cross_correlation_lag(
                 x,
                 y,
                 o,
-                d=0,
                 normalization_cutoff=normalization_cutoff,
                 onset_tolerance=onset_tolerance,
             )
@@ -481,7 +513,7 @@ class AREnvelopeFollower:
     def __init__(self, x0: np.ndarray, attack=3, release=383):
         self.attack = np.float32(1 / attack)
         self.release = np.float32(1 / release)
-        self.y = x0
+        self.y = x0.copy()
         self.c_ar_env = ctypes.CDLL(
             Path(__file__).parent / "envelope_follower.so"
         )
@@ -653,6 +685,7 @@ class AmplitudeOnsetDetector:
         self.block_size = block_size
         self.floor = floor
         self.on_threshold = on_threshold
+        self.manual = True if on_threshold > 1 else False
         self.off_threshold = off_threshold
         self.cooldown = cooldown
         self.sr = sr
@@ -720,10 +753,12 @@ class AmplitudeOnsetDetector:
         if self.backtrack:
             self.buffer.write(relative_envelope)
 
-        mi, ma = self.minmax_tracker(relative_envelope)
         # Logic for detection
-        # on_threshold = self.on_threshold
-        on_threshold = ma * self.on_threshold + mi
+        if self.manual:
+            on_threshold = self.on_threshold
+        else:
+            mi, ma = self.minmax_tracker(relative_envelope)
+            on_threshold = ma * self.on_threshold + mi
         crossed_on_threshold = (
             (relative_envelope > on_threshold)
             & (~self.state)
@@ -744,8 +779,10 @@ class AmplitudeOnsetDetector:
 
         # Update states for off_threshold crossing
         # only check for off_threshold after detection to turn off
-        # off_threshold = self.off_threshold
-        off_threshold = ma * self.off_threshold + mi
+        if self.manual:
+            off_threshold = self.off_threshold
+        else:
+            off_threshold = ma * self.off_threshold + mi
         crossed_off_threshold = relative_envelope < off_threshold
 
         crossed_off_threshold[: on_indices.max(), :] = False
