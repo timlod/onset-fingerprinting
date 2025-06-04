@@ -45,6 +45,7 @@ from torch.nn import functional as F
 
 #+name: env
 #+begin_src python
+__file__ = "/home/tim/projects/onset-fingerprinting/onset_fingerprinting/detection.py"
 data_dir = Path("../data")
 #+end_src
 
@@ -101,7 +102,7 @@ def detect(audio, close_channel=2):
     cf, of, rel = detection.detect_onsets_amplitude(
         audio,
         128,
-        hipass_freq=1000,
+        hipass_freq=2000,
         fast_ar=(0.4, 100),
         slow_ar=(8000, 8000),
         on_threshold=[0.3, 0.3, 0.151],
@@ -119,14 +120,15 @@ def detect(audio, close_channel=2):
 
 #+begin_src python
 audio = data
-cf, of, rel = detection.detect_onsets_amplitude(
-    audio,
+roi = 10*sr
+cf, of, rel = detect_onsets_amplitude(
+    audio[:roi],
     128,
-    hipass_freq=1000,
-    fast_ar=(0.4, 100),
-    slow_ar=(8000, 8000),
-    on_threshold=0.5,
-    off_threshold=0.3,
+    hipass_freq=00,
+    fast_ar=(1, 10000),
+    slow_ar=(10000, 10000),
+    on_threshold=0.2,
+    off_threshold=0.2,
     cooldown=9000,
     sr=sr,
     backtrack=False,
@@ -138,17 +140,93 @@ occ = detection.fix_onsets(
     audio, oc, onset_tolerance=150, take_abs=True
 )
 print(len(occ))
-plots.plot_onsets(audio, oc)
+plots.plot_onsets(audio[:roi], oc)
 #+end_src
 
 #+RESULTS:
 :RESULTS:
-: 76
+: 5
 : <Axes: >
-[[./.ob-jupyter/24554dfbd9c58f550084b15bc7fef87287748211.png]]
+[[./.ob-jupyter/2e606407ae71e4eb727420b9b013a23696fe69fc.png]]
 :END:
 
+
+
+#+begin_src python
+from scipy.ndimage import median_filter
+from scipy.signal import find_peaks
+
+og = oc[3].copy()
+plots.plot_group(
+    audio,
+    og,
+    title="Detected onsets",
+    channel_labels=["OH L", "OH R", "Close mic"],
+)
+filter_size: int = 7
+d: int = 1
+take_abs: bool = True
+normalization_cutoff: int = 10
+onset_tolerance: int = 150
+lookaround = normalization_cutoff + onset_tolerance
+idx = np.argsort(og)
+a = og[idx[0]]
+b = og[idx[2]]
+sectiona = audio[a - lookaround : b + lookaround]
+section = np.diff(median_filter(sectiona, filter_size, axes=0), d, axis=0)
+section[section >= 0] = 0
+section = np.abs(section)
+section_og = og - (a - lookaround)
+for i in idx[1:]:
+    onsets = [section_og[idx[0]], section_og[i]]
+    x = section[:, idx[0]]
+    y = section[:, i]
+    n = len(x)
+    cc = np.correlate(x, y, "full")
+    # Normalize such that each cc value with contributions
+    # of more than cutoff
+    # amount of elements has an equal chance to be the
+    # top lag
+    normalizer = np.arange(len(x)) + 1
+    normalizer[:normalization_cutoff] = normalization_cutoff
+    cc[:n] /= normalizer
+    cc[n:] /= normalizer[n - 2 :: -1]
+    current_lag = onsets[1] - onsets[0]
+    lag_center = n - current_lag
+    cc = cc[lag_center - onset_tolerance : lag_center + onset_tolerance]
+    lags = np.arange(-n, n)
+    lags = lags[lag_center - onset_tolerance : lag_center + onset_tolerance]
+    max_adjust = current_lag + onset_tolerance
+    plots.plot_cc(cc, n, lag_center, onset_tolerance, 3)
+    new_lag = -(np.argmax(cc) - max_adjust)
+    print(current_lag, new_lag)
+    if new_lag is not None:
+        ca, cb = detection.adjust_onset(onsets, x, y, new_lag)
+        og[idx[0]] += ca
+        og[i] += cb
+        section_og[idx[0]] += ca
+        section_og[i] += cb
+        print(
+            f"Moving onsets ({ca}, {cb} steps) from  {onsets} to"
+            f" {section_og[idx[0]]}, {section_og[i]}!"
+        )
+        plots.plot_group(
+            audio,
+            og,
+            channel_labels=["OH L", "OH R", "Close mic"],
+            title="Corrected onsets",
+        )
 #+end_src
 
 #+RESULTS:
-| 12078805 | 3 |
+:RESULTS:
+: 91 238
+: Moving onsets (-147, 0 steps) from  [160, 251] to 13, 251!
+: 251 387
+: Moving onsets (0, 136 steps) from  [13, 264] to 13, 400!
+[[./.ob-jupyter/ee40b654d2002d023d0ca258b299cd5c9fc70bea.png]]
+[[./.ob-jupyter/815afa82df43e93ac493b039e6f145b3fe2b0e43.png]]
+[[./.ob-jupyter/9abebf20ba07e8d5e137090a804c5296f6f7abbe.png]]
+[[./.ob-jupyter/c070a975a977ef8095162ef00ac352d4fb377b31.png]]
+[[./.ob-jupyter/fa45903476821f9db9b07b3a5d27f131cb8071be.png]]
+:END:

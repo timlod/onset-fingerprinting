@@ -404,3 +404,145 @@ class CNNRNN(L.LightningModule):
                 "frequency": 1,
             },
         }
+
+
+class FCNN(L.LightningModule):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        hidden_layers: list[int] = [10, 10, 10],
+        activation: nn.Module = nn.ReLU,
+        dropout: float = 0.0,
+        batch_norm: bool = True,
+        l2_reg: float = 0.0,
+        eye_init=False,
+        eye_noise_floor=0.01,
+        bias=True,
+    ) -> None:
+        """
+        Initialize a flexible network to translate scalar inputs into scalar
+        outputs.
+
+        :param input_size: Number of input features.
+        :param output_size: Number of output features.
+        :param hidden_layers: List of integers specifying the size of hidden
+            layers.
+        :param activation: Activation function ('relu', 'tanh', 'sigmoid',
+            etc.).
+        :param dropout: Dropout rate between layers (default 0.0 means no
+            dropout).
+        :param batch_norm: If True, add batch normalization after each hidden
+            layer.
+        :param l2_reg: L2 regularization parameter (default 0.0).
+        """
+        super(FCNN, self).__init__()
+
+        self.l2_reg = l2_reg
+        layers = []
+        layer_sizes = [input_size] + hidden_layers
+
+        for i in range(len(layer_sizes) - 1):
+            layer = nn.Linear(layer_sizes[i], layer_sizes[i + 1], bias=bias)
+            if eye_init:
+                self.init_eye_weights(layer, eye_noise_floor)
+            layers.append(layer)
+
+            if batch_norm:
+                layers.append(nn.BatchNorm1d(layer_sizes[i + 1]))
+
+            layers.append(activation())
+
+            if dropout > 0:
+                layers.append(nn.Dropout(p=dropout))
+
+        layer = nn.Linear(layer_sizes[-1], output_size, bias=bias)
+        if eye_init:
+            self.init_eye_weights(layer, eye_noise_floor)
+        layers.append(layer)
+
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Perform forward pass through the network.
+
+        :param x: Input tensor of shape (batch_size, input_size)
+        :return: Output tensor of shape (batch_size, output_size)
+        """
+        return self.network(x)
+
+    def l2_loss(self) -> torch.Tensor:
+        """
+        Compute L2 regularization loss if specified.
+
+        :return: L2 regularization loss
+        """
+        if self.l2_reg == 0.0:
+            return torch.tensor(0.0)
+
+        l2_loss = torch.tensor(0.0)
+        for param in self.parameters():
+            l2_loss += torch.sum(param**2)
+
+        return self.l2_reg * l2_loss
+
+    def init_eye_weights(self, layer, noise_floor=0.001):
+        perturbation = (
+            torch.randn(layer.out_features, layer.in_features) * noise_floor
+        )
+        layer.weight.data = (
+            torch.eye(layer.out_features, layer.in_features) + perturbation
+        )
+
+    def call_np(self, lags) -> np.ndarray:
+        """
+        Process individual pairs of lags and returns the prediction as a numpy
+        array.
+
+        :param lags: observed lags
+        """
+        with torch.no_grad():
+            return self(torch.tensor([lags], dtype=torch.float32)).numpy()[0]
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        out = self(x)
+        loss = self.loss(out, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        out = self(x)
+        loss = F.l1_loss(out, y)
+        self.log("val_loss", loss)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        out = self(x)
+        loss = F.l1_loss(out, y)
+        self.log("hp_metric", loss)
+        plots.cartesian_circle(out.cpu().detach().numpy())
+        self.logger.experiment.add_figure("test", plt.gcf())
+        plt.close()
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = optim.NAdam(self.parameters(), lr=self.lr)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, factor=0.5, patience=100
+        # )
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 100)
+        # scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        #     optimizer, 250, 1
+        # )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }

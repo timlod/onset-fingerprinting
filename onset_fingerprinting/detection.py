@@ -1,4 +1,4 @@
-import ctypes
+gimport ctypes
 from pathlib import Path
 from typing import Optional
 
@@ -638,7 +638,8 @@ class AmplitudeOnsetDetector:
             detected.  Uses the recent range of the relative envelope to
             compute actual thresholds
         :param off_threshold: threshold in [0, 1] below which the signal must
-            fall before another onset can be detected.  Uses the recent range
+
+        fall before another onset can be detected.  Uses the recent range
             of the relative envelope to compute actual thresholds
         :param cooldown: after an onset has been detected, will wait at least
             this many samples before triggering another onset, regardless of
@@ -669,7 +670,7 @@ class AmplitudeOnsetDetector:
         )
         self.minmax_tracker = MinMaxEnvelopeFollower(
             x0=np.array([[0, 10]] * n_signals).T,
-            alpha_min=1e-4,
+            alpha_min=2e-4,
             alpha_max=1e-5,
         )
 
@@ -708,16 +709,14 @@ class AmplitudeOnsetDetector:
         """
         if self.hp is not None:
             x = self.hp(x)
-        xd = np.diff(x, axis=0)
         # Compute floor-clipped, rectified dB
         x = 20 * np.log10(np.abs(x + 1e-10))
         x = x.clip(self.floor)
-        # TODO try this further
-        x[1:][xd >= 0] = 0
         relative_envelope = self.fast_slide(x) - self.slow_slide(x)
         # Back to amplitude
         relative_envelope = 10 ** (relative_envelope / 20) - 1e-10
         relative_envelope = relative_envelope.clip(0, -self.floor)
+
         if self.backtrack:
             self.buffer.write(relative_envelope)
 

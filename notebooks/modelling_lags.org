@@ -33,6 +33,7 @@ import torch
 import torch.nn as nn
 from onset_fingerprinting import (
     calibration,
+    data,
     detection,
     model,
     multilateration,
@@ -44,6 +45,7 @@ from torch.nn import functional as F
 
 #+name: env
 #+begin_src python
+data_dir = Path("../data/demo2")
 device = "cuda"
 #+end_src
 
@@ -446,92 +448,6 @@ tensor([[  9,  46,  31],
 [[./.ob-jupyter/9b6d49aadc3afb461346e114ee8a746b8efd775b.png]]
 :END:
 
-
-
-#+RESULTS:
-#+begin_example
-Epoch 0, TL 12356.1396484375 VL: 11654.6298828125
-Epoch 100, TL 7621.8505859375 VL: 8922.38671875
-Epoch 200, TL 4692.791015625 VL: 4432.2724609375
-Epoch 300, TL 3617.2890625 VL: 3960.30810546875
-Epoch 400, TL 2975.39501953125 VL: 3386.6318359375
-Epoch 500, TL 1673.6810302734375 VL: 1782.166015625
-Epoch 600, TL 601.9627075195312 VL: 1070.9232177734375
-Epoch 700, TL 438.4246826171875 VL: 714.2683715820312
-Epoch 800, TL 252.6402130126953 VL: 660.646240234375
-Epoch 900, TL 208.8948211669922 VL: 413.8019714355469
-Epoch 1000, TL 163.1772918701172 VL: 311.8202819824219
-Epoch 1100, TL 128.8693389892578 VL: 320.7862548828125
-Epoch 1200, TL 112.0771255493164 VL: 292.47454833984375
-Epoch 1300, TL 64.62334442138672 VL: 387.5838317871094
-Epoch 1400, TL 86.0174560546875 VL: 215.64512634277344
-Epoch 1500, TL 78.3893051147461 VL: 212.8132781982422
-Epoch 1600, TL 58.031585693359375 VL: 217.86044311523438
-Epoch 1700, TL 39.056209564208984 VL: 220.63156127929688
-Epoch 1800, TL 32.34804916381836 VL: 189.09466552734375
-Epoch 1900, TL 24.82532501220703 VL: 196.97238159179688
-Epoch 2000, TL 24.550607681274414 VL: 175.1767120361328
-Epoch 2100, TL 24.274049758911133 VL: 187.39707946777344
-Epoch 2200, TL 15.048283576965332 VL: 170.42678833007812
-Epoch 2300, TL 14.50401782989502 VL: 155.8015594482422
-Epoch 2400, TL 14.956853866577148 VL: 164.1660919189453
-Epoch 2500, TL 13.131484985351562 VL: 160.4081573486328
-Epoch 2600, TL 11.323251724243164 VL: 155.822998046875
-Epoch 2700, TL 11.416837692260742 VL: 158.9982147216797
-Epoch 2800, TL 13.83969497680664 VL: 150.00393676757812
-Epoch 2900, TL 9.069437980651855 VL: 163.32676696777344
-Epoch 2999, Loss 11.212181091308594
-tensor([[  -0.2927,   -3.0392],
-        [  -0.7276,   -2.8642],
-        [   0.6274,    0.3188],
-        [-252.9344,   -1.5700],
-        [ 256.4276, -252.8566],
-        [   5.4303,  249.7804],
-        [ 129.4544,  -98.4681],
-        [-132.0554,   46.2599],
-        [ -14.3961,   92.2857],
-        [ -64.0335,    7.8503]], device='cuda:0', grad_fn=<SliceBackward0>) 
- tensor([[   0.,    0.],
-        [   0.,    0.],
-        [   0.,    0.],
-        [-255.,    0.],
-        [ 255., -255.],
-        [   0.,  255.],
-        [ 126.,  -96.],
-        [-135.,   46.],
-        [ -12.,   82.],
-        [ -67.,    9.]], device='cuda:0')
-#+end_example
-
-#+begin_example
-Mean loss: 9.929891, Median loss: 5.3763
-Best: tensor([-236.,   86.,    0.,   -8.,   27.,  163.,   71.,  229.,   50.,  126.,
-          82.,  -45.,  163.,  128.,    5.,   30.,  -27., -116.,   49.,  176.]) 
-Worst: tensor([-178.,  123.,  159.,  162.,  152.,  184.,  195.,  176.,  158.,  178.,
-         160.,  150.,  175.,  184.,  182.,  184.,  210.,  201.,  197.,  205.])
-tensor([[202,  24,  45],
-        [ 91, 214,  98],
-        [ 86, 245,  90],
-        [ 15, 177,  25],
-        [ 51, 203,  55],
-        [  7, 191,   6],
-        [  5, 200,   2],
-        [ 64, 240,  43],
-        [ 37, 195,  22],
-        [ 10, 188,  16],
-        [ 87, 247, 106],
-        [ 60, 210,  67],
-        [ 40, 215,  29],
-        [ 22, 206,  18],
-        [ 61, 243,  79],
-        [ 58, 242,  44],
-        [ 16, 226,   3],
-        [ 15, 216,  23],
-        [ 51, 248,  65],
-        [ 43, 248,  27]], device='cuda:0')
-#+end_example
-[[./.ob-jupyter/758e66ff4cd77bc94a894c5f05d9ba3ddd4ef35c.png]]
-[[./.ob-jupyter/7fcba408499a538dea4778611957b1d615e06577.png]]
 
 Error analysis:
 The MSE is still very high on this, possibly because we overfit, having lowered
@@ -974,13 +890,52 @@ def generate_data2(w: int, c: int, n: int = 10000, max_shift=10, device=None):
     for i in range(c):
         z[i, i] = w - 1
     impulses[3 : 3 + c] = z
-    signals.scatter_(2, impulses[:, :, None], 1)
+    signals.scatter_(2, impulses[:, :, None], -1)
+    signals *= torch.rand((*signals.shape[:2], 1), device=device) ** 2
     return signals, torch.diff(impulses).to(torch.float32), impulses
+
+
+def generate_data2(w: int, c: int, n: int = 10000, max_shift=10, device=None):
+    signals = torch.zeros(n, c, w, device=device)
+    impulses = torch.stack(
+        (
+            torch.randint(170, 300, (n,)),
+            torch.randint(170, 300, (n,)),
+            torch.randint(0, max_shift, (n,)),
+        ),
+        1,
+    ).to(device)
+    mini = impulses.min(dim=1, keepdim=True).values
+    impulses -= mini
+    impulses += torch.maximum(
+        torch.tensor(0, device=device),
+        torch.minimum(
+            w - impulses.max(dim=1, keepdim=True).values - 1,
+            torch.randint(max_shift, (len(impulses), 1), device=device),
+        ),
+    )
+    # Force some 0s
+    impulses[0] = torch.tensor([0] * c)
+    impulses[1] = torch.tensor([w // 2] * c)
+    impulses[2] = torch.tensor([w - 1] * c)
+    # Force the extremes
+    z = torch.zeros((c, c), dtype=torch.long)
+    for i in range(c):
+        z[i, i] = w - 1
+    impulses[3 : 3 + c] = z
+    signals.scatter_(2, impulses[:, :, None], -1)
+    signals *= torch.rand((*signals.shape[:2], 1), device=device) ** 2
+    return signals, torch.diff(impulses).to(torch.float32), impulses
+
+
+def standardize(x):
+    # return (x - x.mean(-1, keepdim=True)) / x.std(-1, keepdim=True)
+    return x / x.std(-1, keepdim=True)
 #+end_src
 
 
 #+begin_src python
-w = 256
+w = 384
 c = 3
 lossfun = F.mse_loss
 lr = 0.001 * (5 if lossfun == F.mse_loss else 1)
@@ -1011,22 +966,22 @@ m = model.RNN(
 #     dropout_rate=0.8,
 #     groups=1,
 # ).to(device)
-x, y, imp = generate_data2(w, c, 1000, 100, device=device)
-tx, ty, timp = generate_data2(w, c, 1000, 100, device=device)
+x, y, imp = generate_data2(w, c, 1000, 50, device=device)
+tx, ty, timp = generate_data2(w, c, 1000, 50, device=device)
 optimizer = optim.NAdam(m.parameters(), lr=lr, weight_decay=1e-4)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     optimizer, num_epochs / 10
 )
-errors, bm = train(
-    x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
-)
-x = transform_impulse1(x, 200, 20)
-tx = transform_impulse1(tx, 200, 20)
-errors, bm = train(
-    x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
-)
-x = transform_impulse2(x, imp, True, 0.01)
-tx = transform_impulse2(tx, timp, True, 0.01)
+# errors, bm = train(
+#     x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
+# )
+x = transform_impulse1(x, 300, 20)
+tx = transform_impulse1(tx, 300, 20)
+# errors, bm = train(
+#     x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
+# )
+x = standardize(transform_impulse2(x, imp, True, 0.0001))
+tx = standardize(transform_impulse2(tx, timp, True, 0.0001))
 errors, bm = train(
     x, y, m, lossfun, optimizer, scheduler, 3000, tx[:100], ty[:100], 500
 )
@@ -1034,160 +989,47 @@ errors, bm = train(
 
 #+RESULTS:
 #+begin_example
-Epoch 0, TL 4395.76611328125 VL: 5299.62255859375
-Epoch 100, TL 3365.845703125 VL: 4822.96044921875
-Epoch 200, TL 2772.103271484375 VL: 3702.37548828125
-Epoch 300, TL 3322.334228515625 VL: 4290.53662109375
-Epoch 400, TL 3812.298828125 VL: 3554.98876953125
-Epoch 500, TL 2912.2646484375 VL: 2528.25927734375
-Epoch 600, TL 1182.7371826171875 VL: 1790.157470703125
-Epoch 700, TL 1227.01611328125 VL: 1872.30615234375
-Epoch 800, TL 1848.1175537109375 VL: 1960.5078125
-Epoch 900, TL 970.9756469726562 VL: 1661.15478515625
-Epoch 1000, TL 518.984619140625 VL: 992.01708984375
-Epoch 1100, TL 809.7820434570312 VL: 1747.26806640625
-Epoch 1200, TL 2681.91357421875 VL: 2803.46337890625
-Epoch 1300, TL 477.33197021484375 VL: 802.52294921875
-Epoch 1400, TL 267.9732666015625 VL: 652.127197265625
-Epoch 1500, TL 286.6626892089844 VL: 884.8186645507812
-Epoch 1600, TL 854.4407958984375 VL: 855.2654418945312
-Epoch 1700, TL 231.8495635986328 VL: 721.853271484375
-Epoch 1800, TL 144.84832763671875 VL: 460.5245361328125
-Epoch 1900, TL 169.9160919189453 VL: 735.3161010742188
-Epoch 2000, TL 366.41845703125 VL: 978.0071411132812
-Epoch 2100, TL 146.53395080566406 VL: 478.1092224121094
-Epoch 2200, TL 105.03839874267578 VL: 330.9482421875
-Epoch 2300, TL 115.1164779663086 VL: 526.8109741210938
-Epoch 2400, TL 149.66419982910156 VL: 749.67724609375
-Epoch 2500, TL 174.15863037109375 VL: 391.32769775390625
-Epoch 2600, TL 74.22200775146484 VL: 268.6869812011719
-Epoch 2700, TL 72.20063018798828 VL: 414.69439697265625
-Epoch 2800, TL 97.6591796875 VL: 598.396484375
-Epoch 2900, TL 68.07989501953125 VL: 290.2934875488281
-Epoch 2999, Loss 51.260860443115234
-tensor([[  10.1366,  -17.9054],
-        [  13.1774,  -13.3129],
-        [  12.9529,  -13.0401],
-        [-173.3324,   17.5262],
-        [ 157.5206, -155.4530],
-        [ -22.7140,  177.0232],
-        [  70.3581,  -46.2313],
-        [  44.1151, -105.5530],
-        [ 122.4708,  -89.5229],
-        [  31.2111,  -75.7051]], device='cuda:0', grad_fn=<SliceBackward0>) 
+Epoch 0, TL 24670.58203125 VL: 26087.013671875
+Epoch 100, TL 2461.189208984375 VL: 5351.8681640625
+Epoch 200, TL 2203.37158203125 VL: 5030.26025390625
+Epoch 300, TL 2162.49365234375 VL: 4887.7470703125
+Epoch 400, TL 2077.96044921875 VL: 4716.88916015625
+Epoch 500, TL 1571.4285888671875 VL: 4083.708740234375
+Epoch 600, TL 1218.01513671875 VL: 3636.88427734375
+Epoch 700, TL 1093.2430419921875 VL: 3658.283935546875
+Epoch 800, TL 1058.1771240234375 VL: 3627.931884765625
+Epoch 900, TL 746.5901489257812 VL: 3157.840576171875
+Epoch 1000, TL 624.857177734375 VL: 3025.976806640625
+Epoch 1100, TL 600.8016357421875 VL: 3095.292236328125
+Epoch 1200, TL 505.534912109375 VL: 3549.07470703125
+Epoch 1300, TL 401.6212158203125 VL: 3290.194580078125
+Epoch 1400, TL 338.54364013671875 VL: 3120.701171875
+Epoch 1500, TL 343.5242614746094 VL: 3208.28369140625
+Epoch 1600, TL 293.17352294921875 VL: 3387.800537109375
+Stopping at epoch 1614!
+Epoch 1614, Loss 294.9203186035156
+tensor([[-2.5625e+01, -9.6391e-02],
+        [ 1.7103e+00, -9.9122e+01],
+        [-7.7437e+01, -2.5574e+01],
+        [-1.9695e+02,  3.1331e+01],
+        [ 1.4379e+02, -2.8706e+02],
+        [-1.1384e+02,  1.3179e+02],
+        [-6.9554e+01, -1.6796e+02],
+        [-1.6394e+01, -1.8120e+02],
+        [ 4.2526e+01, -2.5560e+02],
+        [ 2.2885e+00, -2.1050e+02]], device='cuda:0', grad_fn=<SliceBackward0>) 
  tensor([[   0.,    0.],
         [   0.,    0.],
         [   0.,    0.],
-        [-255.,    0.],
-        [ 255., -255.],
-        [   0.,  255.],
-        [  80.,  -49.],
-        [  40., -104.],
-        [ 128.,  -94.],
-        [  33.,  -80.]], device='cuda:0')
-Epoch 0, TL 3757.65576171875 VL: 3640.633056640625
-Epoch 100, TL 247.66635131835938 VL: 409.28961181640625
-Epoch 200, TL 211.8089141845703 VL: 291.97784423828125
-Epoch 300, TL 51.52690124511719 VL: 170.4066162109375
-Epoch 400, TL 20.654159545898438 VL: 99.1829605102539
-Epoch 500, TL 39.93817138671875 VL: 88.76754760742188
-Epoch 600, TL 74.1521224975586 VL: 166.62974548339844
-Epoch 700, TL 30.708261489868164 VL: 65.65766906738281
-Epoch 800, TL 8.916840553283691 VL: 43.72679901123047
-Epoch 900, TL 31.219749450683594 VL: 31.562416076660156
-Epoch 1000, TL 10.731572151184082 VL: 60.79820251464844
-Epoch 1100, TL 8.798493385314941 VL: 25.034931182861328
-Epoch 1200, TL 4.425315856933594 VL: 14.026777267456055
-Epoch 1300, TL 5.048941135406494 VL: 13.20430850982666
-Epoch 1400, TL 17.053970336914062 VL: 29.951086044311523
-Epoch 1500, TL 5.24343729019165 VL: 13.691798210144043
-Epoch 1600, TL 3.1189658641815186 VL: 9.197158813476562
-Epoch 1700, TL 6.30896520614624 VL: 7.787571907043457
-Epoch 1800, TL 15.738643646240234 VL: 19.0738582611084
-Epoch 1900, TL 7.203464031219482 VL: 7.392098903656006
-Epoch 2000, TL 2.2224698066711426 VL: 5.900872707366943
-Epoch 2100, TL 3.703397035598755 VL: 4.962874412536621
-Epoch 2200, TL 9.485461235046387 VL: 16.46314239501953
-Epoch 2300, TL 2.431313991546631 VL: 6.579531192779541
-Epoch 2400, TL 1.9502060413360596 VL: 4.203733921051025
-Epoch 2500, TL 2.643656015396118 VL: 6.293785095214844
-Epoch 2600, TL 4.755863666534424 VL: 22.464324951171875
-Epoch 2700, TL 4.248551845550537 VL: 4.106677532196045
-Epoch 2800, TL 1.663733720779419 VL: 2.814873695373535
-Epoch 2900, TL 2.257847309112549 VL: 3.483154773712158
-Epoch 2999, Loss 9.530533790588379
-tensor([[  -2.8574,    1.1075],
-        [   0.8431,    0.9241],
-        [  -5.6148,   -1.9003],
-        [-253.5990,   -1.0545],
-        [ 251.6201, -247.6473],
-        [  -7.9750,  246.4797],
-        [  82.5954,  -50.0517],
-        [  36.5455, -101.0688],
-        [ 131.9486,  -92.9606],
-        [  34.7109,  -80.0628]], device='cuda:0', grad_fn=<SliceBackward0>) 
- tensor([[   0.,    0.],
-        [   0.,    0.],
-        [   0.,    0.],
-        [-255.,    0.],
-        [ 255., -255.],
-        [   0.,  255.],
-        [  80.,  -49.],
-        [  40., -104.],
-        [ 128.,  -94.],
-        [  33.,  -80.]], device='cuda:0')
-Epoch 0, TL 106.94245910644531 VL: 99.25122833251953
-Epoch 100, TL 10.359472274780273 VL: 21.093120574951172
-Epoch 200, TL 6.979597091674805 VL: 17.06334114074707
-Epoch 300, TL 6.004084587097168 VL: 15.146120071411133
-Epoch 400, TL 12.52808666229248 VL: 16.590269088745117
-Epoch 500, TL 6.083004951477051 VL: 11.449847221374512
-Epoch 600, TL 4.390475273132324 VL: 10.803228378295898
-Epoch 700, TL 4.0955634117126465 VL: 12.54408073425293
-Epoch 800, TL 5.846721172332764 VL: 23.0767822265625
-Epoch 900, TL 6.763631820678711 VL: 7.676110744476318
-Epoch 1000, TL 3.189301013946533 VL: 5.618921279907227
-Epoch 1100, TL 5.026641845703125 VL: 5.327602386474609
-Epoch 1200, TL 6.647042274475098 VL: 7.531866073608398
-Epoch 1300, TL 4.106977462768555 VL: 5.394028663635254
-Epoch 1400, TL 2.40857195854187 VL: 4.836437702178955
-Epoch 1500, TL 3.81868052482605 VL: 3.960578441619873
-Epoch 1600, TL 4.547883987426758 VL: 9.753561973571777
-Epoch 1700, TL 3.478538751602173 VL: 4.64895486831665
-Epoch 1800, TL 1.8218472003936768 VL: 4.345370769500732
-Epoch 1900, TL 2.1438331604003906 VL: 5.599161148071289
-Epoch 2000, TL 3.403980255126953 VL: 10.333402633666992
-Epoch 2100, TL 3.355443000793457 VL: 3.6203765869140625
-Epoch 2200, TL 1.5254161357879639 VL: 2.8843836784362793
-Epoch 2300, TL 2.344771146774292 VL: 2.935321569442749
-Epoch 2400, TL 2.844273567199707 VL: 10.029642105102539
-Epoch 2500, TL 1.3621636629104614 VL: 3.4204516410827637
-Epoch 2600, TL 1.212609887123108 VL: 1.9826327562332153
-Epoch 2700, TL 2.069546937942505 VL: 2.834421396255493
-Epoch 2800, TL 5.372961521148682 VL: 3.4183897972106934
-Epoch 2900, TL 1.7085667848587036 VL: 2.390336513519287
-Epoch 2999, Loss 1.0286846160888672
-tensor([[-5.6807e-01, -4.9543e-01],
-        [ 5.8342e-01,  9.4363e-01],
-        [-2.1604e-01,  4.6893e-01],
-        [-2.5363e+02,  4.0343e-02],
-        [ 2.5675e+02, -2.5548e+02],
-        [-2.4753e+00,  2.5302e+02],
-        [ 8.1115e+01, -4.9502e+01],
-        [ 4.0290e+01, -1.0284e+02],
-        [ 1.2700e+02, -9.2850e+01],
-        [ 3.2659e+01, -7.8642e+01]], device='cuda:0', grad_fn=<SliceBackward0>) 
- tensor([[   0.,    0.],
-        [   0.,    0.],
-        [   0.,    0.],
-        [-255.,    0.],
-        [ 255., -255.],
-        [   0.,  255.],
-        [  80.,  -49.],
-        [  40., -104.],
-        [ 128.,  -94.],
-        [  33.,  -80.]], device='cuda:0')
+        [-383.,    0.],
+        [ 383., -383.],
+        [   0.,  383.],
+        [ -70., -165.],
+        [ -38., -158.],
+        [  42., -251.],
+        [  28., -215.]], device='cuda:0')
 #+end_example
+
 
 #+begin_src python :async no
 error_analysis(bm, tx, ty, timp)
@@ -1196,38 +1038,83 @@ error_analysis(bm, tx, ty, timp)
 #+RESULTS:
 :RESULTS:
 #+begin_example
-Mean loss: 6.774760, Median loss: 4.7079
-Best: tensor([ 20.,  80.,  10., -34.,  36.,  21.,  45.,  62.,  45.,   1., -36.,  25.,
-         17.,  23.,  23., -48.,  53.,  17.,   7.,  11.]) 
-Worst: tensor([ 144., -107.,  101.,  -89.,  131., -122., -152.,   -7., -109., -109.,
-        -108.,  -38.,  133.,  -98.,  -60., -113., -106., -120., -130.,  144.])
-tensor([[ 82, 226, 125],
-        [200,  93, 100],
-        [ 79, 180,  31],
-        [158,  69,  31],
-        [ 19, 150,  95],
-        [150,  28,  15],
-        [201,  49, 154],
-        [  8,   1, 132],
-        [203,  94,  73],
-        [201,  92,  64],
-        [169,  61,  34],
-        [205, 167,  89],
-        [ 98, 231, 135],
-        [203, 105,  81],
-        [136,  76,   0],
-        [169,  56,  33],
-        [158,  52,  19],
-        [218,  98, 237],
-        [230, 100,  95],
-        [ 96, 240, 174]], device='cuda:0')
+Mean loss: 14.548420, Median loss: 6.8894
+Best: tensor([ -27.,  -89.,   80.,  -71., -131.,  -72.,  -18.,  -68.,   44.,    3.,
+         -50.,  106.,   44.,  -15.,  104.,  105.,   45.,    3.,  135.,  -11.]) 
+Worst: tensor([  20.,    6., -178.,    0.,   85.,  131.,   99., -148., -114.,    0.,
+        -158.,    0., -123., -132.,  145.,   72., -100.,  151.,  179.,  255.])
+tensor([[ 17,  37, 113],
+        [  6,  12,  57],
+        [209,  31,  92],
+        [ 14,  14,  42],
+        [ 30, 115,  75],
+        [  6, 137,  58],
+        [ 41, 140,  12],
+        [177,  29, 157],
+        [176,  62,  28],
+        [ 22,  22, 190],
+        [182,  24,  52],
+        [  0,   0, 255],
+        [141,  18, 132],
+        [150,  18, 184],
+        [ 49, 194,  68],
+        [138, 210,  21],
+        [105,   5,  41],
+        [ 36, 187, 111],
+        [ 30, 209, 197],
+        [  0, 255,   0]], device='cuda:0')
 #+end_example
-[[./.ob-jupyter/d914becde805d32c34eb8ec065320a3ff22f7dc3.png]]
-[[./.ob-jupyter/4589c41dc71f8d42729d0dbfc158c589e7c56273.png]]
+[[./.ob-jupyter/3cf144b25f22818ddbecc7966b97e9ea556a84b7.png]]
+[[./.ob-jupyter/47c4afee29b4a93be41aa98f7035d2acc134abe8.png]]
 :END:
 
-** Real Data
 
+** Real Data
+Let's load real data and see if this can translate:
+#+begin_src python
+audio = []
+x, sr = sf.read(data_dir / "calib_snare0.wav", dtype=np.float32)
+audio.append(x)
+x, sr = sf.read(data_dir / "calib_snare1.wav", dtype=np.float32)
+audio.append(x)
+x, sr = sf.read(data_dir / "calib_snare2.wav", dtype=np.float32)
+audio.append(x)
+audio = np.stack(audio).T[12*sr:-10*sr]
+audio = np.ascontiguousarray(audio)
+#+end_src
+
+#+begin_src python
+cf, of, rel = detection.detect_onsets_amplitude(
+    audio,
+    128,
+    hipass_freq=1000,
+    fast_ar=(0.4, 100),
+    slow_ar=(8000, 8000),
+    on_threshold=[0.3, 0.3, 0.151],
+    off_threshold=0.3,
+    cooldown=9000,
+    sr=sr,
+    backtrack=False,
+    backtrack_buffer_size=256,
+    backtrack_smooth_size=1,
+)
+oc = detection.find_onset_groups(of, cf, 700)
+occ = detection.fix_onsets(
+    audio, oc, onset_tolerance=50, take_abs=True
+)
+plots.plot_onsets(audio, oc)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: <Axes: >
+[[./.ob-jupyter/e13d2b29265f9f8865d3827c8adee8ac5a5b6055.png]]
+:END:
+
+#+begin_src python
+fe = data.FastFrameExtractor(audio, occ.min(1), 256, 10, 20)
+X = fe()
+#+end_src
 
 * Pre-training
 Start with impulse data, and epoch-by-epoch morph it into something looking

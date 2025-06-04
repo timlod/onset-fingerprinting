@@ -131,6 +131,7 @@ class FastFrameExtractor:
     possible as tensors.
     """
 
+    # TODO: Precompute all shifts and CCs to index from for super speed
     def __init__(
         self,
         audio: np.ndarray,
@@ -247,6 +248,7 @@ class MCPOSD(Dataset):
         max_shift: int = 0,
         n_extractions: int = 1,
         device=None,
+        cc: bool = False,
     ):
         self.data = data
         self.frame_extractor = FastFrameExtractor(
@@ -258,6 +260,19 @@ class MCPOSD(Dataset):
                 sound_positions, dtype=torch.float32, device=device
             )
             self.x = self.frame_extractor()
+            if cc:
+                a = batch_cc(self.x[:, 0, :], self.x[:, 1, :])[:, None, :]
+                b = batch_cc(self.x[:, 1, :], self.x[:, 2, :])[:, None, :]
+                self.x = torch.cat(
+                    [
+                        self.x,
+                        a[..., :frame_length],
+                        a[..., -frame_length:],
+                        b[..., :frame_length],
+                        b[..., -frame_length:],
+                    ],
+                    dim=1,
+                )
             self.straight = True
         else:
             y = [sound_positions for i in range(n_extractions)]
@@ -266,6 +281,7 @@ class MCPOSD(Dataset):
             )
             self.straight = False
         self.n_extractions = n_extractions
+        self.cc = cc
 
     def __getitem__(self, index):
         if self.straight:
@@ -274,6 +290,20 @@ class MCPOSD(Dataset):
             x = torch.cat(
                 [self.frame_extractor() for i in range(self.n_extractions)]
             )
+            if self.cc:
+                frame_length = x.shape[-1]
+                a = batch_cc(x[:, 0, :], x[:, 1, :])[:, None, :]
+                b = batch_cc(x[:, 1, :], x[:, 2, :])[:, None, :]
+                x = torch.cat(
+                    [
+                        x,
+                        a[..., :frame_length],
+                        a[..., -frame_length:],
+                        b[..., :frame_length],
+                        b[..., -frame_length:],
+                    ],
+                    dim=1,
+                )
             return x, self.y
 
     def __len__(self):
