@@ -276,6 +276,86 @@ def polar_circle(
     return ax
 
 
+def error_heatmap(
+    grid_pos: np.ndarray,
+    errors: np.ndarray,
+    error_scaling: float | None = None,
+    grid_size: float = 0.02,
+    radius: float = 0.1778,
+    ax: plt.Axes | None = None,
+    figsize: tuple[float, float] = (4, 4),
+    cmap: str = "afmhot_r",
+    title: str = "Grid heatmap",
+    outliers: np.ndarray | None = None,
+) -> plt.Axes:
+    """
+    Plots a circular heatmap with square grid cells at specified grid positions.
+
+    If `outliers` are provided, small indicator squares are drawn at the
+    top-left corner of each cell with the corresponding outlier value.
+
+    :param grid_pos: (N, 2) array with (x, y) positions of grid cells.
+    :param errors: Array with error values for each grid cell.
+    :param grid_size: Size of the square grid cells.
+    :param radius: Radius of the circular boundary.
+    :param ax: Optional existing matplotlib Axes to plot into.
+    :param figsize: Size of the figure if ax is None.
+    :param cmap: Colormap to use for error visualization.
+    :param title: Title for the plot.
+    :param outliers: Optional array of outlier values for each grid cell.
+    :returns: The matplotlib Axes containing the plot.
+    """
+    if ax is None:
+        fig = plt.figure(figsize=figsize)
+        ax = fig.add_subplot(111)
+
+    fig.suptitle(title)
+    if error_scaling is None:
+        error_scaling = np.max(errors)
+    norm = Normalize(vmin=0, vmax=error_scaling)
+    cmap = plt.get_cmap(cmap)
+
+    half_grid = grid_size / 2
+    for idx, ((x, y), error) in enumerate(zip(grid_pos, errors)):
+        rect = plt.Rectangle(
+            (x - half_grid, y - half_grid),
+            grid_size,
+            grid_size,
+            color=cmap(norm(error)),
+            linewidth=0,
+        )
+        ax.add_patch(rect)
+
+        if outliers is not None:
+            small_size = grid_size * 0.25
+            small_rect = plt.Rectangle(
+                (x - half_grid, y + half_grid - small_size),
+                small_size,
+                small_size,
+                color=cmap(norm(outliers[idx])),
+                linewidth=0,
+            )
+            ax.add_patch(small_rect)
+
+    theta = np.linspace(0, 2 * np.pi, 100)
+    x_circle = np.sin(theta) * radius
+    y_circle = np.cos(theta) * radius
+    ax.plot(x_circle, y_circle, color="k", linewidth=1.0)
+
+    ax.set_xlim(-radius - grid_size, radius + grid_size)
+    ax.set_ylim(-radius - grid_size, radius + grid_size)
+    ax.set_aspect("equal")
+    ax.set_xlabel("cm")
+    ax.set_ylabel("cm")
+
+    sm = ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("Error (cm)", rotation=270, labelpad=15)
+
+    return ax
+
+
 def is_legal_3d_plot(m, group, tolerance=2):
     # We take a tolerance of 2cm around the target for this
     if tolerance is None:
