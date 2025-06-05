@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.cm import ScalarMappable
+from matplotlib.collections import QuadMesh
 from matplotlib.colors import Normalize
 from scipy.signal import find_peaks
 
@@ -174,27 +176,51 @@ def plot_3d_scene(
 
 
 def cartesian_circle(
-    coords, radius=0.1778, ax=None, figsize=(4, 4), s=3, cmap="Reds"
+    coords,
+    errors=None,
+    radius=0.1778,
+    ax=None,
+    figsize=(4, 4),
+    s=3,
+    cmap="rainbow",
+    title="",
 ):
     if ax is None:
         fig = plt.figure(figsize=figsize)
         ax = fig.add_subplot(111)
+    fig.suptitle(title)
     theta = np.linspace(0, 2 * np.pi, 100)
     x_circle = np.sin(theta) * radius
     y_circle = np.cos(theta) * radius
     ax.plot(x_circle, y_circle, linewidth=1.0)
     cmap = plt.get_cmap(cmap)
-    norm = Normalize(vmin=0, vmax=len(coords))
-    ax.scatter(
-        coords[:, 0],
-        coords[:, 1],
-        c=np.arange(len(coords)),
-        cmap=cmap,
-        norm=norm,
-        s=s,
-    )
-    ax.scatter(coords[:8, 0], coords[:8, 1], c="blue", s=s)
-    ax.scatter(coords[-8:, 0], coords[-8:, 1], c="black", s=s)
+    ax.scatter(coords[:8, 0], coords[:8, 1], c="blue", s=s * 2)
+    ax.scatter(coords[-8:, 0], coords[-8:, 1], c="black", s=s * 2)
+    if errors is None:
+        norm = Normalize(vmin=0, vmax=len(coords))
+        ax.scatter(
+            coords[:, 0],
+            coords[:, 1],
+            c=np.arange(len(coords)),
+            cmap=cmap,
+            norm=norm,
+            s=s,
+        )
+    else:
+        norm = Normalize(vmin=0, vmax=np.max(errors))
+        ax.scatter(
+            coords[:, 0],
+            coords[:, 1],
+            c=errors,
+            cmap=cmap,
+            norm=norm,
+            s=s,
+        )
+        sm = ScalarMappable(norm=norm, cmap=cmap)
+        sm.set_array([])
+        cbar = plt.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label("Error (cm)", rotation=270, labelpad=15)
+
     ax.axis("equal")
     return ax
 
