@@ -82,7 +82,7 @@ def update_group(idx, reset_zoom=False):
             window_size = max(end - start, 1)
         update_window()
     if progress_label:
-        progress_label.config(text=f"{idx + 1} / {len(hits)}")
+        progress_label.config(text=f"{idx} / {len(hits) - 1}")
 
 
 def store_current(idx):
@@ -159,6 +159,8 @@ def on_key(event):
             update_window()
         case " ":
             sd.play(audio[start : start + int(sr * 1.5)], samplerate=sr)
+        case "k":
+            save_data()
         case "q":
             on_close()
 
@@ -187,6 +189,12 @@ In the plot, click in the plot to move the onsets and press:
         default=(64, 128),
         metavar=("LEFT", "RIGHT"),
         help="tolerances to add left and right of onset group",
+    )
+    parser.add_argument(
+        "--start_at",
+        type=int,
+        default=0,
+        help="Start at the given onset index (skips first n onset groups)",
     )
     args = parser.parse_args()
 
@@ -221,7 +229,7 @@ In the plot, click in the plot to move the onsets and press:
     window_size = None
     start = 0
     window_center = 0
-    current_idx = 0
+    current_idx = args.start_at
     selected_idx = None
     moving = False
 
@@ -248,7 +256,7 @@ In the plot, click in the plot to move the onsets and press:
         fig.canvas.toolbar.push_current()
         canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        update_group(0, reset_zoom=True)
+        update_group(current_idx, reset_zoom=True)
         root.mainloop()
 
     current_x_label = None
