@@ -186,9 +186,11 @@ metadata about context in that session.
 **** Recording
 
 Required:
-1. =sampling_rate= (in Hz)
-2. =filetype= - file ending of each individual file, usually wav (omit the dot)
-3. =channels= - for each recording device/channel:
+1. =filetype= - file ending of each individual file, usually wav (omit the dot)
+   (TODO: maybe leave out and let loader handle? let's assume right now that we
+   only support wav as that's the simplest, with loading of arbitrary
+   channel-numbers supported everywhere.
+2. =channels= - for each recording device/channel:
    - Name of the recording device
    Optional:
    - Additional details such as:
@@ -198,9 +200,8 @@ Required:
          placement clearly, including distance to sound source
      - =pickup_pattern=: e.g. omni, cardioid, etc.
 
-Channel names have to match the actual audio files stored as part of the
-dataset.
-         
+It's important that the channel order matches the audio file channel oder!
+
 **** Instrument
 
 Required:
@@ -238,26 +239,31 @@ learning task(s).
 
 *** Hit
 In the metadata, hits are recorded at the end of the file containing session
-metadata.
+metadata. In case of multi-channel data, each hit might refer to onsets across
+the different channels.
 
 Required:
-1. =zone=
-   - Hit zone matching those defined in [[*Instrument class][Instrument class]], if present
+1. =i=
+   - index of the onset
 2. =onset_start=
-   - integer index into the paired audio file
+   - integer index into the paired audio file. If multi-channel data, a list of
+     integer indices, one per channel (must not miss channels!) TODO: think of
+     sentinel for unclear/missing onset in a channel (-1?)
 
 Optional:
-1. =location=
+1. =zone=
+   - Hit zone matching those defined in [[*Instrument class][Instrument class]], if present
+2. =location=
    - if useful/possible, think about storing the location of a hit within a
      zone, or globally around the instrument, see [[*Location data for 'round' drums][Location data for 'round'
      drums]]
-2. =pitch=
+3. =pitch=
    - more fine-grained pitch information (in Hz) than that recorded per
      session, useful for pitched instruments like timpani
-3. =velocity=
+4. =velocity=
    - value between 0 and 1 (approximately) noting the strength of the hit, e.g.
      0 for the most silent possible hit, and 1 for the hardest possible hit
-4. Hit conditions
+5. Hit conditions
    - has to match those specified in [[*Instrument class][Instrument class]], if present
       
 
@@ -279,11 +285,9 @@ create a folder for each instrument class.
 Dataset folder
 - instruments.json
 - session1.json
-- session1_SP.wav
-- session1_OP.wav
+- session1.wav
 - session2.json
-- session2_SP.wav
-- session2_OP.wav
+- session2.wav
 #+end_example
 
 *** Instrument class
@@ -329,103 +333,133 @@ in the session metadata!
 ~session1.json~
 #+begin_src json
 {
-    "meta":
-    {
-        "sampling_rate": 96000,
-        "filetype": "wav",
+    "meta": {
         "channels": {
             "SP": {
-                "location": [0.95, 0],
+                "location": [0.95, 0], 
                 "coordinate_system": "polar"
-            },
+            }, 
             "OP": {
-                "location": [0.95, 30],
+                "location": [0.95, 30], 
                 "coordinate_system": "polar"
             }
-        },
-        "instrument": "snare",
-        "manufacturer": "sonor",
-        "model": "BG SDW 2.0",
-        "size": "13x5.75",    
-        "head_top": "ambassador",
-        "head_bottom": "ambassador_ss",
-        "rim": "triple-flange",
-        "tuning": "low",
-        "player": "rodrigo",
+        }, 
+        "instrument": "snare", 
+        "manufacturer": "sonor", 
+        "model": "BG SDW 2.0", 
+        "size": "13x5.75", 
+        "head_top": "ambassador", 
+        "head_bottom": "ambassador_ss", 
+        "rim": "triple-flange", 
+        "tuning": "low", 
+        "player": "rodrigo", 
         "context": "full kit"
-    },
-    "hits":
-    {
-        "zone": ["center", "center", "edge", "edge"],
-        "onset_start": [0, 48000, 96000, 144000],
-        "velocity": [0.0, 1.0, 0.0, 1.0],
-        "isolated": [true, true, true, true],
-        "pitch": [220, 220, 219, 219],
-        "wires": ["on", "on", "off", "off"]
-    }
+    }, 
+    "hits": [
+        {
+            "i": 0, 
+            "zone": "center", 
+            "onset_start": [0, 2, 3], 
+            "velocity": 0.0, 
+            "isolated": true, 
+            "pitch": 220, 
+            "conditions": {"wires": "on"}
+        }, 
+        {
+            "i": 1, 
+            "zone": "center", 
+            "onset_start": [48000, 4805, 47900], 
+            "velocity": 1.0, 
+            "isolated": true, 
+            "pitch": 220, 
+            "conditions": {"wires": "on"}
+        }, 
+        {
+            "i": 2, 
+            "zone": "edge", 
+            "onset_start": [96000, 96000, 96000], 
+            "velocity": 0.0, 
+            "isolated": true, 
+            "pitch": 219, 
+            "conditions": {"wires": "off"}
+        }, 
+        {
+            "i": 3, 
+            "zone": "edge", 
+            "onset_start": [144000, 143900, 143999], 
+            "velocity": 1.0, 
+            "isolated": true, 
+            "pitch": 219, 
+            "conditions": {"wires": "off"}
+        }
+    ]
 }
 #+end_src
 
 ~session2.json~
 #+begin_src json
 {
-    "meta":
-    {
-        "sampling_rate": 96000,
-        "filetype": "wav",
+    "meta": {
         "channels": {
             "SP": {
-                "location": [0.98, 45],
-                "coordinate_system": "polar",
-            },
+                "location": [0.98, 45], 
+                "coordinate_system": "polar"
+            }, 
             "OP": {
-                "location": [0.98, 60],
-                "coordinate_system": "polar",
+                "location": [0.98, 60], 
+                "coordinate_system": "polar"
             }
-        },
-        "instrument": "kick",
-        "manufacturer": "sonor",
-        "model": "SQ2",
-        "size": "20x14",
-        "head_front": "powerstroke-p3",
-        "head_back": "ambassador-fiberskin",
-        "rim": "wood",
-        "player": "rodrigo",
+        }, 
+        "instrument": "kick", 
+        "manufacturer": "sonor", 
+        "model": "SQ2", 
+        "size": "20x14", 
+        "head_front": "powerstroke-p3", 
+        "head_back": "ambassador-fiberskin", 
+        "rim": "wood", 
+        "player": "rodrigo", 
         "context": "full kit"
-    },
-    "hits":
-    {
-        "zone": ["press", "press", "release", "release"],
-        "onset_start": [0, 48000, 96000, 144000],
-        "velocity": [0.5, 1.0, 0.5, 1.0],
-        "isolated": [true, true, true, true]
-    }
+    }, 
+    "hits": [
+        {
+            "i": 0, 
+            "zone": "press", 
+            "onset_start": [0, 2], 
+            "velocity": 0.0, 
+            "isolated": true
+        }, 
+        {
+            "i": 1, 
+            "zone": "press", 
+            "onset_start": [48000, 48030], 
+            "velocity": 1.0, 
+            "isolated": true
+        }, 
+        {
+            "i": 2, 
+            "zone": "release", 
+            "onset_start": [96000, 95900], 
+            "velocity": 0.0, 
+            "isolated": true
+        }, 
+        {
+            "i": 3, 
+            "zone": "release", 
+            "onset_start": [144000, 143900], 
+            "velocity": 1.0, 
+            "isolated": true 
+        }
+    ]
 }
 #+end_src
-
-** REVIEW Multichannel onsets
-Multichannel onsets pose an extra challenge if we require the onset to be
-reflecting the same moment in time across each channel. For example, we can
-trilaterate a sound source by using Time Difference of Arrival (TDoA) -
-essentially, comparing the difference in arrival times of the sound source at
-each channel. However, this only works well if the onset is very consistent
-across channels.
-
-We can use the same format as the normal POSD to represent multichannel data.
-However, it is possible to leave out the =onset_start= for some of the channels
-if we can't readily determine consistent multichannel onsets. We could then use
-cross-correlation or some advanced onset detection methods to get consistent
-onsets to record later.
-
-If data is used for calibration of multilateration methods, we need to include
-location information in at least one of the channels.
 
 *** TODO Notes
 :LOGBOOK:
 - State "TODO"       from              [2025-06-03 Tue 12:06]
 :END:
 
-Give each onset a boolean flag "aligned"?
+Give each onset a boolean flag "aligned"? This would be used for multi-channel
+onsets to state whether they point to the same onset instant.
 
 * Conventions
 POSD can refer to any dataset which adhers to the specification described in
