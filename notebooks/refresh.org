@@ -1,0 +1,1992 @@
+#+TITLE: Revisiting the project
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Tuesday, 20 May 2025
+#+STARTUP: showall
+#+PROPERTY: header-args :exports both :session refr :kernel lm :cache no
+:PROPERTIES:
+OPTIONS: ^:nil
+#+LATEX_COMPILER: xelatex
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [logo, color, author]
+#+LATEX_HEADER: \insertauthor
+#+LATEX_HEADER: \usepackage{minted}
+#+LATEX_HEADER: \usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+:END:
+
+* Imports and Environment Variables
+:PROPERTIES:
+:visibility: folded
+:END:
+
+#+name: imports
+#+begin_src python
+import json
+from importlib import reload
+from pathlib import Path
+
+import librosa
+import matplotlib.pyplot as plt
+import numpy as np
+import pedalboard
+import sounddevice as sd
+import soundfile as sf
+import torch
+import torch.nn as nn
+from onset_fingerprinting import calibration, detection, multilateration, plots
+from scipy import signal as sig
+from scipy.ndimage import binary_opening, maximum_filter1d, median_filter
+from torch import optim
+from torch.nn import functional as F
+#+end_src
+
+#+name: env
+#+begin_src python
+data_dir = Path("../data/location/Recordings3")
+# Rodrigos data is defined in millimeter:
+diameter = 14 * 2.54 / 100
+radius = diameter / 2
+sr = 96000
+#+end_src
+
+* Goal
+
+To revisit this project, I want to look at Rodrigo's Data of using 4 sensors,
+and apply to it my own onset detection routine to check its performance.
+
+This is the one we're interested in:
+
+[[file:~/projects/onset-fingerprinting/data/location/Recordings3/Images/setup1.jpg]]
+
+** Define mesh/lug positions
+He also provides some JSON data with hit locations, which we'll load here for
+the 2cm mesh:
+#+begin_src python
+with open(data_dir / "Data" / "20mesh_position.json") as f:
+    mesh_locs = []
+    ml = json.load(f)
+    for i in range(157):
+        mesh_locs.append(ml["data"][str(i)])
+
+mesh_locs = np.array(mesh_locs) / 1000
+        #+end_src
+
+and here for the hit locations next to the lugs:
+#+begin_src python
+with open(data_dir / "Data" / "8lugpositions.json") as f:
+    lug_locs = []
+    ml = json.load(f)
+    for i in range(8):
+        lug_locs.append(ml["data"][str(i)])
+
+lug_locs = np.array(lug_locs) / 1000
+#+end_src
+
+Rodrigo also provided me with the indexes for his detection of the 1240 hits:
+Let's quickly plot them to make sure the data is correct:
+#+begin_src python
+theta = np.linspace(0, 2 * np.pi, 100)
+x_circle = np.sin(theta) * radius
+y_circle = np.cos(theta) * radius
+plt.plot(x_circle, y_circle, label="Unit Circle")
+plt.scatter(mesh_locs[:, 0], mesh_locs[:, 1])
+for i, (x, y) in enumerate(mesh_locs):
+    plt.text(x, y, str(i), fontsize="xx-small")
+plt.scatter(lug_locs[:, 0], lug_locs[:, 1])
+for i, (x, y) in enumerate(lug_locs):
+    plt.text(x, y, str(i), c="darkred", fontsize="x-small")
+plt.axis("equal")
+plt.tight_layout()
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/791c6499708b1a5dae9f579b54e8d17e7626151e.png]]
+
+
+Looks fine! Let's load some data and see how we get on:
+
+** Data loading & onset detection
+
+Let's load the data get some basic onsets to start:
+
+#+begin_src python
+data, sr = sf.read(data_dir / "Setup 1" / "157 hits.wav", dtype=np.float32)
+data = data[12 * sr :, :]
+# mesh_idx -= 15 * sr
+print(data.shape[0] / sr)
+# This appears to be the reference for the lugdata, not the 157 hits:
+ref, sr = sf.read(
+    data_dir / "Setup 1" / "DPA Reference" / "157 hits.wav", dtype=np.float32
+)
+ref = ref[10 * sr :, :1]
+
+lugdata, sr = sf.read(data_dir / "Setup 1" / "lug calibration.wav", dtype=np.float32)
+lugdata = lugdata[15 * sr :, :]
+#+end_src
+
+#+RESULTS:
+: 316.92491666666666
+
+#+begin_src python
+sound_positions = np.concatenate(
+    (lug_locs.repeat(8, axis=0), np.zeros((64, 1))), axis=1
+)
+sound_positions = np.concatenate((np.zeros((8, 3)), sound_positions))
+#+end_src
+
+For determining null_direction, we could choose to have the user inspect a
+couple of onsets and choose manually, or do some computation like (note that
+this will be very sensitive to a DC-offset):
+#+begin_src python
+higher = data[data > data[data > 0].mean()].mean()
+lower = data[data < data[data < 0].mean()].mean()
+onset_direction = "up" if higher > lower else "down"
+#null_direction = None
+onset_tolerance = 128
+#+end_src
+
+#+begin_src python
+cf, of, rel = detection.detect_onsets_amplitude(
+    data,
+    256,
+    hipass_freq=2000,
+    fast_ar=(2, 966),
+    slow_ar=(8410, 8410),
+    on_threshold=6,
+    off_threshold=4,
+    cooldown=9600,
+    sr=sr,
+    backtrack=False,
+    backtrack_buffer_size=256,
+    backtrack_smooth_size=1,
+)
+oc = detection.find_onset_groups(of, cf, 400)
+legal = np.where((oc >= 0).all(axis=1))[0]
+oc = oc[legal]
+occ = detection.fix_onsets(
+    data,
+    oc,
+    onset_tolerance=onset_tolerance,
+    take_abs=True,
+    onset_direction=onset_direction,
+)
+(len(oc), len(of))
+#+end_src
+
+#+RESULTS:
+| 1256 | 5027 |
+
+Lug data (for training):
+
+#+begin_src python
+lcf, lof, lrel = detection.detect_onsets_amplitude(
+    lugdata,
+    256,
+    hipass_freq=2000,
+    fast_ar=(3, 966),
+    slow_ar=(8410, 8410),
+    on_threshold=6,
+    off_threshold=4,
+    cooldown=9600,
+    sr=sr,
+    backtrack=False,
+    backtrack_buffer_size=256,
+    backtrack_smooth_size=1,
+)
+loc = detection.find_onset_groups(lof, lcf, 400)
+legal = np.where((loc >= 0).all(axis=1))[0]
+loc = loc[legal]
+locc = detection.fix_onsets(
+    lugdata,
+    loc,
+    onset_tolerance=onset_tolerance,
+    take_abs=True,
+    onset_direction=onset_direction,
+)
+(len(loc), len(lof))
+#+end_src
+
+#+RESULTS:
+| 72 | 288 |
+
+Let's also create a third dataset combining the lugdata with some grid
+positions:
+#+begin_src python
+grid_pos = []
+# Add desired positions here:
+extra_pos = [52, 76, 80, 104]
+for onset in extra_pos:
+    grid_pos.extend(range(onset * 8, (onset + 1) * 8))
+
+refdata = np.concatenate((lugdata, data))
+oc_in_roc = oc + len(lugdata)
+roc = np.array(list(loc) + list(oc_in_roc[grid_pos]))
+
+# Targets
+r_sp = np.vstack(
+    (sound_positions[:, :2], mesh_locs[extra_pos].repeat(8, axis=0) / 1000)
+)
+#+end_src
+
+#+begin_src python
+np.save(data_dir / "data.npy", data)
+np.save(data_dir / "onsets.npy", oc)
+np.save(data_dir / "lugdata.npy", lugdata)
+np.save(data_dir / "lugonsets.npy", loc)
+np.save(data_dir / "lugsp.npy", sound_positions[:, :2])
+np.save(data_dir / "sp.npy", mesh_locs.repeat(8, axis=0))
+#+end_src
+
+*** Combined dataset
+
+Let's combine mesh and lug data for a combined dataset:
+#+begin_src python
+def onsets_to_hits(onsets):
+    d = {"hits": []}
+    for i, onset in enumerate(onsets):
+        d["hits"].append({"i": i, "zone": "center", "onset_start": onset.tolist()})
+    return d
+#+end_src
+
+#+begin_src python
+rcf, rof, rrel = detection.detect_onsets_amplitude(
+    refdata,
+    256,
+    hipass_freq=2000,
+    fast_ar=(3, 966),
+    slow_ar=(8410, 8410),
+    on_threshold=6,
+    off_threshold=4,
+    cooldown=9600,
+    sr=sr,
+    backtrack=False,
+    backtrack_buffer_size=256,
+    backtrack_smooth_size=1,
+)
+roc_total = detection.find_onset_groups(rof, rcf, 400)
+max_onsets = []
+orders = []
+
+for j, og in enumerate(roc_total):
+    og = og.copy()
+    idx = np.argsort(og)
+    orders.append(idx)
+    onsets = []
+    for i in range(loc.shape[1]):
+        onsets.append(
+            og[i] + np.argmax(refdata[og[i] : og[i] + onset_tolerance, i])
+        )
+    max_onsets.append(onsets)
+max_onsets = np.array(max_onsets)
+#+end_src
+
+#+begin_src python
+sf.write(data_dir / "Setup 1" / "combined.wav", refdata, sr)
+with open(data_dir / "Setup 1" / "combined.json", "w") as f:
+    json.dump(onsets_to_hits(max_onsets), f)
+#+end_src
+
+** Multilateration
+
+We can use the basic or fixed onsets for simple neural network multilateration.
+#+begin_src python
+fix_fun = lambda x, o: detection.fix_onsets(
+    x,
+    o,
+    onset_direction="up",
+    zero_left=True,
+    normalization_cutoff=20,
+    onset_tolerance=108,
+    filter_size=7,
+    take_abs=False,
+    shift_onsets=40,
+    d=0
+)
+locc = fix_fun(lugdata, loc)
+use = loc[:]
+# od = locc[:, :3] - locc[:, 3:]
+# od = locc[:, :] - locc[:, :1]
+# od = loc[:, :] - loc[:, :1]
+od = use[:, :] - use.min(axis=1, keepdims=True)
+od2 = [*od[:7]]
+od2 = []
+for i in range(9):
+    od2.append(np.median(od[i * 8 : (i + 1) * 8], axis=0))
+od = torch.tensor(od2)
+# od = od[:, :-1]
+# for i, j in enumerate(od.argmax(axis=1)):
+#     od[i, j] = -999
+
+
+odt = torch.tensor(od, dtype=torch.float32)
+odt /= 250
+mask = 1 - F.one_hot(torch.tensor(use.argmin(axis=1)), 4)
+# odt = torch.cat([odt, mask], dim=1)
+
+sp = sound_positions[:, :2]
+sp = np.concatenate((np.zeros((1, 2)), lug_locs), axis=0)
+
+model, errors = calibration.train_location_model(
+    odt,
+    torch.tensor(sp[:], dtype=torch.float32),
+    0.0015,
+    num_epochs=3000,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    # hidden_layers=[82, 128, 71, 89, 71, 100],
+    hidden_layers=[2],
+    batch_norm=False,
+    print_every=100,
+    patience=20,
+    bias=False,
+    debug=False,
+)
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords)
+
+occ = fix_fun(data, oc)
+use = oc
+od2 = use[:, :3] - use[:, 3:]
+od2 = use - use[:, :1]
+od2 = use - use.min(axis=1, keepdims=True)
+# od2 = od2[:, :-1]
+# for i, j in enumerate(od2.argmax(axis=1)):
+#     od2[i, j] = 0
+
+
+odt2 = torch.tensor(od2, dtype=torch.float32)
+odt2 /= 250
+
+mask = 1 - F.one_hot(torch.tensor(use.argmin(axis=1)), 4)
+# odt2 = torch.cat([odt2, mask], dim=1)
+
+coords = model(odt2).detach().numpy().tolist()
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords, s=5, figsize=(6, 6), cmap="rainbow")
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+/tmp/ipykernel_12332/3581345933.py:29: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  odt = torch.tensor(od, dtype=torch.float32)
+Epoch 0, Loss 0.07792047411203384
+Epoch 100, Loss 0.05712521821260452
+Epoch 200, Loss 0.052380211651325226
+Epoch 300, Loss 0.05181692913174629
+Epoch 400, Loss 0.051229365170001984
+Epoch 500, Loss 0.04857759177684784
+Epoch 600, Loss 0.04692761227488518
+Epoch 700, Loss 0.04515428841114044
+Epoch 800, Loss 0.04224129393696785
+Epoch 900, Loss 0.041437581181526184
+Epoch 1000, Loss 0.04060624539852142
+Epoch 1100, Loss 0.0347372405230999
+Epoch 1200, Loss 0.017807185649871826
+Epoch 1300, Loss 0.009208773262798786
+Epoch 1400, Loss 0.00891919806599617
+Epoch 1500, Loss 0.008859752677381039
+Epoch 1600, Loss 0.008833810687065125
+Epoch 1700, Loss 0.008669127710163593
+Epoch 1800, Loss 0.008389287628233433
+Epoch 1900, Loss 0.00813535787165165
+Epoch 1961, Loss 0.008114499971270561
+#+end_example
+[[file:./.ob-jupyter/c1b44f131a869e252a8fe1f131e5fcf519748631.png]]
+:END:
+
+** 4 models
+It's not straightforward to remove the 'bad'/slowest sensor reading. An idea
+would be to train 4 networks which each use just the data from 3 close sensors,
+and then weight their predictions. I found that if we bias their weighting at
+all, the results get gaps at quadrant borders, which makes this impractical
+(using 4 unbiased networks maybe slightly increases performance, but I'd say it
+isn't worth the effort).
+#+begin_src python
+models = []
+sensors = set(range(4))
+for i in sensors:
+    if i == 0:
+        x = [0, 1, 3]
+    elif i == 3:
+        x = [0, 2, 3]
+    else:
+        x = [i-1, i, i+1]
+    print(x)
+    model, errors = calibration.train_location_model(
+        odt[:, x],  
+        torch.tensor(sp[:], dtype=torch.float32),
+        0.0015,
+        num_epochs=3000,
+        eps=1e-12,
+        lossfun=F.l1_loss,
+        activation=nn.SiLU,
+        hidden_layers=[6],
+        batch_norm=False,
+        print_every=10000,
+        patience=20,
+        bias=False,
+        debug=False,
+    )
+    models.append(model)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+[0, 1, 3]
+Epoch 0, Loss 0.10448915511369705
+Epoch 2128, Loss 0.004234155640006065
+[0, 1, 2]
+Epoch 0, Loss 0.08990179002285004
+Epoch 2999, Loss 0.002796095795929432
+[1, 2, 3]
+Epoch 0, Loss 0.3210519552230835
+Epoch 2191, Loss 0.002898814622312784
+[0, 2, 3]
+Epoch 0, Loss 0.0978848859667778
+Epoch 1159, Loss 0.0037774124648422003
+#+end_example
+*** Test2
+This uses just the best network, which shows discontinuities at the quadrant borders:
+#+begin_src python
+use = occ
+od2 = use - use.min(axis=1, keepdims=True)
+
+
+odt2 = torch.tensor(od2, dtype=torch.float32)
+odt2 /= 250
+
+coords = []
+for x in odt2:
+    i = int(x.argmin())
+    if i == 0:
+        x = x[[0, 1, 3]]
+    elif i == 3:
+        x = x[[0, 2, 3]]
+    else:
+        x = x[[i-1, i, i+1]]
+    coords.append(models[i](x).detach().numpy().tolist())
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords, s=5, figsize=(6, 6), cmap="rainbow")
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/d3ebcb72e41064e5d3af3cfa5ca50c63ff4097db.png]]
+
+This is taking the mean of each prediction. A fair result, but not that much
+better than a single network, perhaps.
+#+begin_src python :file ./figures/4model_avg.png
+occ = fix_fun(data, oc)
+use = occ
+od2 = use - use.min(axis=1, keepdims=True)
+
+
+odt2 = torch.tensor(od2, dtype=torch.float32)
+odt2 /= 250
+
+coords = []
+for x in odt2:
+    preds = []
+    for i in range(4):
+        if i == 0:
+            xi = x[[0, 1, 3]]
+        elif i == 3:
+            xi = x[[0, 2, 3]]
+        else:
+            xi = x[[i - 1, i, i + 1]]
+        preds.append(models[i](xi).detach().numpy())
+    coords.append(np.mean(preds, axis=0).tolist())
+    # This will skew the result :x
+    # coords.append(np.average(preds, weights=x, axis=0).tolist())
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords, s=5, figsize=(6, 6), cmap="rainbow")
+#+end_src
+
+#+RESULTS:
+[[file:./figures/4model_avg.png]]
+
+** Cross-correlation-based training
+
+Here I was trying to use just 2 cross-correlations (using the 3 closest
+sensors) directly, utilizing a positional encoding to allow training without
+the slowest reading. None of the schemes worked well, unfortunately.
+#+begin_src python
+def make_pe(a, b, n_sensors=4):
+    c = b
+    if b > a:
+        c = b - 1
+    return a * (n_sensors - 1) + c
+
+
+def make_ohe(order, n_sensors=4):
+    x = torch.zeros(n_sensors * len(order))
+    for i, j in enumerate(order):
+        x[i * n_sensors + j] = 1
+    return x
+#+end_src
+
+Cross-correlate wrt. closest sensor:
+#+begin_src python
+zero_left = True
+filter_size = 7
+normalization_cutoff: int = 20
+onset_tolerance: int = 108
+lookaround = normalization_cutoff + onset_tolerance
+
+all_ccs = []
+orders = []
+
+for j, og in enumerate(loc):
+    og = og.copy() + 40
+    idx = np.argsort(og)
+    a = og[idx[0]]
+    b = og[idx[-1]]
+    orders.append(idx[:3])
+    section = audio[a - lookaround : b + lookaround]
+    section = np.diff(
+            median_filter(section, filter_size, axes=0), 1, axis=0
+    )
+    section[section < 0] = 0
+    section_og = og - (a - lookaround)
+    ccs = []
+    for i in idx[1:]:
+        o = [section_og[idx[0]], section_og[i]]
+        x = section[:, idx[0]]
+        y = section[:, i]
+        if zero_left:
+            x[: o[0]] = 0.0
+            y[: o[1]] = 0.0
+        new_lag = cross_correlation_lag(
+            x,
+            y,
+            o,
+            normalization_cutoff=normalization_cutoff,
+            onset_tolerance=onset_tolerance,
+        )
+        ccs.append(new_lag)
+    all_ccs.append(ccs)
+
+all_ccs = np.array(all_ccs)
+orders = np.array(orders)
+#+end_src
+
+
+#+begin_src python :async yes
+sp = np.array([[0, 1], [1, 0], [0, -1], [-1, 0]])
+pe = []
+def normu(a, b):
+    d = a - b
+    norm = np.linalg.norm(d)
+    return d / norm
+
+for order in orders:
+    pe.append((normu(sp[order[0]], sp[order[1]]), normu(sp[order[0]], sp[order[2]])))
+pe = torch.reshape(torch.tensor(pe), (72, -1)).float()
+odt = torch.tensor(all_ccs, dtype=torch.float32)
+odt /= 300
+pe0 = torch.tensor([make_pe(x[0], x[1]) for x in orders])
+pe1 = torch.tensor([make_pe(x[0], x[2]) for x in orders])
+pe = torch.cat(
+    (
+        F.one_hot(torch.tensor(orders[:, 0]), 4),
+        F.one_hot(torch.tensor(orders[:, 1]), 4),
+    ),
+    dim=1,
+)
+#pe = torch.cat((F.one_hot(pe0, 12), F.one_hot(pe1, 12)), dim=1)
+pe = torch.stack([make_ohe(x) for x in orders])
+pe = torch.tensor(orders)
+#pe = F.one_hot(torch.tensor(orders)[:, 0], 4)
+#odt = torch.cat([odt, pe], dim=1)
+
+model, errors = calibration.train_location_model(
+    odt,
+    torch.tensor(sound_positions, dtype=torch.float32),
+    0.01,
+    num_epochs=2000,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    # hidden_layers=[82, 128, 71, 89, 71],
+    hidden_layers=[5],
+    #dropout=0.001,
+    batch_norm=False,
+    print_every=100,
+    patience=2000,
+    bias=False,
+    debug=False,
+)
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Epoch 0, Loss 0.17977234721183777
+Epoch 100, Loss 0.07726040482521057
+Epoch 200, Loss 0.07508412003517151
+Epoch 300, Loss 0.07388019561767578
+Epoch 400, Loss 0.07310191541910172
+Epoch 500, Loss 0.07225244492292404
+Epoch 600, Loss 0.0719701275229454
+Epoch 700, Loss 0.0716426894068718
+Epoch 800, Loss 0.06975176185369492
+Epoch 900, Loss 0.0678694099187851
+Epoch 1000, Loss 0.06757321953773499
+Epoch 1100, Loss 0.06730500608682632
+Epoch 1200, Loss 0.06674487888813019
+Epoch 1300, Loss 0.06530605256557465
+Epoch 1400, Loss 0.06512248516082764
+Epoch 1500, Loss 0.06500294804573059
+Epoch 1600, Loss 0.06504558026790619
+Epoch 1700, Loss 0.06475397199392319
+Epoch 1800, Loss 0.0646708756685257
+Epoch 1900, Loss 0.06470361351966858
+Epoch 1999, Loss 0.0649484246969223
+#+end_example
+[[file:./.ob-jupyter/8ea84d5b891a9af104ea4f9e2e4973a179df3f0e.png]]
+:END:
+
+
+#+begin_src python
+tall_ccs = []
+torders = []
+
+for j, og in enumerate(oc):
+    idx = np.argsort(og)
+    a = og[idx[0]]
+    b = og[idx[-1]]
+    torders.append(idx[:3].copy())
+    section = data[a - lookaround : b + lookaround]
+    section = np.diff(
+            median_filter(section, filter_size, axes=0), 1, axis=0
+    )
+    #section[section < 0] = 0
+    section_og = og - (a - lookaround)
+    ccs = []
+    for i in idx[1:]:
+        o = [section_og[idx[0]], section_og[i]]
+        x = section[:, idx[0]]
+        y = section[:, i]
+        if zero_left:
+            x[: o[0]] = 0.0
+            y[: o[1]] = 0.0
+        new_lag = detection.cross_correlation_lag(
+            x,
+            y,
+            o,
+            normalization_cutoff=normalization_cutoff,
+            onset_tolerance=onset_tolerance,
+        )
+        ccs.append(new_lag)
+    tall_ccs.append(ccs)
+
+tall_ccs = np.array(tall_ccs)
+torders = torch.tensor(torders)
+
+pe = []
+for order in torders:
+    pe.append((sp[order[0]] - sp[order[1]], sp[order[0]] - sp[order[2]]))
+pe = torch.reshape(torch.tensor(pe), (len(tall_ccs), -1))
+
+
+pe0 = torch.tensor([make_pe(x[0], x[1]) for x in torders])
+pe1 = torch.tensor([make_pe(x[0], x[2]) for x in torders])
+pe = torch.cat((F.one_hot(pe0, 12), F.one_hot(pe1, 12)), dim=1)
+
+odt = torch.tensor(tall_ccs, dtype=torch.float32)
+odt /= 300
+pe = torch.stack([make_ohe(x) for x in torders])
+pe = torch.cat(
+    (
+        F.one_hot(torch.tensor(torders[:, 0]), 4),
+        F.one_hot(torch.tensor(torders[:, 1]), 4),
+    ),
+    dim=1,
+)
+pe = torch.tensor(torders)
+#pe = F.one_hot(torders[:, 0], 4)
+odt = torch.cat([odt, pe], dim=1)
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: /tmp/ipykernel_15499/1940458005.py:51: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+:   F.one_hot(torch.tensor(torders[:, 0]), 4),
+: /tmp/ipykernel_15499/1940458005.py:52: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+:   F.one_hot(torch.tensor(torders[:, 1]), 4),
+: /tmp/ipykernel_15499/1940458005.py:56: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+:   pe = torch.tensor(torders)
+[[file:./.ob-jupyter/ed7081686c257598e6e1d62e93615f920602e9cf.png]]
+:END:
+
+** Another try for CC
+
+My idea now is:
+1. Create dataset with CCs measured from each sensor, for each sensor
+2. Take subset of that and train model for each sensor
+
+TODO:
+- allow all ccs for onsets happening within a certain window
+- e.g. close to center would get all ccs, farther out would only get a few
+- scale onset move before fix based on position/distance from first detected onset
+
+#+begin_src python
+zero_left = True
+filter_size = 7
+normalization_cutoff: int = 20
+onset_tolerance: int = 108
+lookaround = normalization_cutoff + onset_tolerance
+
+all_ccs = []
+orders = []
+
+for j, og in enumerate(loc):
+    og = og.copy() + 40
+    idx = np.argsort(og)
+    a = og[idx[0]]
+    b = og[idx[-1]]
+    orders.append(idx[:3])
+    section = lugdata[a - lookaround : b + lookaround]
+    section = np.diff(median_filter(section, filter_size, axes=0), 1, axis=0)
+    section[section < 0] = 0
+    section_og = og - (a - lookaround)
+    ccs = []
+    for i in range(loc.shape[1]):
+        right_onset = section_og[i]
+        o = [section_og[idx[0]], right_onset]
+        x = section[: right_onset + onset_tolerance, idx[0]]
+        y = section[: right_onset + onset_tolerance, i]
+        if zero_left:
+            x[: o[0]] = 0.0
+            y[: o[1]] = 0.0
+        new_lag = detection.cross_correlation_lag(
+            x,
+            y,
+            o,
+            normalization_cutoff=normalization_cutoff,
+            onset_tolerance=onset_tolerance,
+        )
+        ccs.append(new_lag - 1)
+    all_ccs.append(ccs)
+
+all_ccs = np.array(all_ccs)
+orders = np.array(orders)
+#+end_src
+
+#+begin_src python
+odt = torch.tensor(all_ccs, dtype=torch.float32)
+odt /= 300
+
+model, errors = calibration.train_location_model(
+    odt,
+    torch.tensor(sound_positions, dtype=torch.float32),
+    0.01,
+    num_epochs=2000,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    # hidden_layers=[82, 128, 71, 89, 71],
+    hidden_layers=[10],
+    #dropout=0.001,
+    batch_norm=False,
+    print_every=100,
+    patience=20,
+    bias=False,
+    debug=False,
+)
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: Epoch 0, Loss 0.11583336442708969
+: Epoch 100, Loss 0.007157033309340477
+: Epoch 200, Loss 0.006948875263333321
+: Epoch 300, Loss 0.006868158001452684
+: Epoch 400, Loss 0.006570674479007721
+: Epoch 500, Loss 0.006381949409842491
+: Epoch 600, Loss 0.006272659171372652
+: Epoch 670, Loss 0.006273365113884211
+[[file:./.ob-jupyter/0e4e515943fcf764374f5273633beaf9b3817ae6.png]]
+:END:
+*** Test
+#+begin_src python
+zero_left = True
+filter_size = 7
+normalization_cutoff: int = 20
+onset_tolerance: int = 108
+lookaround = normalization_cutoff + onset_tolerance
+
+tall_ccs = []
+torders = []
+
+for j, og in enumerate(oc):
+    og = og.copy() + 40
+    idx = np.argsort(og)
+    a = og[idx[0]]
+    b = og[idx[-1]]
+    torders.append(idx[:3])
+    section = data[a - lookaround : b + lookaround]
+    section = np.diff(median_filter(section, filter_size, axes=0), 1, axis=0)
+    section[section < 0] = 0
+    section_og = og - (a - lookaround)
+    ccs = []
+    for i in range(loc.shape[1]):
+        right_onset = section_og[i]
+        o = [section_og[idx[0]], right_onset]
+        x = section[: right_onset + onset_tolerance, idx[0]]
+        y = section[: right_onset + onset_tolerance, i]
+        if zero_left:
+            x[: o[0]] = 0.0
+            y[: o[1]] = 0.0
+        new_lag = detection.cross_correlation_lag(
+            x,
+            y,
+            o,
+            normalization_cutoff=normalization_cutoff,
+            onset_tolerance=onset_tolerance,
+        )
+        ccs.append(new_lag - 1)
+    tall_ccs.append(ccs)
+
+tall_ccs = np.array(tall_ccs)
+torders = np.array(torders)
+
+odt = torch.tensor(tall_ccs, dtype=torch.float32)
+odt /= 300
+
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords, s=5, figsize=(6,6), cmap="rainbow")
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/3db7a330ba2d0529c3faf708d55383dede7e37b9.png]]
+
+** Max as baseline for peak onsets
+
+In our call on 03/06, Jordie mentioned the max as a potential baseline for
+onset detection. I should be able to use the approach I already have and refine
+the onsets this way. Turns out this is better than the other approaches we
+already have!
+
+#+begin_src python
+onset_tolerance: int = 200
+norm = 350
+max_onsets = []
+orders = []
+
+for j, og in enumerate(loc):
+    og = og.copy()
+    idx = np.argsort(og)
+    orders.append(idx)
+    onsets = []
+    for i in range(loc.shape[1]):
+        onsets.append(og[i] + np.argmax(lugdata[og[i]:og[i]+onset_tolerance, i]))
+    max_onsets.append(onsets)
+
+max_onsets = np.array(max_onsets)
+orders = np.array(orders)
+use = max_onsets
+odt = use - use.min(axis=1, keepdims=True)
+od2 = []
+for i in range(9):
+    od2.append(np.median(odt[i * 8 : (i + 1) * 8], axis=0))
+odt = torch.tensor(odt, dtype=torch.float32)
+
+odt /= norm
+
+model, errors = calibration.train_location_model(
+    odt,
+    torch.tensor(sound_positions[::], dtype=torch.float32),
+    0.001,
+    num_epochs=2000,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    hidden_layers=[6],
+    #dropout=0.001,
+    batch_norm=False,
+    print_every=100,
+    patience=50,
+    bias=False,
+    debug=False,
+)
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords, s=5, figsize=(6,6), cmap="rainbow")
+
+onset_tolerance: int = 180
+max_onsets = []
+orders = []
+
+for j, og in enumerate(oc):
+    og = og.copy()
+    idx = np.argsort(og)
+    orders.append(idx)
+    onsets = []
+    for i in range(oc.shape[1]):
+        onsets.append(og[i] + np.argmax(data[og[i]:og[i]+onset_tolerance, i]))
+    max_onsets.append(onsets)
+
+max_onsets = np.array(max_onsets)
+orders = np.array(orders)
+
+use = max_onsets
+odt = use - use.min(axis=1, keepdims=True)
+odt = torch.tensor(odt, dtype=torch.float32)
+odt /= norm
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+
+ax = plots.cartesian_circle(coords, s=5, figsize=(6,6), cmap="rainbow")
+errors = np.sqrt(np.sum((mesh_locs.repeat(8, axis=0) - coords) ** 2, axis=1))
+merrors = np.median(errors.reshape((mesh_locs.shape[0], -1)), axis=1)
+outliers = errors.reshape((mesh_locs.shape[0], -1)).max(axis=1)
+_ = plots.error_heatmap(
+    mesh_locs,
+    merrors,
+    outliers=outliers,
+    figsize=(6, 6),
+    cmap="afmhot_r",
+    title="Median distance per group with maximum in corner",
+)
+ax = plots.cartesian_circle(coords, s=5, figsize=(6,6), errors=errors, cmap="afmhot_r")
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Epoch 0, Loss 0.06477563828229904
+Epoch 100, Loss 0.028552118688821793
+Epoch 200, Loss 0.023101067170500755
+Epoch 300, Loss 0.017076101154088974
+Epoch 400, Loss 0.005139396991580725
+Epoch 500, Loss 0.004660204518586397
+Epoch 600, Loss 0.004621793515980244
+Epoch 700, Loss 0.00459392461925745
+Epoch 800, Loss 0.004493240732699633
+Epoch 900, Loss 0.00442151864990592
+Epoch 1000, Loss 0.004405522253364325
+Epoch 1100, Loss 0.0043936786241829395
+Epoch 1200, Loss 0.00433322973549366
+Epoch 1300, Loss 0.004291839897632599
+Epoch 1400, Loss 0.004275383893400431
+Epoch 1500, Loss 0.0042697349563241005
+Epoch 1600, Loss 0.00423797033727169
+Epoch 1700, Loss 0.00419621029868722
+Epoch 1800, Loss 0.004186814185231924
+Epoch 1900, Loss 0.004186389502137899
+Epoch 1999, Loss 0.00416967598721385
+#+end_example
+[[file:./.ob-jupyter/85db0ac0111a9beac10fdfccd7fb51ca4b3a241f.png]]
+[[file:./.ob-jupyter/124a4cb03507db5e567013ff15751bb884965bcc.png]]
+[[file:./.ob-jupyter/a7435a3861231485379303289c866248f7763f2a.png]]
+[[file:./.ob-jupyter/901078bac0432167649dc422b46720b982c298cc.png]]
+:END:
+*** Using lug data + 4 grid points
+Let's repeat this, but this time with a larger grid. This doesn't meaningfully
+improve the results.
+
+#+begin_src python
+onset_tolerance: int = 188
+
+max_onsets = []
+orders = []
+
+for j, og in enumerate(roc):
+    og = og.copy()
+    idx = np.argsort(og)
+    orders.append(idx)
+    onsets = []
+    for i in range(loc.shape[1]):
+        onsets.append(
+            og[i] + np.argmax(refdata[og[i] : og[i] + onset_tolerance, i])
+        )
+    max_onsets.append(onsets)
+
+max_onsets = np.array(max_onsets)
+orders = np.array(orders)
+use = max_onsets
+odt = use - use.min(axis=1, keepdims=True)
+od2 = []
+for i in range(len(r_sp) // 8):
+    od2.append(np.median(odt[i * 8 : (i + 1) * 8], axis=0))
+od2 = torch.tensor(od2)
+odt = torch.tensor(odt, dtype=torch.float32)
+
+odt /= 300
+
+model, errors = calibration.train_location_model(
+    odt,
+    torch.tensor(r_sp[::], dtype=torch.float32),
+    0.001,
+    num_epochs=2000,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    hidden_layers=[2],
+    #dropout=0.001,
+    batch_norm=False,
+    print_every=100,
+    patience=500,
+    bias=False,
+    debug=False,
+)
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+ax = plots.cartesian_circle(coords, s=5, figsize=(6, 6), cmap="rainbow")
+onset_tolerance: int = 188
+max_onsets = []
+orders = []
+
+for j, og in enumerate(oc):
+    og = og.copy()
+    idx = np.argsort(og)
+    orders.append(idx)
+    onsets = []
+    for i in range(oc.shape[1]):
+        onsets.append(og[i] + np.argmax(data[og[i]:og[i]+onset_tolerance, i]))
+    max_onsets.append(onsets)
+
+max_onsets = np.array(max_onsets)
+orders = np.array(orders)
+
+use = max_onsets
+odt = use - use.min(axis=1, keepdims=True)
+odt = torch.tensor(odt, dtype=torch.float32)
+odt /= 300
+coords = model(odt).detach().numpy().tolist()
+coords = np.array(coords)
+
+ax = plots.cartesian_circle(coords, s=5, figsize=(6,6), cmap="rainbow")
+errors = np.sqrt(np.sum((mesh_locs.repeat(8, axis=0) - coords) ** 2, axis=1))
+merrors = np.median(errors.reshape((mesh_locs.shape[0], -1)), axis=1)
+outliers = errors.reshape((mesh_locs.shape[0], -1)).max(axis=1)
+# errors -= np.mean(errors)
+_ = plots.error_heatmap(
+    mesh_locs,
+    merrors,
+    0.04,
+    outliers=outliers,
+    figsize=(6, 6),
+    cmap="afmhot_r",
+    title="Median distance per group with maximum in corner",
+)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Epoch 0, Loss 0.08190064877271652
+Epoch 100, Loss 0.04098232090473175
+Epoch 200, Loss 0.03659524768590927
+Epoch 300, Loss 0.03218633681535721
+Epoch 400, Loss 0.01517084613442421
+Epoch 500, Loss 0.013086747378110886
+Epoch 600, Loss 0.012932279147207737
+Epoch 700, Loss 0.012774910777807236
+Epoch 800, Loss 0.012104778550565243
+Epoch 900, Loss 0.011528351344168186
+Epoch 1000, Loss 0.01139909029006958
+Epoch 1100, Loss 0.011262922547757626
+Epoch 1200, Loss 0.010714956559240818
+Epoch 1300, Loss 0.01037128921598196
+Epoch 1400, Loss 0.010322623886168003
+Epoch 1500, Loss 0.010281871072947979
+Epoch 1600, Loss 0.010153746232390404
+Epoch 1700, Loss 0.010034925304353237
+Epoch 1800, Loss 0.010008763521909714
+Epoch 1900, Loss 0.009986387565732002
+Epoch 1999, Loss 0.00987267680466175
+#+end_example
+[[file:./.ob-jupyter/0ae7a866477444ec5b861aaf0eacad6e7d1ae9d6.png]]
+[[file:./.ob-jupyter/2a3fc225d5b3628f74402bcfd47ea505a6ba5818.png]]
+[[file:./.ob-jupyter/db136f15fe386f4f25e64089946e1eb957e71ca7.png]]
+:END:
+
+** Onset-window-based training
+#+begin_src python
+import lightning as L
+import torch
+import torch.nn as nn
+from lightning.pytorch.callbacks import StochasticWeightAveraging
+from lightning.pytorch.callbacks.early_stopping import EarlyStopping
+from lightning.pytorch.tuner import Tuner
+from onset_fingerprinting import data as datam
+from onset_fingerprinting.model import CNN
+from optuna.integration import PyTorchLightningPruningCallback
+from torch import optim
+from torch.nn import functional as F
+from torch.utils.data import DataLoader
+#+end_src
+
+#+begin_src python
+w = 320
+channels = 4
+outdim = 2
+pre_samp = 16
+test = data
+test_onsets = oc
+lugonsets = loc
+lugsp = sound_positions[:, :2]
+test_sp = mesh_locs.repeat(8, axis=0) / 1000
+
+sfe = datam.StretchFrameExtractor(w, 0, 0.03)
+dataset = datam.MCPOSD(lugdata, lugonsets, lugsp, w, pre_samp, 32, 10)
+train = dataset
+# train, val = dataset.split()
+test_dataset = datam.MCPOSD(test, test_onsets, test_sp, w)
+val, test = test_dataset.split(0.1)
+tdl = DataLoader(train, batch_size=None)
+vdl = DataLoader(val, batch_size=None)
+testdl = DataLoader(test_dataset, batch_size=None)
+
+model = CNN(
+    input_size=w,
+    output_size=outdim,
+    channels=channels,
+    layer_sizes=[10, 10],
+    kernel_size=3,
+    dropout_rate=0.2,
+    loss=F.l1_loss,
+    batch_norm=True,
+    pool=False,
+    padding=1,
+    dilation=1,
+    lr=0.001,
+)
+
+trainer = L.Trainer(
+    logger=True,
+    enable_checkpointing=False,
+    max_epochs=1,
+    max_steps=-1,
+    accelerator="auto",
+    devices=1,
+    callbacks=[
+        # PyTorchLightningPruningCallback(trial, monitor="val_loss"),
+        EarlyStopping(monitor="val_loss", mode="min", patience=500),
+        StochasticWeightAveraging(swa_lrs=1e-2),
+    ],
+    min_epochs=1000,
+)
+trainer.fit(model, train_dataloaders=tdl, val_dataloaders=vdl)
+#+end_src
+
+#+RESULTS:
+: GPU available: False, used: False
+: TPU available: False, using: 0 TPU cores
+: IPU available: False, using: 0 IPUs
+: HPU available: False, using: 0 HPUs
+
+#+begin_src python
+import math
+from pathlib import Path
+from typing import Iterable
+
+import numpy as np
+import torch
+from torch import Tensor, nn
+from torch.utils.data import DataLoader, Dataset, default_collate
+
+# ----------------------------------------------------------------------
+#                        Data preparation utilities
+# ----------------------------------------------------------------------
+
+class HitDataset(Dataset):
+    """A variable-size set of per-sensor features for every drum hit."""
+
+    def __init__(
+        self,
+        lags: np.ndarray,
+        sensor_xy: np.ndarray,
+        keep_idx: np.ndarray,
+        targets: np.ndarray,
+    ) -> None:
+        """
+        Parameters
+        ----------
+        lags
+            Shape (N_hits, 4). In seconds or normalised already.
+        sensor_xy
+            Shape (4, 2). Fixed sensor coordinates in metres.
+        keep_idx
+            Shape (N_hits, 3). Indices (0–3) of the sensors to keep.
+        targets
+            Shape (N_hits, 2). (x, y) of the stick hit.
+        """
+        self.lags = lags.astype(np.float32)
+        self.sensor_xy = sensor_xy.astype(np.float32)
+        self.keep_idx = keep_idx.astype(np.int64)
+        self.targets = targets.astype(np.float32)
+
+    def __len__(self) -> int:  # noqa: D401
+        """Number of hits."""
+        return self.targets.shape[0]
+
+    def __getitem__(self, idx: int) -> tuple[Tensor, Tensor]:
+        """Return (features, target) for one hit."""
+        sensors = self.keep_idx[idx]
+        lag = self.lags[idx, sensors]                       # (3,)
+        xy = self.sensor_xy[sensors]                       # (3, 2)
+        feat = np.column_stack((lag[:, None], xy))         # (3, 3)
+        return torch.from_numpy(feat), torch.from_numpy(self.targets[idx])
+
+
+def collate_hits(batch: Iterable[tuple[Tensor, Tensor]]) -> tuple[Tensor, Tensor]:
+    """Stack variable-length sensor sets with no padding artefacts."""
+    feats, targets = zip(*batch)                           # len = B
+    start_idx = torch.cumsum(
+        torch.tensor([0] + [f.shape[0] for f in feats[:-1]]), dim=0
+    )
+    concatenated = torch.cat(feats, dim=0)                # (∑k_i, 3)
+    return concatenated, (torch.stack(targets), start_idx)
+
+
+def make_mlp(
+    in_dim: int,
+    hidden: list[int],
+    out_dim: int | None = None,
+    activation: type[nn.Module] = nn.SiLU,
+) -> nn.Sequential:
+    """Utility to build an MLP."""
+    dims = [in_dim] + hidden + ([] if out_dim is None else [out_dim])
+    layers: list[nn.Module] = []
+    for d_in, d_out in zip(dims, dims[1:]):
+        layers.append(nn.Linear(d_in, d_out, bias=True))
+        layers.append(activation())
+    layers.pop()                                          # remove last activation
+    return nn.Sequential(*layers)
+
+
+class DeepSetFCNN(nn.Module):
+    """Permutation-invariant predictor for drum-hit position."""
+
+    def __init__(
+        self,
+        phi_hidden: list[int] = [3],
+        rho_hidden: list[int] = [3],
+    ) -> None:
+        super().__init__()
+        self.phi = make_mlp(3, phi_hidden)                # per-sensor encoder
+        self.rho = make_mlp(phi_hidden[-1], rho_hidden, out_dim=2)
+
+    def forward(self, X: Tensor, meta: tuple[Tensor, Tensor]) -> Tensor:
+        """
+        Parameters
+        ----------
+        X
+            Concatenated per-sensor features, shape (M, 3).
+        meta
+            Tuple (targets, start_idx) from `collate_hits`.
+        """
+        targets, start_idx = meta
+        encoded = self.phi(X)                             # (M, h)
+        pooled = torch.stack(
+            [
+                encoded[start:end].mean(dim=0)
+                for start, end in zip(start_idx, start_idx[1:].tolist() + [encoded.size(0)])
+            ]
+        )                                                 # (B, h)
+        return self.rho(pooled), targets
+
+
+def train_deepset(
+    lags: np.ndarray,
+    sensor_xy: np.ndarray,
+    orders: np.ndarray,
+    targets: np.ndarray,
+    lr: float = 1e-3,
+    epochs: int = 2000,
+    patience: int = 20,
+    batch_size: int = 32,
+    print_every:int = 100,
+) -> DeepSetFCNN:
+    """Train the DeepSets model."""
+    ds = HitDataset(lags, sensor_xy, orders, targets)
+    dl = DataLoader(ds, batch_size, shuffle=True, collate_fn=collate_hits)
+    model = DeepSetFCNN([5], [5])
+    opt = torch.optim.AdamW(model.parameters(), lr=lr)
+    best_loss = math.inf
+    stalled = 0
+    for epoch in range(1, epochs + 1):
+        model.train()
+        epoch_loss = 0.0
+        for feats, meta in dl:
+            opt.zero_grad()
+            pred, tgt = model(feats, meta)
+            loss = nn.functional.l1_loss(pred, tgt)
+            loss.backward()
+            opt.step()
+            epoch_loss += loss.item()
+        epoch_loss /= len(dl)
+        if epoch_loss < best_loss - 1e-6:
+            best_loss = epoch_loss
+            stalled = 0
+        else:
+            stalled += 1
+            if stalled >= patience:
+                break
+        if epoch % print_every == 0:
+            print(f"Epoch {epoch}, Loss {loss.item()}")
+
+    return model
+
+
+# ----------------------------------------------------------------------
+#                         Usage with your data
+# ----------------------------------------------------------------------
+
+# lags:    all_ccs / 300          (N_hits, 4)
+# orders:  orders                  (N_hits, 3)
+# targets: stick positions (x, y)  (N_hits, 2)
+sp = np.array([[0, 1], [1, 0], [0, -1], [-1, 0]]) * 0.14
+model = train_deepset(
+    lags=all_ccs / 300,
+    sensor_xy=sp,
+    orders=orders,
+    targets=sound_positions[:, :2],
+    batch_size=72,
+    patience=100,
+    lr=0.01
+)
+
+with torch.no_grad():
+    ds = HitDataset(tall_ccs / 300, sp, torders, torders[:, :2])
+    feats, meta = collate_hits(list(map(ds.__getitem__, range(len(ds)))))
+    coords, _ = model(feats, meta)
+    coords = coords.numpy()
+ax = plots.cartesian_circle(coords, s=5, figsize=(6,6), cmap="rainbow")
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Epoch 100, Loss 0.054861485958099365
+Epoch 200, Loss 0.031919654458761215
+Epoch 300, Loss 0.03152152895927429
+Epoch 400, Loss 0.029782529920339584
+Epoch 500, Loss 0.031382638961076736
+Epoch 600, Loss 0.02969822660088539
+Epoch 700, Loss 0.029805012047290802
+Epoch 800, Loss 0.030340442433953285
+Epoch 900, Loss 0.029900364577770233
+Epoch 1000, Loss 0.02894769050180912
+Epoch 1100, Loss 0.028461525216698647
+Epoch 1200, Loss 0.028573350980877876
+Epoch 1300, Loss 0.02854757197201252
+Epoch 1400, Loss 0.028387470170855522
+#+end_example
+[[file:./.ob-jupyter/b76d89b87702c4597582d4a4274eb8d0cca6409d.png]]
+:END:
+** New CC approach
+#+begin_src python
+def make_ccs_ff(
+    onsets,
+    audio,
+    filter_size: int = 7,
+    normalization_cutoff: int = 10,
+    onset_tolerance: int = 108,
+    zero_left: bool = True,
+):
+    lookaround = normalization_cutoff + onset_tolerance
+    all_ccs = []
+    orders = []
+
+    for j, og in enumerate(onsets):
+        og = og.copy() + 40
+        idx = np.argsort(og)
+        a = og[idx[0]]
+        b = og[idx[-1]]
+        orders.append(idx[:3])
+        section = audio[a - lookaround : b + lookaround]
+        section = np.diff(
+            median_filter(section, filter_size, axes=0), 1, axis=0
+        )
+        section[section < 0] = 0
+        section_og = og - (a - lookaround)
+        ccs = []
+        for i in range(loc.shape[1]):
+            right_onset = section_og[i]
+            o = [section_og[idx[0]], right_onset]
+            x = section[: right_onset + onset_tolerance, idx[0]]
+            y = section[: right_onset + onset_tolerance, i]
+            if zero_left:
+                x[: o[0]] = 0.0
+                y[: o[1]] = 0.0
+            new_lag = detection.cross_correlation_lag(
+                x,
+                y,
+                o,
+                normalization_cutoff=normalization_cutoff,
+                onset_tolerance=onset_tolerance,
+            )
+            ccs.append(new_lag - 1)
+        all_ccs.append(ccs)
+    all_ccs = np.array(all_ccs)
+    orders = np.array(orders)
+    return all_ccs, orders
+
+
+def make_ccs(
+    onsets,
+    audio,
+    filter_size: int = 7,
+    normalization_cutoff: int = 10,
+    onset_tolerance: int = 108,
+    zero_left: bool = True,
+    insert_selfpair: bool = False,
+):
+    lookaround = normalization_cutoff + onset_tolerance
+    all_ccs = []
+    orders = []
+
+    for j, og in enumerate(onsets):
+        og = og.copy() + 40
+        idx = np.argsort(og)
+        a = og[idx[0]]
+        b = og[idx[-1]]
+        orders.append(idx[:-1])
+        section = audio[a - lookaround : b + lookaround]
+        section = np.diff(
+            median_filter(section, filter_size, axes=0), 1, axis=0
+        )
+        section[section < 0] = 0
+        section_og = og - (a - lookaround)
+        ccs = []
+        for i in range(loc.shape[1]):
+            if i == loc.shape[1] - 1:
+                left_onset = min(section_og[i], section_og[0])
+                right_onset = max(section_og[i], section_og[0])
+                o = [section_og[i], section_og[0]]
+                y = section[left_onset : right_onset + onset_tolerance, 0]
+            else:
+                left_onset = min(section_og[i], section_og[i + 1])
+                right_onset = max(section_og[i], section_og[i + 1])
+                o = [section_og[i], section_og[i + 1]]
+                y = section[left_onset : right_onset + onset_tolerance, i + 1]
+            x = section[left_onset : right_onset + onset_tolerance, i]
+            if zero_left:
+                x[: o[0]] = 0.0
+                y[: o[1]] = 0.0
+            new_lag = detection.cross_correlation_lag(
+                x,
+                y,
+                o,
+                normalization_cutoff=normalization_cutoff,
+                onset_tolerance=onset_tolerance,
+            )
+            ccs.append(new_lag - 1)
+        all_ccs.append(ccs)
+    all_ccs = np.array(all_ccs)
+    orders = np.array(orders)
+    return all_ccs, orders
+
+
+def get_order(i, n_sensors=4):
+    if i == 0:
+        return [0, n_sensors - 1]
+    else:
+        return [i - 1, i]
+#+end_src
+
+
+#+begin_src python
+nf = 350
+all_ccs, orders = make_ccs(
+    loc, lugdata, normalization_cutoff=20, onset_tolerance=150
+)
+#all_ccs[:8] = all_ccs[:8].mean()
+orders[:8, 0] = np.repeat([0, 1, 2, 3], 2)
+o = [get_order(x[0]) for x in orders]
+lags = torch.tensor(all_ccs, dtype=torch.float32) / nf
+
+mask = torch.zeros_like(lags)
+row = torch.arange(len(o)).unsqueeze(1)
+mask[row, torch.tensor(o)] = 1.0  # mark kept sensors
+lags *= mask
+
+x_in = torch.cat([lags, mask], dim=1)
+od2 = []
+for i in range(1, 9):
+    od2.append(np.median(x_in[i * 8 : (i + 1) * 8], axis=0))
+od2 = torch.tensor(od2)
+x_in2 = x_in
+x_in = torch.cat((x_in[:8], od2))
+sp = torch.tensor(
+    np.vstack((sound_positions[:8], sound_positions[8::8])),
+    dtype=torch.float32,
+)[:, :2]
+model, errors = calibration.train_location_model(
+    x_in,
+    sp,
+    0.001,
+    num_epochs=10000,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    hidden_layers=[5],
+    batch_norm=False,
+    print_every=100,
+    patience=50,
+    bias=True,
+    debug=False,
+)
+
+coords = model(x_in2).detach().numpy()
+ax = plots.cartesian_circle(coords)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Epoch 0, Loss 0.2812498211860657
+Epoch 100, Loss 0.07082024216651917
+Epoch 200, Loss 0.05320422351360321
+Epoch 300, Loss 0.04577753692865372
+Epoch 400, Loss 0.04058969020843506
+Epoch 500, Loss 0.036734439432621
+Epoch 600, Loss 0.033623311668634415
+Epoch 700, Loss 0.03130629286170006
+Epoch 800, Loss 0.029910573735833168
+Epoch 900, Loss 0.02933829464018345
+Epoch 1000, Loss 0.029251517727971077
+Epoch 1100, Loss 0.02916516363620758
+Epoch 1200, Loss 0.02855250984430313
+Epoch 1300, Loss 0.026838866993784904
+Epoch 1400, Loss 0.023719120770692825
+Epoch 1500, Loss 0.020671069622039795
+Epoch 1600, Loss 0.016710959374904633
+Epoch 1700, Loss 0.010840920731425285
+Epoch 1800, Loss 0.007223485037684441
+Epoch 1900, Loss 0.006557791493833065
+Epoch 2000, Loss 0.006393413990736008
+Epoch 2100, Loss 0.006368073169142008
+Epoch 2139, Loss 0.00629942212253809
+#+end_example
+[[file:./.ob-jupyter/302183899231a45fa95dbd0d89fba74855fcfe59.png]]
+:END:
+*** Test
+#+begin_src python
+tall_ccs, torders = make_ccs(
+    oc, data, normalization_cutoff=20, onset_tolerance=150
+)
+o = [get_order(x[0]) for x in torders]
+
+lags = torch.tensor(tall_ccs, dtype=torch.float32) / nf
+
+mask = torch.zeros_like(lags)  # (N, 4)
+row = torch.arange(len(o)).unsqueeze(1)  # (N, 1)
+mask[row, torch.tensor(o)] = 1.0  # mark kept sensors
+
+lags *= mask
+x_in = torch.cat([lags, mask], dim=1)  # (N, 8)
+#x_in = lags
+coords = model(x_in).detach().numpy()
+ax = plots.cartesian_circle(coords, s=5, figsize=(6,6), cmap="rainbow")
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/9cc811420d78c0a212ad5e24114fdbe38b9da8fc.png]]
+** Manually labelled dataset
+
+Using [[file:../onset_fingerprinting/modify_hits_mc.py][modify_hits_mc.py]] I manually labelled the entire dataset to check how
+well a 'perfect' CC/onset detection method would work. However, it's actually
+not that easy to label, as especially some far hits are difficult to spot.
+
+#+begin_src python
+with open(data_dir / "Setup 1" / "combined-mod.json", "r") as f:
+    hits = json.load(f)["hits"]
+
+onsets_comb = np.array([x["onset_start"] for x in hits])
+roc_m = np.array(onsets[:72].tolist() + list(onsets[np.array(grid_pos) + 72]))
+#+end_src
+
+#+begin_src python
+sp = sound_positions[:, :2]
+
+use = onsets_comb[:72]
+# use = roc_m
+odt = use - use.min(axis=1, keepdims=True)
+od2 = []
+for i in range(len(sp) // 8):
+    od2.append(np.median(odt[i * 8 : (i + 1) * 8], axis=0))
+od2 = torch.tensor(od2)
+odt = torch.tensor(odt, dtype=torch.float32)
+
+odt /= 300
+
+# sp = np.concatenate((np.zeros((1, 2)), lug_locs), axis=0)
+# sp = r_sp
+
+model, errors = calibration.train_location_model(
+    odt,
+    torch.tensor(sp[::], dtype=torch.float32),
+    0.001,
+    num_epochs=5000,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    hidden_layers=[2],
+    #dropout=0.01,
+    batch_norm=False,
+    print_every=100,
+    patience=20,
+    bias=False,
+    debug=False,
+)
+coords = model(odt).detach().numpy()
+ax = plots.cartesian_circle(coords, s=5, figsize=(6, 6), cmap="rainbow")
+
+use = onsets_comb[72:]
+odt = use - use.min(axis=1, keepdims=True)
+odt = torch.tensor(odt, dtype=torch.float32)
+odt /= 300
+coords = model(odt).detach().numpy()
+ax = plots.cartesian_circle(coords, s=5, figsize=(6, 6), cmap="rainbow")
+errors = np.sqrt(np.sum((mesh_locs.repeat(8, axis=0) - coords) ** 2, axis=1))
+merrors = np.median(errors.reshape((mesh_locs.shape[0], -1)), axis=1)
+outliers = errors.reshape((mesh_locs.shape[0], -1)).max(axis=1)
+# errors -= np.mean(errors)
+_ = plots.error_heatmap(
+    mesh_locs,
+    merrors,
+    0.04,
+    outliers=outliers,
+    figsize=(6, 6),
+    cmap="afmhot_r",
+    title="Median distance per group with maximum in corner",
+)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+#+begin_example
+Epoch 0, Loss 0.08262261748313904
+Epoch 100, Loss 0.04891414940357208
+Epoch 200, Loss 0.025437938049435616
+Epoch 300, Loss 0.008748341351747513
+Epoch 400, Loss 0.005353234708309174
+Epoch 500, Loss 0.0050848922692239285
+Epoch 600, Loss 0.00482558598741889
+Epoch 700, Loss 0.0040831840597093105
+Epoch 800, Loss 0.0035877367481589317
+Epoch 900, Loss 0.0032615703530609608
+Epoch 1000, Loss 0.00320255383849144
+Epoch 1100, Loss 0.003059204202145338
+Epoch 1200, Loss 0.0028865793719887733
+Epoch 1300, Loss 0.0028461681213229895
+Epoch 1400, Loss 0.002831120975315571
+Epoch 1500, Loss 0.0028269195463508368
+Epoch 1600, Loss 0.002826778683811426
+Epoch 1700, Loss 0.002820652909576893
+Epoch 1800, Loss 0.002839562948793173
+Epoch 1900, Loss 0.0030512206722050905
+Epoch 2000, Loss 0.0027676536701619625
+Epoch 2100, Loss 0.0027424884028732777
+Epoch 2200, Loss 0.00268555898219347
+Epoch 2300, Loss 0.002677461365237832
+Epoch 2400, Loss 0.002642321400344372
+Epoch 2500, Loss 0.0026404312811791897
+Epoch 2600, Loss 0.0026401651557534933
+Epoch 2700, Loss 0.002640172140672803
+Epoch 2800, Loss 0.0026427393313497305
+Epoch 2900, Loss 0.002651234157383442
+Epoch 3000, Loss 0.002718426054343581
+Epoch 3100, Loss 0.0026101062539964914
+Epoch 3200, Loss 0.0025925051886588335
+Epoch 3300, Loss 0.002562272362411022
+Epoch 3400, Loss 0.002558188745751977
+Epoch 3500, Loss 0.002555233659222722
+Epoch 3600, Loss 0.0025563109666109085
+Epoch 3700, Loss 0.002587295137345791
+Epoch 3800, Loss 0.0025675727520138025
+Epoch 3900, Loss 0.00256411568261683
+Epoch 4000, Loss 0.0026510574389249086
+Epoch 4100, Loss 0.0025993564631789923
+Epoch 4200, Loss 0.0025426193606108427
+Epoch 4300, Loss 0.002546638948842883
+Epoch 4400, Loss 0.00252928351983428
+Epoch 4500, Loss 0.002527442993596196
+Epoch 4600, Loss 0.002528358716517687
+Epoch 4700, Loss 0.0025329829659312963
+Epoch 4800, Loss 0.0025604362599551678
+Epoch 4900, Loss 0.0025902644265443087
+Epoch 4999, Loss 0.0026035907212644815
+#+end_example
+[[file:./.ob-jupyter/e18ef581ef55aaa03c6026981898eb67ac2da2fc.png]]
+[[file:./.ob-jupyter/bff75c7002be4805dc172377cd20f9445cb0521e.png]]
+[[file:./.ob-jupyter/d2b7e1e120a5726eeb81683a1a9d40cac1757f69.png]]
+:END:
+** Other
+
+WIP - here I'm trying to check if we can add quadrant information to training
+without the last sensor reading to disambiguate.
+#+begin_src python
+SENSOR_THETAS = np.array([0, np.pi / 2, np.pi, 3 * np.pi / 2])
+
+
+def compute_angle_feature(times):
+    """Convert onset times to directional feature."""
+    sort = np.argsort(times)
+    fastest_idx = sort[0]
+    t_fastest = times[fastest_idx]
+    valid_times = times[sorted(sort[:3])]
+    valid_thetas = SENSOR_THETAS[sorted(sort[:3])]
+
+    delta_t = valid_times - t_fastest  # Signed differences
+
+    # Compute weighted direction
+    wx = np.sum(delta_t * np.cos(valid_thetas))
+    wy = np.sum(delta_t * np.sin(valid_thetas))
+    return np.arctan2(wy, wx) / np.pi  # θ_hit in radians
+
+
+def make_features(t: list[float]) -> np.ndarray:
+    t = np.asarray(t)
+    order = np.argsort(t)
+    i1, i2, i3 = order[:3]
+
+    d2 = t[i2] - t[i1]
+    d3 = t[i3] - t[i1]
+    r = d2 / (d3 + 1e-9)
+
+    gap12 = (i2 - i1) % 4
+    gap13 = (i3 - i1) % 4
+    o = [int(gap12 == 1), int(gap12 == 2), int(gap13 == 1), int(gap13 == 2)]
+    return np.array([r, *o], dtype=float)
+#+end_src
+
+#+begin_src python
+sp = sound_positions[:, :2]
+
+use = onsets_comb[:72]
+# use = roc_m
+odt = use - use.min(axis=1, keepdims=True)
+odt = odt / 300.0
+od2 = []
+for i in range(len(sp) // 8):
+    x = np.median(odt[i * 8 : (i + 1) * 8], axis=0)
+    a = compute_angle_feature(x)
+    x = [y for i, y in enumerate(x) if i != np.argmax(x)]
+    x.append(a)
+    od2.append(x)
+
+od2.append([0, 0, 0, -0.5])
+od2.append([0, 0, 0, 0.5])
+od2.append([0, 0, 0, 1])
+od2.append([0, 0, 0, -1])
+
+    
+od2 = torch.tensor(od2)
+od2[0] = 0.0
+#od2 = [make_features(x) for x in odt]
+odt = torch.tensor(od2, dtype=torch.float32)
+# odt[:4, 0] = 0
+# odt[4:8, 0] = 1
+# odt[:8, 1:] = torch.tensor([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]] * 2)
+
+
+sp = np.concatenate((np.zeros((1, 2)), lug_locs), axis=0)
+# sp = r_sp
+
+sp = np.vstack((sp, np.zeros((4, 2))))
+
+model, errors = calibration.train_location_model(
+    odt,
+    torch.tensor(sp[::], dtype=torch.float32),
+    0.001,
+    num_epochs=5000,
+    eps=1e-12,
+    lossfun=F.l1_loss,
+    activation=nn.SiLU,
+    hidden_layers=[2],
+    # dropout=0.01,
+    batch_norm=False,
+    print_every=100,
+    patience=2000,
+    bias=False,
+    debug=False,
+)
+coords = model(odt).detach().numpy()
+ax = plots.cartesian_circle(coords, s=5, figsize=(6, 6), cmap="rainbow")
+
+use = onsets_comb[72:]
+odt = use - use.min(axis=1, keepdims=True)
+odt = odt / 300.0
+od2 = []
+for i in range(len(use)):
+    x = odt[i]
+    a = compute_angle_feature(x)
+    x = [y for i, y in enumerate(x) if i != np.argmax(x)]
+    x.append(a)
+    od2.append(x)
+
+#od2 = [make_features(x) for x in odt]
+odt = torch.tensor(od2, dtype=torch.float32)
+# odt = torch.tensor(odt, dtype=torch.float32)
+coords = model(odt).detach().numpy()
+ax = plots.cartesian_circle(coords, s=5, figsize=(6, 6), cmap="rainbow")
+errors = np.sqrt(np.sum((mesh_locs.repeat(8, axis=0) - coords) ** 2, axis=1))
+merrors = np.median(errors.reshape((mesh_locs.shape[0], -1)), axis=1)
+outliers = errors.reshape((mesh_locs.shape[0], -1)).max(axis=1)
+# errors -= np.mean(errors)
+_ = plots.error_heatmap(
+    mesh_locs,
+    merrors,
+    0.04,
+    outliers=outliers,
+    figsize=(6, 6),
+    cmap="afmhot_r",
+    title="Median distance per group with maximum in corner",
+)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+[[file:./.ob-jupyter/09699fc18005bb1b81805f637c1b1e960552f15b.png]]
+[[file:./.ob-jupyter/d4db4689844e29b3516e8d2bd291806d3a50aadf.png]]
+[[file:./.ob-jupyter/c513f2a31797bcf28cb38ef5303f354cae80f4c6.png]]
+:END:
+* Data treatment vis in OD
+
+Just some manual checks to determine appropriate values for DB conversion and
+rectification (noise floor).
+
+#+begin_src python
+floor = -70
+x = xorg = data[:10*sr]
+#x = 20 * np.log10(np.abs(x + 1e-10))
+#x = x.clip(floor)
+#+end_src
+
+1. Take absolute value
+#+begin_src python
+plt.figure(figsize=(10, 4))
+x = np.abs(x)
+_ = plt.plot(x)
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/6e06ad806f10f1b77da06a0f55d0d899bf8a26f1.png]]
+
+2. Take log
+#+begin_src python
+plt.figure(figsize=(10, 4))
+x = 20 * np.log10(x + 1e-10)
+_ = plt.plot(x)
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/c40de0885679bb5ad7b1e3c6cdd3a781661ac10b.png]]
+
+
+#+begin_src python
+plt.figure(figsize=(10, 4))
+x = x.clip(floor)
+_ = plt.plot(x)
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/fac71f66e204895596d6e76d2216db67fc27274e.png]]
+
+
+#+begin_src python
+plt.figure(figsize=(40, 4))
+_ = plt.plot(rel[::100])
+#+end_src
+
+#+RESULTS:
+[[file:./.ob-jupyter/07dd1e4c3ae73036fbeabdc08a0d56e5672745ec.png]]
+
+** Onset alignment
+#+begin_src python
+audio = lugdata
+onsets = loc
+filter_size: int = 5
+d: int = 1
+take_abs: bool = True
+null_direction = "down"
+normalization_cutoff: int = 10
+onset_tolerance: int = 128
+
+lookaround = normalization_cutoff + onset_tolerance
+onsets = onsets.copy()
+i = 9
+d = 1
+null_direction = "down"
+for j, og in enumerate(onsets[i : i + 1]):
+    idx = np.argsort(og)
+    a = og[idx[0]]
+    b = og[idx[-1]]
+    section = audio[a - lookaround : b + lookaround]
+    plt.figure(figsize=(10, 3))
+    plt.plot(section)
+    section = filter_data(median_filter(section, filter_size, axes=0), "up")
+    plt.figure(figsize=(10, 3))
+    plt.plot(section)
+    section_og = og - (a - lookaround)
+    for i in idx[1:-1]:
+        o = [section_og[idx[0]], section_og[i]]
+        x = section[:, idx[0]]
+        y = section[:, i]
+        new_lag = detection.cross_correlation_lag(
+            x,
+            y,
+            o,
+            normalization_cutoff=normalization_cutoff,
+            onset_tolerance=onset_tolerance,
+        )
+        print(new_lag)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+: 113
+: 250
+[[file:./.ob-jupyter/2affa0e737cebcc416f6cfc573334b5fde26ec4e.png]]
+[[file:./.ob-jupyter/e39ad52542e932b3f0bf525e684ef10458506a7d.png]]
+
+* TODO TODOS
+:LOGBOOK:
+- State "TODO"       from              [2025-06-03 Tue 12:17]
+:END:
+
+** DONE Use 4 extra positions for training
+CLOSED: [2025-06-10 Tue 14:06]
+
+** DONE Manual tagging
+CLOSED: [2025-06-17 Tue 11:51]
+
+** DONE Use max as baseline
+CLOSED: [2025-06-10 Tue 14:06]
+
+** HOLD/WAIT Make work for Max
+:LOGBOOK:
+- State "HOLD/WAIT"  from              [2025-06-03 Tue 12:18]
+:END:
+
+** Onset-window based training
+
+** Figure out pre-ringing alignment
+
+** Combine absolute/relative thresholds
+
+'onset confidence'
+** TODO Manual thresholds
+:LOGBOOK:
+- State "TODO"       from              [2025-05-21 Wed 15:18]
+:END:
+
+Perhaps allow to auto-set thresholds based on calibration data as a suggestion?
