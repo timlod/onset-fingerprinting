@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch import optim
 from torch.nn import functional as F
-
+from torch.func import vmap
 from onset_fingerprinting import plots
 
 
@@ -380,6 +380,182 @@ class CNNRNN(L.LightningModule):
     def test_step(self, batch, batch_idx):
         x, y = batch
         out = self(x)
+        loss = F.l1_loss(out, y)
+        self.log("hp_metric", loss)
+        plots.cartesian_circle(out.cpu().detach().numpy())
+        self.logger.experiment.add_figure("test", plt.gcf())
+        plt.close()
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = optim.NAdam(self.parameters(), lr=self.lr)
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, factor=0.5, patience=100
+        # )
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 100)
+        # scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        #     optimizer, 250, 1
+        # )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }
+
+
+class CCCNN(nn.Module):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        channels: int = 3,
+        layer_sizes: list[int] = [8, 16],
+        kernel_sizes: int | list[int] = 3,
+        dropout_rate: float = 0.5,
+        batch_norm=False,
+        pool=False,
+        padding=1,
+        dilation=1,
+        group: bool = False,
+        activation=nn.SiLU,
+    ) -> None:
+        """
+        A flexible CNN architecture to mimic computation of the
+        cross-correlation (CC).
+
+        :param input_size: The size of the 1D audio window for each sensor.
+        :param output_size: The dimensionality of the output (e.g., 2D
+            coordinates).
+        :param channels: Number of input channels (sensors).
+        """
+        super().__init__()
+        self.conv_layers = nn.Sequential()
+        self.group = group
+        self.channels = channels
+
+        current_channels = channels if group else 1
+
+        if isinstance(kernel_sizes, int):
+            kernel_sizes = [kernel_sizes] * len(layer_sizes)
+
+        # Input size to the first layer
+        inp = torch.zeros(1, current_channels, input_size)
+        for i, (layer_size, kernel_size) in enumerate(
+            zip(layer_sizes, kernel_sizes)
+        ):
+            conv = nn.Conv1d(
+                in_channels=current_channels,
+                out_channels=layer_size * (channels if group else 1),
+                kernel_size=kernel_size,
+                padding=padding,
+                dilation=dilation,
+                groups=channels if group else 1,
+            )
+            inp = conv(inp)
+            self.conv_layers.add_module(f"conv{i+1}", conv)
+            self.conv_layers.add_module(f"act{i+1}", activation())
+            if batch_norm:
+                self.conv_layers.add_module(
+                    f"bn{i+1}",
+                    # nn.BatchNorm1d(layer_size * (channels if group else 1)),
+                    nn.GroupNorm(1, layer_size * (channels if group else 1)),
+                )
+            if pool:
+                mp = nn.MaxPool1d(kernel_size=2, stride=2)
+                self.conv_layers.add_module(f"pool{i+1}", mp)
+                inp = mp(inp)
+            current_channels = layer_size * (channels if group else 1)
+
+        self.dropout = nn.Dropout(dropout_rate)
+        self.fc = nn.Linear(channels * (2 * inp.shape[-1] - 1), output_size)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, _ = x.shape
+        if self.group:
+            x = self.conv_layers(x)  # (B, C*K, V)
+        else:
+            # Unsqueeze to (C, B, 1, W) for vmap over channels
+            x = vmap(self.conv_layers, in_dims=1, out_dims=1)(x.unsqueeze(2))
+            # → (B, C, K, V)
+            x = x.reshape(B, C * x.shape[2], x.shape[3])
+            # → (B, C*K, V)
+
+        _, CK, V = x.shape
+        K = CK // self.channels
+
+        x1 = x.view(B * C, K, V)  # (B*C, K, V)
+        filters = x1.view(B * C * K, 1, V)  # (B*C*K, 1, V)
+        inputs = x1.view(1, B * C * K, V)  # (1, B*C*K, V)
+
+        cc_raw = F.conv1d(inputs, filters, groups=B * C * K, padding=V - 1)
+
+        cc = cc_raw.view(B * C, K, -1).sum(dim=1)
+        probs = F.softmax(cc, dim=-1).view(B, C, -1)
+
+        probs = torch.flatten(probs, start_dim=1)
+        probs = self.dropout(probs)
+        return self.fc(probs)
+
+
+class LCCCNN(L.LightningModule):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        channels: int = 3,
+        layer_sizes: list[int] = [8, 16],
+        kernel_sizes: int | list[int] = 3,
+        dropout_rate: float = 0.5,
+        batch_norm=False,
+        pool=False,
+        padding=1,
+        dilation=1,
+        group: bool = False,
+        activation=nn.SiLU,
+        loss=F.l1_loss,
+        lr=1e-3,
+    ) -> None:
+        super().__init__()
+        self.model = CCCNN(
+            input_size,
+            output_size,
+            channels,
+            layer_sizes,
+            kernel_sizes,
+            dropout_rate,
+            batch_norm,
+            pool,
+            padding,
+            dilation,
+            group,
+            activation,
+        )
+        self.lr = lr
+        self.loss = loss
+
+    def forward(self, x):
+        return self.model(x)
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+        out = self.model(x)
+        loss = self.loss(out, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        out = self.model(x)
+        loss = F.l1_loss(out, y)
+        self.log("val_loss", loss)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        x, y = batch
+        out = self.model(x)
         loss = F.l1_loss(out, y)
         self.log("hp_metric", loss)
         plots.cartesian_circle(out.cpu().detach().numpy())
