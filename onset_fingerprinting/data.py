@@ -290,7 +290,7 @@ class MCPOSD(Dataset):
         n_extractions: int = 1,
     ):
         folder = Path(folder)
-        data, sr = sf.read(folder / (name + ".wav"))
+        data, _ = sf.read(folder / (name + ".wav"))
         with open(folder / (name + ".json"), "r") as f:
             meta = json.load(f)
         onsets = np.array([x["onset_start"] for x in meta["hits"]])
