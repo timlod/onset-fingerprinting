@@ -239,8 +239,8 @@ class MCPOSD(Dataset):
 
     def __init__(
         self,
-        data,
-        onsets,
+        data: np.ndarray,
+        onsets: np.ndarray,
         sound_positions: np.ndarray,
         frame_length: int = 256,
         pre_samples: int = 0,
@@ -278,6 +278,32 @@ class MCPOSD(Dataset):
 
     def __len__(self):
         return 1
+
+    @classmethod
+    def from_file(
+        cls,
+        folder: str | Path,
+        name: str,
+        frame_length: int = 256,
+        pre_samples: int = 0,
+        max_shift: int = 0,
+        n_extractions: int = 1,
+    ):
+        folder = Path(folder)
+        data, sr = sf.read(folder / (name + ".wav"))
+        with open(folder / (name + ".json"), "r") as f:
+            meta = json.load(f)
+        onsets = np.array([x["onset_start"] for x in meta["hits"]])
+        sound_positions = np.array([x["location"] for x in meta["hits"]])
+        return MCPOSD(
+            data,
+            onsets,
+            sound_positions,
+            frame_length,
+            pre_samples,
+            max_shift,
+            n_extractions,
+        )
 
     @classmethod
     def from_xy(cls, x: torch.Tensor, y: torch.Tensor):
