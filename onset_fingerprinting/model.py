@@ -414,6 +414,7 @@ class CCCNN(nn.Module):
         channels: int = 3,
         layer_sizes: list[int] = [8, 16],
         kernel_sizes: int | list[int] = 3,
+        strides: int | list[int] = 1,
         dropout_rate: float = 0.5,
         batch_norm=False,
         pool=False,
@@ -440,11 +441,13 @@ class CCCNN(nn.Module):
 
         if isinstance(kernel_sizes, int):
             kernel_sizes = [kernel_sizes] * len(layer_sizes)
+        if isinstance(strides, int):
+            strides = [strides] * len(layer_sizes)
 
         # Input size to the first layer
         inp = torch.zeros(1, current_channels, input_size)
-        for i, (layer_size, kernel_size) in enumerate(
-            zip(layer_sizes, kernel_sizes)
+        for i, (layer_size, kernel_size, stride) in enumerate(
+            zip(layer_sizes, kernel_sizes, strides)
         ):
             conv = nn.Conv1d(
                 in_channels=current_channels,
@@ -452,6 +455,7 @@ class CCCNN(nn.Module):
                 kernel_size=kernel_size,
                 padding=padding,
                 dilation=dilation,
+                stride=stride,
                 groups=channels if group else 1,
             )
             inp = conv(inp)
@@ -508,6 +512,7 @@ class LCCCNN(L.LightningModule):
         channels: int = 3,
         layer_sizes: list[int] = [8, 16],
         kernel_sizes: int | list[int] = 3,
+        strides: int | list[int] = 1,
         dropout_rate: float = 0.5,
         batch_norm=False,
         pool=False,
@@ -525,6 +530,7 @@ class LCCCNN(L.LightningModule):
             channels,
             layer_sizes,
             kernel_sizes,
+            strides,
             dropout_rate,
             batch_norm,
             pool,
@@ -564,13 +570,20 @@ class LCCCNN(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        optimizer = optim.NAdam(self.parameters(), lr=self.lr)
+        # optimizer = optim.NAdam(self.parameters(), lr=self.lr)
+        optimizer = optim.SGD(
+            self.parameters(),
+            lr=self.lr * 100,
+            momentum=0.8,
+            weight_decay=1e-3,
+            # nesterov=True,
+        )
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, factor=0.5, patience=100
         # )
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 100)
         # scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        #     optimizer, 250, 1
+        #     optimizer, 100, 1
         # )
         return {
             "optimizer": optimizer,
