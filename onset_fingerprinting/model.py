@@ -9,6 +9,40 @@ from torch.func import vmap
 from onset_fingerprinting import plots
 
 
+def paired_xcorr(
+    x: torch.Tensor,
+    C: int,
+    K: int,
+) -> torch.Tensor:
+    """
+    Cross-correlate every adjacent channel-pair (1&2, 2&3, …) in each
+    feature-map using grouped conv1d.
+
+    :param x: Tensor of shape (B, C*K, V)
+    :param C: Channels per feature-map
+    :param K: Number of feature-maps
+    :return: Tensor of shape (B, (C-1)*K, 2*V - 1)
+    """
+    B, CK, V = x.shape
+    assert CK == C * K
+
+    # (B, C, K, V)
+    x = x.view(B, C, K, V)
+
+    # Extract adjacent pairs: (B, C-1, K, V)
+    a = x[:, :-1, :, :]
+    b = x[:, 1:, :, :]
+
+    # Reshape to (B, (C-1)*K, V)
+    a = a.view(B, (C - 1) * K, V)
+    b = b.view(B, (C - 1) * K, V)
+
+    M = B * (C - 1) * K
+
+    a_pad = F.pad(a, (V - 1, V - 1)).view(1, M, 3 * V - 2)
+
+    out = F.conv1d(a_pad, b.reshape(M, 1, V), groups=M)
+    return out.view(B, (C - 1), K, 2 * V - 1).mean(dim=2)
 ## TODO: number of sample offsets as parameter to optimize
 # TODO: Train a physical model later to do onset rejection, swap out final
 # layer for that
