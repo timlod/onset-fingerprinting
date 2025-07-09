@@ -241,10 +241,13 @@ np.save(data_dir / "sp.npy", mesh_locs.repeat(8, axis=0))
 
 Let's combine mesh and lug data for a combined dataset:
 #+begin_src python
-def onsets_to_hits(onsets):
+def onsets_to_hits(onsets, locations=None):
     d = {"hits": []}
     for i, onset in enumerate(onsets):
         d["hits"].append({"i": i, "zone": "center", "onset_start": onset.tolist()})
+    if locations is not None:
+        for x, y in zip(d["hits"], locations):
+            x["location"] = y
     return d
 #+end_src
 
@@ -281,9 +284,34 @@ max_onsets = np.array(max_onsets)
 #+end_src
 
 #+begin_src python
-sf.write(data_dir / "Setup 1" / "combined.wav", refdata, sr)
+refdata, sr = sf.read(data_dir / "Setup 1" / "combined.wav")
+with open(data_dir / "Setup 1" / "combined.json", "r") as f:
+    comb = json.load(f)
+
+rocr = np.array([x["onset_start"] for x in comb["hits"]])
+# Add output/locations to dataset
+all_locs = np.vstack(
+    (np.zeros((8, 2)), lug_locs.repeat(8, axis=0), mesh_locs.repeat(8, axis=0))
+)
+for x, y in zip(comb["hits"], all_locs):
+    x["location"] = y.tolist()
+#+end_src
+
+#+begin_src python
+sf.write(data_dir / "Setup 1" / "combined0.wav", refdata, sr)
+with open(data_dir / "Setup 1" / "combined0.json", "w") as f:
+    json.dump(onsets_to_hits(roc_total, all_locs.tolist()), f)
+#+end_src
+
+Save final combined dataset:
+#+begin_src python
 with open(data_dir / "Setup 1" / "combined.json", "w") as f:
-    json.dump(onsets_to_hits(max_onsets), f)
+    json.dump(comb, f)
+#+end_src
+
+#+begin_src python
+from onset_fingerprinting.data import MCPOSD
+mcposd = MCPOSD.from_file(data_dir / "Setup 1", "combined0", 256, 8, 8, 8)
 #+end_src
 
 ** Multilateration
@@ -1140,7 +1168,7 @@ test = data
 test_onsets = oc
 lugonsets = loc
 lugsp = sound_positions[:, :2]
-test_sp = mesh_locs.repeat(8, axis=0) / 1000
+test_sp = mesh_locs.repeat(8, axis=0)
 
 sfe = datam.StretchFrameExtractor(w, 0, 0.03)
 dataset = datam.MCPOSD(lugdata, lugonsets, lugsp, w, pre_samp, 32, 10)
