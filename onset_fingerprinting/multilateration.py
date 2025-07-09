@@ -9,10 +9,12 @@ from onset_fingerprinting import detection
 
 TEMPERATURE = 20.0
 HUMIDITY = 0.5
-DIAMETER = 14 * 2.54
+DIAMETER = 14 * 2.54 / 100
+RADIUS = DIAMETER / 2
 STRIKE_FORCE = 1.0
+C = 345.5
 # speed in m/s of sound through drumhead membrane
-C_drumhead = 82
+C_drumhead = 82.0
 # medium used in sound propagation equations (air or drumhead)
 MEDIUM = "air"
 ONSET_TOL = 50
@@ -737,9 +739,9 @@ class MultilateratePaired:
     def __init__(
         self,
         sensor_locations: list[tuple[float, float]],
-        drum_diameter: float = DIAMETER,
-        scale: float = 10,
-        medium: str = "drumhead",
+        radius: float = RADIUS,
+        scale: float = 1000,
+        c: float = C,
         sr: int = 44100,
     ):
         """Initialize multilateration onset locator.
@@ -756,32 +758,21 @@ class MultilateratePaired:
         adding up matches of each map.  The index with the highest value (most
         matches) will be the predicted location.
 
-        :param sensor_locations: list of sensor location tuples in relative
-            polar coordinates, with first index of the location tuple being the
-            radius (usually in [0, 1], although e.g. a microphone could be
-            placed outside of the drumhead, i.e. 1.1) and the second being the
-            angle in degrees, with 0/360 being the top/north location of the
-            drum.
+        :param sensor_locations: list of sensor location tuples in cartesian
+            coordinates
 
-            For example, [(0.9, 0), (0.9, 90)] defines two sensors placed
-            towards the outer edge of the drum, at the north and east locations
-            of the drumhead
-
-        :param drum_diameter: diameter in cm of the drum
+        :param drum_radius: radius in cm of the drum
         :param scale: scale to use for accuracy of results.  scale 1 would use
             a centimeter grid, default uses millimeters.
         :param medium: 'drumhead' for vibration/optical sensors, 'air' for
             microphones
         :param sr: sampling rate
         """
-        self.radius = int(np.round(drum_diameter * scale / 2, 1))
-        self.sensor_locs = [
-            polar_to_cartesian(x[0] * self.radius, x[1])
-            for x in sensor_locations
-        ]
+        self.radius = radius
+        self.sensor_locs = sensor_locations
         self.scale = scale
-        self.medium = medium
         self.sr = sr
+        self.c = c
 
         self.lag_maps = [{} for _ in range(len(self.sensor_locs))]
         for i in range(len(self.sensor_locs)):
@@ -791,10 +782,10 @@ class MultilateratePaired:
                 self.lag_maps[i][j] = lag_map_2d(
                     self.sensor_locs[i],
                     self.sensor_locs[j],
-                    d=drum_diameter,
+                    r=radius,
                     sr=sr,
                     scale=scale,
-                    medium="drumhead",
+                    c=c,
                 )
         # Pre-allocating results array - possibly useless optimization
         self.res = np.zeros_like(self.lag_maps[0][1])
@@ -805,13 +796,11 @@ class MultilateratePaired:
         sensor_b = self.sensor_locs[js[1]]
         sensor_origin = self.sensor_locs[i]
 
-        c = speed_of_sound(100 * self.scale, medium=self.medium)
+        d_a1 = lags[0] * self.c / self.sr
+        d_b1 = lags[1] * self.c / self.sr
 
-        d_a1 = lags[0] * c / self.sr
-        d_b1 = lags[1] * c / self.sr
-
-        weight_a = abs(d_a1) / (self.radius)
-        weight_b = abs(d_b1) / (self.radius)
+        weight_a = abs(d_a1) / self.radius
+        weight_b = abs(d_b1) / self.radius
         weight_o = abs(d_a1 + d_b1) / (2 * self.radius)
 
         initial_guess = np.array(
@@ -829,7 +818,7 @@ class MultilateratePaired:
             sensor_a, sensor_b, sensor_origin, d_a1, d_b1, initial_guess
         )
 
-        return cartesian_to_polar(x, y, self.radius)
+        return x, y
 
     def locate_cc(
         self,
@@ -902,43 +891,39 @@ def find_lag_multi(a, b, top_n=3):
 def lag_map_2d(
     mic_a: tuple[int, int],
     mic_b: tuple[int, int],
-    d: int = DIAMETER,
+    r: float = RADIUS,
+    c: float = C,
     sr: int = 96000,
-    scale: float = 1,
-    medium: str = MEDIUM,
-    tol: int = 1,
-    c: float | None = None,
+    tol: float = 0.01,
+    scale: float = 100.0,
 ):
-    """Compute lag map for 2D microphone locations.
+    """Compute approximate lag map for 2D microphone locations.
 
     :param mic_a: location of microphone A, in cartesian coordinates
-    :param mic_b: location of microphone A, in cartesian coordinates
-    :param d: diameter of the drum, in centimeters
+    :param mic_b: location of microphone B, in cartesian coordinates
+    :param r: radius of the drum, in meters
     :param sr: sampling rate
-    :param scale: scale to increase/decrease precision originally in
-        centimeters.  For example, for millimeters, scale should be 10
-    :param medium: the medium the sound travels through.  One of 'air' or
-        'drumhead', the latter for optical/magnetic measurements
-    :param tol: lags outside the drum are replaced with np.nan - within some
-        tolerance (in centimeters) at the edges.  Note that the
-        top/bottom/left/right/edges are naturally at the edge of the matrix,
-        tolerance doesn't increase legality there
-    :param c: speed of sound. uses speed_of_sound if not provided
+    :param c: speed of sound
+    :param tol: tolerance in meters around drum boundary
+    :param scale: scale factor for spatial resolution
     """
-    if c is None:
-        c = speed_of_sound(100 * scale, medium=medium)
+    rs = int(r * scale)
 
-    # This will give us a diameter to use which we can sample at millimeter
-    # precision
-    r = int(np.round(d * scale / 2))
-    i, j = np.meshgrid(range(-r, r + 1), range(-r, r + 1))
-    circular_mask = i**2 + j**2 > ((r + tol * scale) ** 2)
+    # We follow the array grid convention where x runs up left to right and y
+    # runs down top to bottom
+    x, y = np.meshgrid(
+        range(-rs, rs + 1), range(rs, -rs - 1, -1), indexing="xy"
+    )
+    x = x / scale
+    y = y / scale
 
-    # compute lag in seconds from each potential location to microphones
-    lag_a = np.sqrt((i - mic_a[0]) ** 2 + (j - mic_a[1]) ** 2) / c
-    lag_b = np.sqrt((i - mic_b[0]) ** 2 + (j - mic_b[1]) ** 2) / c
-    lag_map = np.round((lag_a - lag_b) * sr).astype(np.float32)
+    circular_mask = x**2 + y**2 > ((r + tol) ** 2)
+
+    lag_a = np.sqrt((x - mic_a[0]) ** 2 + (y - mic_a[1]) ** 2) / c
+    lag_b = np.sqrt((x - mic_b[0]) ** 2 + (y - mic_b[1]) ** 2) / c
+    lag_map = np.round((lag_b - lag_a) * sr).astype(np.float32)
     lag_map[circular_mask] = np.nan
+
     return lag_map
 
 

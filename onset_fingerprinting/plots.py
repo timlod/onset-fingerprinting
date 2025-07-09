@@ -459,10 +459,10 @@ def plot_around(x, peaks, i, n=256, hop=32, only_peak=True):
 def plot_lags_2D(
     mic_a: tuple[int, int],
     mic_b: tuple[int, int],
-    d: int = multilateration.DIAMETER,
+    r: int = multilateration.RADIUS,
     sr: int = 96000,
-    scale: float = 1,
-    medium: str = multilateration.MEDIUM,
+    scale: float = 1000,
+    c: float = multilateration.C,
     labels=["Mic A", "Mic B"],
 ):
     """Plot lag map for 2D mic locations.
@@ -476,16 +476,13 @@ def plot_lags_2D(
     :param medium: the medium the sound travels through.  One of 'air' or
         'drumhead', the latter for optical/magnetic measurements
     """
-    r = d * scale / 2
-    mic_a = multilateration.polar_to_cartesian(mic_a[0] * r, mic_a[1])
-    mic_b = multilateration.polar_to_cartesian(mic_b[0] * r, mic_b[1])
-    lags = multilateration.lag_map_2d(mic_a, mic_b, d, sr, scale, medium)
+    lags = multilateration.lag_map_2d(mic_a, mic_b, r, c, sr, scale=scale)
 
-    plt.imshow(lags, cmap="RdYlGn", extent=[-r, r, -r, r], origin="lower")
+    plt.imshow(lags, cmap="RdYlGn", extent=[-r, r, -r, r])
     plt.colorbar(label="Samples difference")
     plt.scatter(
         mic_a[0],
-        -mic_a[1],
+        mic_a[1],
         marker="o",
         label=labels[0],
         c="white",
@@ -493,7 +490,7 @@ def plot_lags_2D(
     )
     plt.scatter(
         mic_b[0],
-        -mic_b[1],
+        mic_b[1],
         marker="o",
         label=labels[1],
         c="black",
