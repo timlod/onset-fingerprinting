@@ -247,7 +247,10 @@ class MCPOSD(Dataset):
         max_shift: int = 0,
         n_extractions: int = 1,
         device=None,
+        channels=None,
     ):
+        if channels is not None:
+            data = data[:, channels]
         self.data = data
         self.frame_extractor = FastFrameExtractor(
             data, onsets, frame_length, pre_samples, max_shift, device=device
@@ -288,6 +291,7 @@ class MCPOSD(Dataset):
         pre_samples: int = 0,
         max_shift: int = 0,
         n_extractions: int = 1,
+        channels=None,
     ):
         folder = Path(folder)
         data, _ = sf.read(folder / (name + ".wav"))
@@ -303,6 +307,7 @@ class MCPOSD(Dataset):
             pre_samples,
             max_shift,
             n_extractions,
+            channels=channels,
         )
 
     @classmethod
