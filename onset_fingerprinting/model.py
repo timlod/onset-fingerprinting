@@ -9,6 +9,61 @@ from torch.func import vmap
 from onset_fingerprinting import plots
 
 
+class GradProbe(L.Callback):
+    """
+    Print the first module whose *output* gradient is (almost) zero.
+
+    Usage
+    -----
+    probe = GradProbe(tol=1e-10)        # tolerance for "zero"
+    trainer = L.Trainer(callbacks=[probe, ...])
+    """
+
+    def __init__(self, *, tol: float = 0.0) -> None:
+        super().__init__()
+        self.tol = tol
+        self._outs: OrderedDict[str, Tensor] = OrderedDict()
+
+    # ------------------------------------------------------------------ #
+    # register forward hooks on *leaf* modules                            #
+    # ------------------------------------------------------------------ #
+    def on_fit_start(
+        self, trainer: L.Trainer, pl_module: L.LightningModule
+    ) -> None:
+
+        def _hook(name: str):
+            def _fwd(_: torch.nn.Module, __, out: Tensor) -> None:
+                # keep only differentiable tensors
+                if (
+                    isinstance(out, Tensor)
+                    and out.requires_grad
+                    and out.dtype.is_floating_point
+                ):
+                    out.retain_grad()
+                    self._outs[name] = out
+
+            return _fwd
+
+        for name, mod in pl_module.named_modules():
+            if not list(mod.children()):  # leaf module
+                mod.register_forward_hook(_hook(name))
+
+    # ------------------------------------------------------------------ #
+    # after backward: locate first zero-grad tensor                       #
+    # ------------------------------------------------------------------ #
+    def on_after_backward(
+        self, trainer: L.Trainer, pl_module: L.LightningModule
+    ) -> None:
+
+        for name, out in self._outs.items():
+            g = out.grad
+            mean = 0.0 if g is None else float(g.abs().mean())
+            if mean <= self.tol:
+                print(f"[GradProbe] ⟂ gradient at → {name}")
+                break
+
+        # free references each step
+        self._outs.clear()
 def paired_xcorr(
     x: torch.Tensor,
     C: int,
