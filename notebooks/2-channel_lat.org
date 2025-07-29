@@ -1,0 +1,363 @@
+#+TITLE: Drum arrangement helper - 2 channels
+#+AUTHOR: Tim Loderhose
+#+EMAIL: tim@loderhose.com
+#+DATE: Saturday, 15 July 2023
+#+STARTUP: showall
+#+PROPERTY: header-args :exports both :session dh :kernel lm :cache no
+:PROPERTIES:
+OPTIONS: ^:nil
+#+LATEX_COMPILER: xelatex
+#+LATEX_CLASS: article
+#+LATEX_CLASS_OPTIONS: [logo, color, author]
+#+LATEX_HEADER: \insertauthor
+#+LATEX_HEADER: \usepackage{minted}
+#+LATEX_HEADER: \usepackage[left=0.75in,top=0.6in,right=0.75in,bottom=0.6in]{geometry}
+:END:
+
+* Imports and Environment Variables
+:PROPERTIES:
+:visibility: folded
+:END:
+
+#+name: imports
+#+begin_src python
+import json
+import time
+from collections import defaultdict
+from pathlib import Path
+
+import librosa
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import scipy
+import sounddevice as sd
+import soundfile as sf
+from onset_fingerprinting import detection, multilateration, plots
+from sklearn.neighbors import KNeighborsClassifier
+#+end_src
+
+#+name: env
+#+begin_src python
+
+#+end_src
+
+* Introduction
+This document details plans for the implementation of a tool which allows a
+user to write MIDI drum parts quickly without needing a full drumkit, but still
+using sticks for natural expression.
+
+We use 2+ microphones to define a line on a table, or any close surface, and
+use the cross-correlation to quickly compute onset lags. We can run this in
+realtime and convert lags to MIDI.
+
+allow to fingerprint different hits in advance to separate sounds based on
+fingerprint
+- could also use beatboxing
+
+* 1. Record training audio for each class
+
+#+begin_src python
+n_classes = 1
+s = 10
+sr = 96000
+hop = 64
+
+audios = []
+for c in range(n_classes):
+    print(f"Recording class {c}!")
+    audios.append(sd.rec(
+        frames=s * sr,
+        samplerate=sr,
+        channels=2,
+        dtype=np.float32,
+        blocking=True,
+    ))
+audios[0] = audios[0][sr//2:]
+#+end_src
+
+#+RESULTS:
+: Recording class 0!
+
+#+begin_src python
+plt.plot(audios[0])
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+| <matplotlib.lines.Line2D | at | 0x737c8afabb90> | <matplotlib.lines.Line2D | at | 0x737c834812d0> |
+[[file:./.ob-jupyter/fe2a774bd7785fc23920cdf7f1ac4fa8fb105610.png]]
+:END:
+
+
+
+#+begin_src python
+def make_ccs(
+    onsets,
+    audio,
+    normalization_cutoff: int = 10,
+    onset_tolerance: int = 108,
+    norm: bool = False,
+):
+    lookaround = onset_tolerance
+    all_ccs = []
+
+    for j, og in enumerate(onsets):
+        og = og.copy()
+        a = max(0, min(og) - lookaround)
+        b = max(og) + lookaround
+        section = audio[a:b]
+        if norm:
+            section = section / section.mean(axis=0, keepdims=True)
+        section_og = og - a
+        new_lag = detection.cross_correlation_lag(
+            section[:, 0],
+            section[:, 1],
+            section_og,
+            normalization_cutoff=normalization_cutoff,
+            onset_tolerance=onset_tolerance,
+        )
+        all_ccs.append(new_lag)
+    all_ccs = np.array(all_ccs)
+    return all_ccs
+
+
+onsets_per = []
+for audio in audios:
+    data = audio
+    data = data - data.mean(axis=0, keepdims=True)
+    cf, of, rel = detection.detect_onsets_amplitude(
+        data,
+        256,
+        hipass_freq=1000,
+        fast_ar=(1.5, 966),
+        slow_ar=(8410, 8410),
+        on_threshold=0.4,
+        off_threshold=0.3,
+        cooldown=20,
+        sr=sr,
+        backtrack=False,
+        backtrack_buffer_size=256,
+        backtrack_smooth_size=1,
+    )
+    oc = detection.find_onset_groups(of, cf, 30, 2)
+    legal = np.where((oc >= 0).all(axis=1))[0]
+    oc = oc[legal]
+    ccs = make_ccs(oc, rel, 10, 64)
+
+    onsets_per.append(oc)
+    plt.figure(figsize=(10, 3))
+    plt.plot(data)
+    plt.vlines(oc, -0.15, 0.15, "red")
+
+plt.figure()
+_ = plt.plot(ccs)
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+[[file:./.ob-jupyter/d0ea2668800d99b02bfa372450f4266f3d3b4039.png]]
+[[file:./.ob-jupyter/06466c79b1d4570309dad46a691371914e565340.png]]
+:END:
+
+#+begin_src python
+np.diff(oc[1:]).flatten() - ccs[1:]
+#+end_src
+
+#+RESULTS:
+: array([ 2, -2, -1, -1,  0,  0, -1, -2, -1,  0, -2, -2, -2, -3,  2, -1,  0,
+:        -1, -1, -1, -2, -3, -1,  3,  1,  3, -2,  1,  1, -1,  3, -1])
+
+#+begin_src python
+plt.plot(np.diff(oc[1:]))
+#+end_src
+
+#+RESULTS:
+:RESULTS:
+| <matplotlib.lines.Line2D | at | 0x737c835a0390> |
+[[file:./.ob-jupyter/db3a6e6b23b3d38bbfda60efee55010538cb7e69.png]]
+:END:
+
+#+begin_src python
+class OnsetMatcher:
+    def __init__(
+        self,
+        max_apart: int = 30,
+        n_channels: int = 2,
+        min_channels: int = 2,
+        normalization_cutoff: int = 10,
+        onset_tolerance: int = 64,
+    ):
+        self.max_apart = max_apart
+        self.n_channels = n_channels
+        self.groups = []
+        self.normalization_cutoff = normalization_cutoff
+        self.onset_tolerance = onset_tolerance
+
+    def __call__(self, c_cur, i_cur, data):
+        # groups: list[tuple[c, i]]
+        new_groups = []
+        for c, i in self.groups:
+            if (lag := i_cur - i) > self.max_apart:
+                continue
+            if c == c_cur:
+                new_groups.append(c_cur, i_cur)
+                continue
+
+            i0, i1 = (i, i_cur) if c < c_cur else (i_cur, i)
+            a = max(0, i0 - self.onset_tolerance)
+            b = i1 + self.onset_tolerance
+            section = data[a:b]
+            lag = detection.cross_correlation_lag(
+                section[:, 0],
+                section[:, 1],
+                (i0 - a, i1 - a),
+                normalization_cutoff=self.normalization_cutoff,
+                onset_tolerance=self.onset_tolerance,
+            )
+            return lag
+        new_groups.append((c_cur, i_cur))
+        self.groups = new_groups
+        return None
+#+end_src
+
+#+begin_src python
+import queue
+from collections import deque
+
+import numpy as np
+import sounddevice as sd
+from loopmate.utils import CLAVE, StreamTime, channels_to_int
+from onset_fingerprinting import multilateration
+from onset_fingerprinting.detection import AmplitudeOnsetDetector
+from onset_fingerprinting.realtime import config
+from onset_fingerprinting.realtime.actions import Actions, Bounds, Location
+
+blocksize=128
+class PlayRec:
+    """
+    Main class to set up the looper.  Creates the sd.Stream, holds loop anchor
+    and list of audio tracks to loop, and the global action queue.
+    """
+
+    def __init__(self, recording, ml_conf, fx, model=None):
+        self.current_index = 0
+        self.rec = recording
+        # Always record audio buffers so we can easily look back for loopables
+        self.rec_audio = self.rec.audio
+
+        # Global actions applied to fully mixed audio
+        self.actions = Actions()
+
+        self.stream = sd.Stream(
+            samplerate=sr,
+            channels=2,
+            callback=self._get_callback(),
+            latency=0.001,
+            blocksize=blocksize,
+        )
+        self.callback_time = None
+        self.last_out = deque(maxlen=20)
+
+        self.od = AmplitudeOnsetDetector(
+            config.2,
+            blocksize,
+            hipass_freq=1000,
+            fast_ar=(1.5, 966),
+            slow_ar=(8000, 8000),
+            on_threshold=0.4,
+            off_threshold=0.3,
+            cooldown=20,
+            sr=sr,
+            backtrack=False,
+            backtrack_buffer_size=2 * blocksize,
+            backtrack_smooth_size=1,
+        )
+        self.fx = fx
+
+    def detect_hits(self, audio):
+        c, d, r = self.od(audio)
+        if len(c) > 0:
+            d = [self.current_index + x for x in d]
+            idx = np.argsort(d)
+            for i in idx:
+                # print(f"Index: {d[i]} on channel {c[i]}")
+                res = self.m.locate(c[i], d[i], self.rec_audio)
+                if res is not None:
+                    res = Location(*res, radius=self.m.radius)
+                    print(f"Result: {res}")
+                    return res
+        return None
+
+    def _get_callback(self):
+        """
+        Creates callback function for this loop.
+        """
+
+        def callback(indata, outdata, frames, time, status):
+            """sounddevice callback.  See
+            https://python-sounddevice.readthedocs.io/en/latest/api/streams.html#sounddevice.Stream
+
+            Note that frames refers to the number of audio samples (not
+            renaming due to sd convention only)
+            """
+            if status:
+                print(status)
+
+            # These times/frame refer to the block that is processed in this
+            # callback
+            self.callback_time = StreamTime(time, self.current_index)
+
+            # Copy necessary as indata arg is passed by reference
+            indata = indata.copy()
+            self.rec_audio.write(indata[:, config.CHANNELS])
+            # I think this will write an empty sound file in the beginning
+            if self.rec_audio.write_counter < frames:
+                self.rec.data.analysis_action = 3
+
+            res = self.detect_hits(indata)
+
+            # Store last output buffer to potentially send a slightly delayed
+            # version to headphones (to match the speaker sound latency). We do
+            # this before running actions such that we can mute the two
+            # separately
+            # TODO: Define mixing function, remove scale
+            outdata[:] = indata[:, :2] * 2
+            self.last_out.append((self.callback_time, outdata.copy()))
+            if res is not None:
+                self.actions.run(outdata, res)
+
+            for fx in self.fx:
+                outdata[:] = fx(outdata[:], config.SR, frames, reset=False)
+
+            # Essentially this will be the last index, or the index relative to
+            # the current audio buffer inside rec_audio (as its counter will
+            # always be updated right after writing)
+            self.current_index += frames
+
+        return callback
+
+    def start(self, restart=False):
+        """Start stream."""
+        self.stream.stop()
+        if restart:
+            self.current_index = 0
+        self.stream.start()
+
+    def stop(self):
+        """Stop stream."""
+        self.stream.stop()
+
+    def event_counter(self) -> (int, int):
+        """Return the recording counter location corresponding to the time when
+        this function was called, as well as the offset samples relative to the
+        beginning of the current audio block/frame.
+        """
+        t = self.stream.time
+        samples_since = round(self.callback_time.timediff(t) * config.SR)
+        return (
+            self.rec_audio.counter
+            + samples_since
+            + round(self.callback_time.input_delay * config.SR)
+        ), samples_since
+#+end_src
