@@ -704,6 +704,7 @@ class AmplitudeOnsetDetector:
             x0=np.array([[0, 10]] * n_signals).T,
             alpha_min=1e-4,
             alpha_max=1e-5,
+            minmin=2,
         )
 
         self.state = np.zeros(n_signals, dtype=bool)
