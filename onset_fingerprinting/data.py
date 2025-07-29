@@ -239,15 +239,18 @@ class MCPOSD(Dataset):
 
     def __init__(
         self,
-        data,
-        onsets,
+        data: np.ndarray,
+        onsets: np.ndarray,
         sound_positions: np.ndarray,
         frame_length: int = 256,
         pre_samples: int = 0,
         max_shift: int = 0,
         n_extractions: int = 1,
         device=None,
+        channels=None,
     ):
+        if channels is not None:
+            data = data[:, channels]
         self.data = data
         self.frame_extractor = FastFrameExtractor(
             data, onsets, frame_length, pre_samples, max_shift, device=device
@@ -278,6 +281,34 @@ class MCPOSD(Dataset):
 
     def __len__(self):
         return 1
+
+    @classmethod
+    def from_file(
+        cls,
+        folder: str | Path,
+        name: str,
+        frame_length: int = 256,
+        pre_samples: int = 0,
+        max_shift: int = 0,
+        n_extractions: int = 1,
+        channels=None,
+    ):
+        folder = Path(folder)
+        data, _ = sf.read(folder / (name + ".wav"))
+        with open(folder / (name + ".json"), "r") as f:
+            meta = json.load(f)
+        onsets = np.array([x["onset_start"] for x in meta["hits"]])
+        sound_positions = np.array([x["location"] for x in meta["hits"]])
+        return MCPOSD(
+            data,
+            onsets,
+            sound_positions,
+            frame_length,
+            pre_samples,
+            max_shift,
+            n_extractions,
+            channels=channels,
+        )
 
     @classmethod
     def from_xy(cls, x: torch.Tensor, y: torch.Tensor):

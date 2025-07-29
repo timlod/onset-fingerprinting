@@ -100,7 +100,7 @@ plt.tight_layout()
 #+end_src
 
 #+RESULTS:
-[[file:./.ob-jupyter/791c6499708b1a5dae9f579b54e8d17e7626151e.png]]
+[[file:./.ob-jupyter/9c322db9b7fb5af80c55faa1e1b63f115a5a55b3.png]]
 
 
 Looks fine! Let's load some data and see how we get on:
@@ -1990,3 +1990,42 @@ CLOSED: [2025-06-10 Tue 14:06]
 :END:
 
 Perhaps allow to auto-set thresholds based on calibration data as a suggestion?
+
+** Training plan
+
+- Don't save data as npy files as done now
+- make sure we can use parts of the grid data in training as well
+- make it easier to test simple architectures
+- add different architectures
+- cc as input
+
+** Ideas
+
+*** CC adaptations
+Instead of direct CC, we could compute the CC over envelopes - perhaps we can
+differentiate through the parameters determining the size of the envelope?
+
+*** Normalization
+- normalize each window
+
+*** STFT
+think about 
+
+*** Core information contained in data for sensors
+1. relative onset timings
+   - information contained in paired signals
+   - index-level information (requires argmax/softmax of some sort)
+   - onset-peak lags correspond to physics of the multilateration problem
+     through a membrane
+2. pre-ringing frequency
+   - depending on how close the hit is to the sensor, the pre-ringing will be
+     shorter and of higher frequency
+3. velocity
+   - possibly to a small degree, the signal will have lost a little bit of
+     energy relative to the strength of the hit if travelling to the opposite
+     side of the drum (inverse square law, probably)
+
+
+1. would probably be best served by cross-correlation between pairs of sensors,
+   potentially with the onset difference to first onset as a kind of 'seed value'
+2. would probably best be served by a STFT of some sort, or maybe fcwt
