@@ -194,6 +194,8 @@ class OnsetMatcher:
         self.normalization_cutoff = normalization_cutoff
         self.onset_tolerance = onset_tolerance
 
+    # index data in terms of negative indexes due to circular nature, wait for
+    # new data in case onset is at end of current buffer
     def __call__(self, c_cur, i_cur, data):
         # groups: list[tuple[c, i]]
         new_groups = []
@@ -219,6 +221,16 @@ class OnsetMatcher:
         new_groups.append((c_cur, i_cur))
         self.groups = new_groups
         return None
+#+end_src
+
+#+begin_src python
+om = OnsetMatcher()
+out = []
+sortidx = np.argsort(of)
+for c, i in zip(np.array(cf)[sortidx], np.array(of)[sortidx]):
+    res = om(c, i, data)
+    if res is not None:
+        out.append((res, i))
 #+end_src
 
 #+begin_src python
@@ -260,7 +272,7 @@ class PlayRec:
         self.last_out = deque(maxlen=20)
 
         self.od = AmplitudeOnsetDetector(
-            config.2,
+            2,
             blocksize,
             hipass_freq=1000,
             fast_ar=(1.5, 966),
@@ -276,17 +288,9 @@ class PlayRec:
         self.fx = fx
 
     def detect_hits(self, audio):
-        c, d, r = self.od(audio)
-        if len(c) > 0:
-            d = [self.current_index + x for x in d]
-            idx = np.argsort(d)
-            for i in idx:
-                # print(f"Index: {d[i]} on channel {c[i]}")
-                res = self.m.locate(c[i], d[i], self.rec_audio)
-                if res is not None:
-                    res = Location(*res, radius=self.m.radius)
-                    print(f"Result: {res}")
-                    return res
+        cs, idxs, r = self.od(audio)
+        for i, c in sorted(zip(idxs, cs)):
+            return self.om(c, self.current_index + i, self.rec_audio)
         return None
 
     def _get_callback(self):
@@ -310,25 +314,18 @@ class PlayRec:
 
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
-            self.rec_audio.write(indata[:, config.CHANNELS])
+            self.rec_audio.write(indata[:, :])
             # I think this will write an empty sound file in the beginning
             if self.rec_audio.write_counter < frames:
                 self.rec.data.analysis_action = 3
 
             res = self.detect_hits(indata)
-
-            # Store last output buffer to potentially send a slightly delayed
-            # version to headphones (to match the speaker sound latency). We do
-            # this before running actions such that we can mute the two
-            # separately
-            # TODO: Define mixing function, remove scale
-            outdata[:] = indata[:, :2] * 2
-            self.last_out.append((self.callback_time, outdata.copy()))
+            outdata[:] = 0.0
             if res is not None:
                 self.actions.run(outdata, res)
 
             for fx in self.fx:
-                outdata[:] = fx(outdata[:], config.SR, frames, reset=False)
+                outdata[:] = fx(outdata[:], sr, frames, reset=False)
 
             # Essentially this will be the last index, or the index relative to
             # the current audio buffer inside rec_audio (as its counter will
