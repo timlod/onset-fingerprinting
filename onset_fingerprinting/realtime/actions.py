@@ -350,6 +350,12 @@ class Actions:
     def prepend(self, action: Action):
         self.actions.insert(0, action)
 
+    def trigger(self, location):
+        # Activate actions (puts them in active queue)
+        for action in self.actions:
+            if action.trigger(location):
+                self.active.put_nowait(action)
+
     def run(self, outdata, location: Location):
         """Run all actions (to be called once every callback)
 
@@ -360,18 +366,22 @@ class Actions:
             the next step.  Will be != current_index + n_samples only when
             wrapping around at the loop boundary.
         """
-        # Activate actions (puts them in active queue)
-        for action in self.actions:
-            if action.trigger(location):
-                self.active.put_nowait(action)
-
+        # TODO: think about how to trigger samples correctly!
+        readd = []
         while not self.active.empty():
             action = self.active.get_nowait()
             action.run(outdata, location)
             if action.consumed:
                 print(f"consumed {action}")
-                if not action.loop:
-                    self.actions.remove(action)
+                ## TODO: think about how to trigger samples properly!
+                action.reset()
+                # if not action.loop:
+                #     self.actions.remove(action)
                 if action.spawn is not None:
                     print(f"Spawning {action.spawn}")
                     self.actions.append(action.spawn)
+            else:
+                readd.append(action)
+
+        for action in readd:
+            self.active.put_nowait(action)
