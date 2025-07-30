@@ -796,7 +796,7 @@ class CCCNN(nn.Module):
         pos = torch.tensor([[0.0, R], [R, 0.0], [0.0, -R], [-R, 0.0]])
 
         self.solver = TrilaterationSolver()
-        self.fc = nn.Linear((channels - 1) * output_dim, 3, bias=False)
+        self.fc = nn.Linear((channels - 1) * output_dim, 4, bias=False)
         # self.fc = nn.Linear(channels * (output_dim), 3, bias=False)
 
         # self.fc = nn.Sequential(
@@ -818,14 +818,15 @@ class CCCNN(nn.Module):
         K = CK // C
 
         x = F.normalize(x)
-        cc = paired_xcorr(x, C, K)
-        cc = cc / self.normalizer
+        # cc = paired_xcorr(x, C, K)
+        # cc = cc / self.normalizer
         # print("cc stats:", cc.min(), cc.max(), cc[9])
 
         probs = F.softmax(cc, dim=-1).view(B, C - 1, -1)  # (B, C-1, 2V-1)
         # probs = (probs * self.lags).sum(-1)
         probs = torch.flatten(probs, start_dim=1)  # (B, (C-1)*(2V-1))
         inter = self.fc(probs) * self.R
+        # add a stage to select 3 earliest outputs
         # print(inter)
         # inter = self.fc(probs) * (self.R)
         return self.solver(inter)
