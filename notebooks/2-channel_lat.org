@@ -24,6 +24,7 @@ OPTIONS: ^:nil
 import json
 import time
 from collections import defaultdict
+from importlib import reload
 from pathlib import Path
 
 import librosa
@@ -34,12 +35,13 @@ import scipy
 import sounddevice as sd
 import soundfile as sf
 from onset_fingerprinting import detection, multilateration, plots
+from scipy.signal import resample
 from sklearn.neighbors import KNeighborsClassifier
 #+end_src
 
 #+name: env
 #+begin_src python
-
+sr = 96000
 #+end_src
 
 * Introduction
@@ -208,8 +210,8 @@ class OnsetMatcher:
 
             i0, i1 = (i, i_cur) if c < c_cur else (i_cur, i)
             a = max(0, i0 - self.onset_tolerance)
-            b = i1 + self.onset_tolerance
-            section = data[a:b]
+            # b = i1 + self.onset_tolerance
+            section = data[a:]
             lag = detection.cross_correlation_lag(
                 section[:, 0],
                 section[:, 1],
@@ -243,23 +245,25 @@ from loopmate.utils import CLAVE, StreamTime, channels_to_int
 from onset_fingerprinting import multilateration
 from onset_fingerprinting.detection import AmplitudeOnsetDetector
 from onset_fingerprinting.realtime import config
-from onset_fingerprinting.realtime.actions import Actions, Bounds, Location
+from onset_fingerprinting.realtime import actions
+from loopmate.circular_array import CircularArray
+blocksize = 128
 
-blocksize=128
+
 class PlayRec:
     """
     Main class to set up the looper.  Creates the sd.Stream, holds loop anchor
     and list of audio tracks to loop, and the global action queue.
     """
 
-    def __init__(self, recording, ml_conf, fx, model=None):
+    def __init__(self, rec_audio, om):
         self.current_index = 0
-        self.rec = recording
         # Always record audio buffers so we can easily look back for loopables
-        self.rec_audio = self.rec.audio
+        self.rec_audio = rec_audio
+        self.om = om
 
         # Global actions applied to fully mixed audio
-        self.actions = Actions()
+        self.actions = actions.Actions()
 
         self.stream = sd.Stream(
             samplerate=sr,
@@ -285,12 +289,14 @@ class PlayRec:
             backtrack_buffer_size=2 * blocksize,
             backtrack_smooth_size=1,
         )
-        self.fx = fx
 
     def detect_hits(self, audio):
         cs, idxs, r = self.od(audio)
         for i, c in sorted(zip(idxs, cs)):
-            return self.om(c, self.current_index + i, self.rec_audio)
+            # print(i, c, self.current_index, self.rec_audio)
+            res = self.om(c, self.current_index + i, self.rec_audio)
+            if res is not None:
+                return actions.Location(x=res, y=res)
         return None
 
     def _get_callback(self):
@@ -315,17 +321,13 @@ class PlayRec:
             # Copy necessary as indata arg is passed by reference
             indata = indata.copy()
             self.rec_audio.write(indata[:, :])
-            # I think this will write an empty sound file in the beginning
-            if self.rec_audio.write_counter < frames:
-                self.rec.data.analysis_action = 3
 
             res = self.detect_hits(indata)
             outdata[:] = 0.0
             if res is not None:
-                self.actions.run(outdata, res)
+                self.actions.trigger(res)
 
-            for fx in self.fx:
-                outdata[:] = fx(outdata[:], sr, frames, reset=False)
+            self.actions.run(outdata, res)
 
             # Essentially this will be the last index, or the index relative to
             # the current audio buffer inside rec_audio (as its counter will
@@ -357,4 +359,24 @@ class PlayRec:
             + samples_since
             + round(self.callback_time.input_delay * config.SR)
         ), samples_since
+#+end_src
+
+#+begin_src python
+n = 1024
+channels = 2
+audio = CircularArray(np.ndarray((n, channels), dtype=np.float32), 0, 0)
+pr = PlayRec(audio, OnsetMatcher())
+s0 = actions.Sample([actions.Bounds(x=(-np.inf, 0))], CLAVE)
+s1 = actions.Sample([actions.Bounds(x=(1, np.inf))], resample(CLAVE, 10000))
+pr.actions.append(s0)
+pr.actions.append(s1)
+#+end_src
+
+#+begin_src python
+pr.start()
+#+end_src
+
+
+#+begin_src python
+pr.stop()
 #+end_src
