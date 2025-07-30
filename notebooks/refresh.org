@@ -2033,11 +2033,24 @@ Perhaps allow to auto-set thresholds based on calibration data as a suggestion?
 Instead of direct CC, we could compute the CC over envelopes - perhaps we can
 differentiate through the parameters determining the size of the envelope?
 
+*** architecture for learning lags
+softmax after CNN layers, which we should think about in terms of receptive
+field and such.
+
+1. CNN layers such that we get 100-2000hz resolution at frequencies we care about
+2. ending in 
+
 *** Normalization
 - normalize each window
 
 *** STFT
-think about 
+think about using complex CNNs, or perhaps QCNN
+
+*** Separate lag computation from location prediction?
+could train two separate sub-nets at the same time - one using arg/softmax to
+compute the lag, and another (small MLP) which then from that learns the
+location relationship. Not sure if that would help gradients vs. learning the
+location directly from the data
 
 *** Core information contained in data for sensors
 1. relative onset timings

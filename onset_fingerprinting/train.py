@@ -20,79 +20,105 @@ from onset_fingerprinting import model
 torch.set_float32_matmul_precision("medium")
 
 data_dir = Path("../data/location/Recordings3")
-epochs = 5000
+epochs = 7500
 w = 256
-channels = 4
-outdim = 2
-pre_samp = 8
+pre_samp = 0
+channels = [0, 1, 2]
+channels = None
 # This is quite slow, so it might be better to precompute some stretches and
 # shift those
 # sfe = data.StretchFrameExtractor(w, 0, 0.03)
 dataset = data.MCPOSD.from_file(
-    data_dir / "Setup 1", "combined0", w, pre_samp, 16, 4
+    data_dir / "Setup 1", "combined0", w, pre_samp, 16, 16, channels=channels
 )
-train = data.MCPOSD.from_xy(dataset[0][0][::8], dataset[0][1][::8])
-# train, val = dataset.split()
+extra_pos = [
+    488,
+    489,
+    490,
+    491,
+    492,
+    493,
+    494,
+    495,
+    680,
+    681,
+    682,
+    683,
+    684,
+    685,
+    686,
+    687,
+    712,
+    713,
+    714,
+    715,
+    716,
+    717,
+    718,
+    719,
+    904,
+    905,
+    906,
+    907,
+    908,
+    909,
+    910,
+    911,
+]
+pos = np.r_[:72, extra_pos]
+train = data.MCPOSD(
+    dataset.data,
+    dataset.frame_extractor.onsets[pos],
+    dataset[0][1][pos],
+    w,
+    pre_samp,
+    16,
+    32,
+    channels=channels,
+)
+# train = data.MCPOSD.from_xy(dataset[0][0][::8], dataset[0][1][::8])
 test_dataset = data.MCPOSD.from_file(
-    data_dir / "Setup 1", "combined0", w, 0, 0, 1
+    data_dir / "Setup 1", "combined0", w, 0, 0, 1, channels=channels
 )
 # test_dataset = data.MCPOSD(test, test_onsets, test_sp, w)
 val, test = test_dataset.split(0.1)
 tdl = DataLoader(train, batch_size=None)
 vdl = DataLoader(val, batch_size=None)
 testdl = DataLoader(test_dataset, batch_size=None)
+channels = dataset[0][0].shape[1]
+outdim = dataset[0][1].shape[1]
 
 
 def objective(trial: optuna.trial.Trial) -> float:
-    n_layers = trial.suggest_int("n_layers", 1, 3)
-    layer_sizes = [
-        trial.suggest_int("out_channels_l{}".format(i), 2, 128, log=True)
-        for i in range(n_layers)
-    ]
-    dropout = trial.suggest_float("dropout", 0.0, 0.1)
-    kernel_size = trial.suggest_int("kernel_size", 3, 5)
-    # lossfun = trial.suggest_categorical("lossfun", [F.l1_loss, F.mse_loss])
-    # batch_norm = trial.suggest_categorical("batch_norm", [True, False])
-    # pool = trial.suggest_categorical("pool", [True, False])
-    # padding = trial.suggest_int("padding", 0, 1)
-    # dilation = trial.suggest_int("dilation", 1, 2)
-    lossfun = F.l1_loss
-    batch_norm = True
-    pool = False
-    padding = 0
-    dilation = 1
+    # n_layers = trial.suggest_int("n_layers", 1, 3)
+    # layer_sizes = [
+    #     trial.suggest_int("out_channels_l{}".format(i), 2, 128, log=True)
+    #     for i in range(n_layers)
+    # ]
+    # dropout = trial.suggest_float("dropout", 0.0, 0.1)
+    # kernel_size = trial.suggest_int("kernel_size", 3, 5)
 
-    # m = model.CNN(
-    #     input_size=w,
-    #     output_size=outdim,
-    #     channels=channels,
-    #     layer_sizes=layer_sizes,
-    #     kernel_size=kernel_size,
-    #     dropout_rate=dropout,
-    #     loss=lossfun,
-    #     batch_norm=batch_norm,
-    #     pool=pool,
-    #     padding=padding,
-    #     dilation=dilation,
-    #     lr=0.01,
-    # )
     m = model.LCCCNN(
         w,
         outdim,
         channels,
-        layer_sizes=[5] * 7,
-        kernel_sizes=[1, 33, 64, 15, 15, 15, 1],
+        layer_sizes=[1] * 9,
+        # kernel_sizes=11,
+        kernel_sizes=[15, 15, 11, 7],
+        # kernel_sizes=[13] * 4,
+        strides=[2, 2] + 10 * [1],
         dropout_rate=0.0,
         batch_norm=True,
-        loss=lossfun,
-        lr=0.001,
+        loss=F.huber_loss,
+        lr=0.0001,
         group=False,
+        pool=False,
     )
 
     trainer = L.Trainer(
         logger=True,
         enable_checkpointing=False,
-        max_epochs=10000,
+        max_epochs=epochs,
         max_steps=-1,
         accelerator="auto",
         devices=1,
@@ -100,26 +126,15 @@ def objective(trial: optuna.trial.Trial) -> float:
             # PyTorchLightningPruningCallback(trial, monitor="val_loss"),
             EarlyStopping(monitor="val_loss", mode="min", patience=500),
             # StochasticWeightAveraging(swa_lrs=1e-3),
+            # model.GradProbe(),
         ],
         min_epochs=1000,
+        # gradient_clip_val=1.5,
+        # detect_anomaly=True,
     )
-    hyperparameters = dict(
-        n_layers=n_layers,
-        layer_sizes=layer_sizes,
-        kernel_size=kernel_size,
-        dropout=dropout,
-        loss=lossfun,
-        batch_norm=batch_norm,
-        pool=pool,
-        padding=padding,
-        dilation=dilation,
-    )
-    trainer.logger.log_hyperparams(hyperparameters)
 
     # tuner = Tuner(trainer)
-    # tuner.lr_find(
-    #     m, train_dataloaders=tdl, val_dataloaders=vdl, max_lr=0.1
-    # )
+    # tuner.lr_find(m, train_dataloaders=tdl, val_dataloaders=vdl, max_lr=0.1)
     trainer.fit(m, train_dataloaders=tdl, val_dataloaders=vdl)
     trainer.test(m, testdl)
 
@@ -131,7 +146,7 @@ if __name__ == "__main__":
     pruner = optuna.pruners.MedianPruner()
 
     study = optuna.create_study(direction="minimize", pruner=pruner)
-    study.optimize(objective, n_trials=3, catch=[RuntimeError])
+    study.optimize(objective, n_trials=1, catch=[RuntimeError])
 
     print("Number of finished trials: {}".format(len(study.trials)))
 

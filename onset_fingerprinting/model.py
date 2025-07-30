@@ -1,11 +1,15 @@
-import numpy as np
+from __future__ import annotations
+
+from collections import OrderedDict
+
 import lightning as L
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
-import torch.nn as nn
-from torch import optim
-from torch.nn import functional as F
+from torch import Tensor, nn, optim
 from torch.func import vmap
+from torch.nn import functional as F
+
 from onset_fingerprinting import plots
 
 
@@ -190,6 +194,8 @@ def paired_xcorr(
 
     out = F.conv1d(a_pad, b.reshape(M, 1, V), groups=M)
     return out.view(B, (C - 1), K, 2 * V - 1).mean(dim=2)
+
+
 ## TODO: number of sample offsets as parameter to optimize
 # TODO: Train a physical model later to do onset rejection, swap out final
 # layer for that
@@ -587,6 +593,109 @@ class CNNRNN(L.LightningModule):
         }
 
 
+class CNN2(nn.Module):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        channels: int = 3,
+        layer_sizes: list[int] = [8, 16],
+        kernel_sizes: int | list[int] = 3,
+        strides: int | list[int] = 1,
+        dropout_rate: float = 0.5,
+        batch_norm=False,
+        pool=False,
+        padding=1,
+        dilation=1,
+        group: bool = False,
+        activation=nn.SiLU,
+    ) -> None:
+        """
+        A flexible CNN architecture.
+
+        :param input_size: The size of the 1D audio window for each sensor.
+        :param output_size: The dimensionality of the output (e.g., 2D
+            coordinates).
+        :param channels: Number of input channels (sensors).
+        """
+        super().__init__()
+        self.conv_layers = nn.Sequential()
+        self.group = group
+        self.channels = channels
+
+        current_channels = channels if group else 1
+
+        if isinstance(kernel_sizes, int):
+            kernel_sizes = [kernel_sizes] * len(layer_sizes)
+        if isinstance(strides, int):
+            strides = [strides] * len(layer_sizes)
+
+        # Input size to the first layer
+        inp = torch.zeros(1, current_channels, input_size)
+        xs = [inp]
+        for i, (layer_size, kernel_size, stride) in enumerate(
+            zip(layer_sizes, kernel_sizes, strides)
+        ):
+            conv = nn.Conv1d(
+                in_channels=current_channels,
+                out_channels=layer_size * (channels if group else 1),
+                kernel_size=kernel_size,
+                padding=padding,
+                dilation=dilation,
+                stride=stride,
+                groups=channels if group else 1,
+            )
+            inp = conv(inp)
+            self.conv_layers.add_module(f"conv{i+1}", conv)
+            self.conv_layers.add_module(f"act{i+1}", activation())
+            if batch_norm:
+                self.conv_layers.add_module(
+                    f"bn{i+1}",
+                    # nn.BatchNorm1d(layer_size * (channels if group else 1)),
+                    nn.GroupNorm(1, layer_size * (channels if group else 1)),
+                )
+            if pool:
+                mp = nn.MaxPool1d(kernel_size=2, stride=2)
+                self.conv_layers.add_module(f"pool{i+1}", mp)
+                inp = mp(inp)
+            current_channels = layer_size * (channels if group else 1)
+            xs.append(inp)
+
+        self.dropout = nn.Dropout(dropout_rate)
+        output_dim = inp.shape[-1] + xs[1].shape[-1]
+        # self.fc = nn.Linear((channels) * output_dim, output_size, bias=False)
+        # self.fc = nn.Linear((channels - 1) * (output_dim), 3, bias=False)
+        self.fc = nn.Linear(channels * (output_dim), 3, bias=False)
+
+        self.fc = nn.Sequential(
+            self.fc, nn.SiLU(), nn.Linear(3, output_size, bias=False)
+        )
+        print(self.fc)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        B, C, _ = x.shape
+        if self.group:
+            x = self.conv_layers(x)  # (B, C*K, V)
+        else:
+            # Unsqueeze to (C, B, 1, W) for vmap over channels
+            # x = vmap(self.conv_layers, in_dims=1, out_dims=1)(x.unsqueeze(2))
+            x = vmap(self.conv_layers[0], in_dims=1, out_dims=1)(
+                x.unsqueeze(2)
+            )
+            x1 = x
+            x = vmap(self.conv_layers[1:], in_dims=1, out_dims=1)(x)
+            # → (B, C, K, V)
+            x = x.reshape(B, C * x.shape[2], x.shape[3])
+            # → (B, C*K, V)
+
+        B, CK, V = x.shape
+        K = CK // C
+        x = x.view(B, C, K, V).mean(dim=2)
+        x = torch.cat((x, x1.mean(dim=2)), dim=2)
+        x = torch.flatten(x, start_dim=1)
+        return self.fc(x)
+
+
 class CCCNN(nn.Module):
     def __init__(
         self,
@@ -655,34 +764,71 @@ class CCCNN(nn.Module):
             current_channels = layer_size * (channels if group else 1)
 
         self.dropout = nn.Dropout(dropout_rate)
-        self.fc = nn.Linear(channels * (2 * inp.shape[-1] - 1), output_size)
+        self.max_lag = inp.shape[-1]
+        output_dim = 2 * self.max_lag - 1
+        self.fc = nn.Linear((channels) * output_dim, output_size, bias=False)
+
+        normalizer = np.concatenate(
+            (np.arange(1, self.max_lag), np.arange(self.max_lag, 0, -1))
+        )
+        norm_cutoff = 5
+        normalizer[:norm_cutoff] = norm_cutoff
+        normalizer[-norm_cutoff:] = norm_cutoff
+        normalizer = normalizer / (self.max_lag)
+        self.register_buffer(
+            "normalizer", torch.tensor(normalizer, dtype=torch.float32)
+        )
+
+        lags = (
+            torch.arange(-self.max_lag + 1, self.max_lag, dtype=torch.float32)
+            / self.max_lag
+        )
+        self.register_buffer("lags", lags)
+        # self.fc2 = nn.Linear(channels, output_size, bias=False)
+
+        self.fc = nn.Linear(
+            (channels - 1) * (output_dim), output_size, bias=False
+        )
+
+        # four edge mics on a 0.30 m radius membrane (any order now)
+        R = 0.142
+        self.R = R
+        pos = torch.tensor([[0.0, R], [R, 0.0], [0.0, -R], [-R, 0.0]])
+
+        self.solver = TrilaterationSolver()
+        self.fc = nn.Linear((channels - 1) * output_dim, 3, bias=False)
+        # self.fc = nn.Linear(channels * (output_dim), 3, bias=False)
+
+        # self.fc = nn.Sequential(
+        #     self.fc, nn.SiLU(), nn.Linear(3, output_size, bias=False)
+        # )
+
+        print(self.fc, output_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, C, _ = x.shape
+
         if self.group:
             x = self.conv_layers(x)  # (B, C*K, V)
         else:
-            # Unsqueeze to (C, B, 1, W) for vmap over channels
             x = vmap(self.conv_layers, in_dims=1, out_dims=1)(x.unsqueeze(2))
-            # → (B, C, K, V)
-            x = x.reshape(B, C * x.shape[2], x.shape[3])
-            # → (B, C*K, V)
+            x = x.reshape(B, C * x.shape[2], x.shape[3])  # (B, C*K, V)
 
         _, CK, V = x.shape
-        K = CK // self.channels
+        K = CK // C
 
-        x1 = x.view(B * C, K, V)  # (B*C, K, V)
-        filters = x1.view(B * C * K, 1, V)  # (B*C*K, 1, V)
-        inputs = x1.view(1, B * C * K, V)  # (1, B*C*K, V)
+        x = F.normalize(x)
+        cc = paired_xcorr(x, C, K)
+        cc = cc / self.normalizer
+        # print("cc stats:", cc.min(), cc.max(), cc[9])
 
-        cc_raw = F.conv1d(inputs, filters, groups=B * C * K, padding=V - 1)
-
-        cc = cc_raw.view(B * C, K, -1).sum(dim=1)
-        probs = F.softmax(cc, dim=-1).view(B, C, -1)
-
-        probs = torch.flatten(probs, start_dim=1)
-        probs = self.dropout(probs)
-        return self.fc(probs)
+        probs = F.softmax(cc, dim=-1).view(B, C - 1, -1)  # (B, C-1, 2V-1)
+        # probs = (probs * self.lags).sum(-1)
+        probs = torch.flatten(probs, start_dim=1)  # (B, (C-1)*(2V-1))
+        inter = self.fc(probs) * self.R
+        # print(inter)
+        # inter = self.fc(probs) * (self.R)
+        return self.solver(inter)
 
 
 class LCCCNN(L.LightningModule):
@@ -722,6 +868,7 @@ class LCCCNN(L.LightningModule):
         )
         self.lr = lr
         self.loss = loss
+        self.save_hyperparameters()
 
     def forward(self, x):
         return self.model(x)
@@ -756,16 +903,16 @@ class LCCCNN(L.LightningModule):
             self.parameters(),
             lr=self.lr * 100,
             momentum=0.8,
-            weight_decay=1e-3,
+            weight_decay=1e-5,
             # nesterov=True,
         )
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, factor=0.5, patience=100
         # )
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 100)
-        # scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        #     optimizer, 100, 1
-        # )
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 2000)
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, 300, 2
+        )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
@@ -774,3 +921,26 @@ class LCCCNN(L.LightningModule):
                 "frequency": 1,
             },
         }
+
+    def on_train_end(self):
+        print(self.model.solver.c, self.model.solver.sensors)
+
+    def configure_gradient_clipping(
+        self,
+        optimizer,  # the current optimiser
+        gradient_clip_val: float | None,
+        gradient_clip_algorithm: str | None,
+    ) -> None:
+
+        # clip the layer you care about
+        torch.nn.utils.clip_grad_value_(
+            self.model.fc.parameters(), clip_value=1.0
+        )
+
+        # optionally keep Lightning's built-in clipping for the rest
+        # (set gradient_clip_val in Trainer to a small number or None)
+        self.clip_gradients(
+            optimizer,
+            gradient_clip_val=gradient_clip_val,
+            gradient_clip_algorithm=gradient_clip_algorithm,
+        )
