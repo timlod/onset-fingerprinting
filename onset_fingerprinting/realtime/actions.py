@@ -340,13 +340,32 @@ class ParameterChange(Action):
         self.loop = False
 
 
+class Sample(Action):
+    def __init__(
+        self, bounds: list[Bounds], sample: np.ndarray, gain: float = 1.0
+    ):
+        super().__init__(bounds, n=len(sample), priority=1)
+        self.sample = sample
+        self.gain = gain
+
+    def do(self, data, location: Location):
+        sample = self.sample[
+            self.current_sample : self.current_sample + len(data)
+        ]
+        data[: len(sample)] += self.gain * sample
+
+
 @dataclass
 class Actions:
     # keeps and maintains a queue of actions that are fired in the callback
     max: int = 20
-    actions: deque = field(default_factory=deque)
-    active: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
-    plans: queue.PriorityQueue = field(default_factory=queue.PriorityQueue)
+    actions: deque[Action] = field(default_factory=deque)
+    active: queue.PriorityQueue[Action] = field(
+        default_factory=queue.PriorityQueue
+    )
+    plans: queue.PriorityQueue[Action] = field(
+        default_factory=queue.PriorityQueue
+    )
 
     def append(self, action: Action):
         self.actions.append(action)
