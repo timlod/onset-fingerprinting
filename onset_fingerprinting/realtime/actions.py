@@ -170,7 +170,7 @@ class Location:
             self.x, self.y = polar_to_cartesian(self.r, self.phi)
         else:
             self.r, self.phi = cartesian_to_polar(
-                self.x, self.y, r=self.radius
+                self.x, self.y, r=np.sqrt(self.x**2 + self.y**2)
             )
 
     def __repr__(self):
