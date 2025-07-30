@@ -64,6 +64,98 @@ class GradProbe(L.Callback):
 
         # free references each step
         self._outs.clear()
+
+
+class TrilaterationSolver(nn.Module):
+    """
+    Newton–Raphson solver for 2-D trilateration that is fully
+    differentiable w.r.t. all inputs.
+
+    It solves, for point *p* = (x, y),
+
+    .. math::
+
+        \|p-a\| - \|p-o\| &= Δd_a \\
+        \|p-b\| - \|p-o\| &= Δd_b
+
+    The Jacobian is computed analytically for speed; all operations
+    stay inside the autograd graph, so gradients flow through both the
+    iterative updates and the analytic Jacobian.
+    """
+
+    def __init__(
+        self,
+        max_iter: int = 20,
+        tol: float = 1e-2,
+        eps: float = 1e-9,
+    ) -> None:
+        super().__init__()
+        self.max_iter = max_iter
+        self.tol = tol
+        self.eps = eps
+
+    def forward(
+        self,
+        sensor_a: Tensor,  # (..., 2)
+        sensor_b: Tensor,  # (..., 2)
+        sensor_origin: Tensor,  # (..., 2)
+        delta_d_a: Tensor,  # (...,)
+        delta_d_b: Tensor,  # (...,)
+        initial_guess: Tensor,  # (..., 2)
+    ) -> Tensor:  # (..., 2)
+        """
+        Parameters
+        ----------
+        sensor_a, sensor_b, sensor_origin
+            Cartesian coordinates shaped ``(..., 2)``.
+        delta_d_a, delta_d_b
+            Signed range-difference measurements.
+        initial_guess
+            Initial position estimate.
+
+        Returns
+        -------
+        Tensor
+            Estimated positions, same leading batch dims as inputs.
+        """
+        p = initial_guess
+
+        for _ in range(self.max_iter):
+            d_a = torch.norm(p - sensor_a, dim=-1).clamp_min(self.eps)
+            d_b = torch.norm(p - sensor_b, dim=-1).clamp_min(self.eps)
+            d_o = torch.norm(p - sensor_origin, dim=-1).clamp_min(self.eps)
+
+            f1 = d_a - d_o - delta_d_a
+            f2 = d_b - d_o - delta_d_b
+            F = torch.stack((f1, f2), dim=-1)
+
+            x, y = p.unbind(-1)
+            x_a, y_a = sensor_a.unbind(-1)
+            x_b, y_b = sensor_b.unbind(-1)
+            x_o, y_o = sensor_origin.unbind(-1)
+
+            j00 = (x - x_a) / d_a - (x - x_o) / d_o
+            j01 = (y - y_a) / d_a - (y - y_o) / d_o
+            j10 = (x - x_b) / d_b - (x - x_o) / d_o
+            j11 = (y - y_b) / d_b - (y - y_o) / d_o
+
+            J = torch.stack(
+                (
+                    torch.stack((j00, j01), dim=-1),
+                    torch.stack((j10, j11), dim=-1),
+                ),
+                dim=-2,
+            )
+
+            delta = torch.linalg.solve(J, -F.unsqueeze(-1)).squeeze(-1)
+            p = p + delta
+
+            if delta.abs().max() < self.tol:
+                break
+
+        return p
+
+
 def paired_xcorr(
     x: torch.Tensor,
     C: int,
