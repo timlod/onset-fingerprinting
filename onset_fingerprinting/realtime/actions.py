@@ -232,12 +232,13 @@ class Action:
     """
 
     bounds: list[Bounds]
+
     _: KW_ONLY
     countdown: int = 0
-    loop: bool = True
+    # If True, loop this action instead of consuming it
+    loop: bool = False
     # TODO: make this clearer - right now only relevant for sample playback
     n: int = 0
-    # If True, loop this action instead of consuming it
     priority: int = 3
     # Consuming this action will 'spawn'/queue this new action
     spawn: Action | None = None
