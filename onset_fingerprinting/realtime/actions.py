@@ -7,7 +7,6 @@ from typing import Callable, Optional
 
 import numpy as np
 import pedalboard
-from loopmate.actions import CrossFade, Sample
 from onset_fingerprinting.multilateration import (
     cartesian_to_polar,
     polar_to_cartesian,
