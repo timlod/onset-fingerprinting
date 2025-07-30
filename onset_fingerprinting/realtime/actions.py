@@ -298,6 +298,10 @@ class Action:
     def set_priority(self, priority):
         self.priority = priority
 
+    def reset(self):
+        self.current_sample = 0
+        self.consumed = False
+
 
 class ParameterChange(Action):
     def __init__(
