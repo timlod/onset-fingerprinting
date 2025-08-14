@@ -335,7 +335,7 @@ class MCPOSD(Dataset):
 
     @classmethod
     def from_xy(
-        cls, x: torch.Tensor, y: torch.Tensor, idx: torch.Tensor | None
+        cls, x: torch.Tensor, y: torch.Tensor, idx: torch.Tensor | None = None
     ):
         ds = cls.__new__(cls)
         if idx is None:
