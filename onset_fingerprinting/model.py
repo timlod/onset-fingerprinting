@@ -171,6 +171,145 @@ class TrilaterationSolver(nn.Module):
         return p
 
 
+class TrilaterationSolver(nn.Module):
+    def __init__(
+        self,
+        max_iter: int = 20,
+        tol: float = 1e-2,
+        eps: float = 1e-6,
+        use_lstsq: bool = True,
+        lm_init: float = 1e-2,
+        lm_decay: float = 0.3,
+        lm_growth: float = 10.0,
+        lm_tries: int = 3,
+        rcond: float | None = 1e-6,
+        use_float64_internal: bool = True,
+    ) -> None:
+        super().__init__()
+        self.max_iter = max_iter
+        self.tol = tol
+        self.eps = eps
+        self.use_lstsq = use_lstsq
+        self.lm_init = lm_init
+        self.lm_decay = lm_decay
+        self.lm_growth = lm_growth
+        self.lm_tries = lm_tries
+        self.rcond = rcond
+        self.use_float64_internal = use_float64_internal
+
+    def forward(
+        self,
+        sensor_a: torch.Tensor,  # (B, 2)
+        sensor_b: torch.Tensor,  # (B, 2)
+        sensor_origin: torch.Tensor,  # (B, 2)
+        delta_d_a: torch.Tensor,  # (B,)
+        delta_d_b: torch.Tensor,  # (B,)
+        initial_guess: torch.Tensor,  # (B, 2)
+    ) -> torch.Tensor:  # (B, 2)
+        # Use higher precision internally for stability.
+        if self.use_float64_internal:
+            dtype = torch.float64
+        else:
+            dtype = initial_guess.dtype
+
+        p = initial_guess.to(dtype)
+        sa = (sensor_a - sensor_origin).to(dtype)
+        sb = (sensor_b - sensor_origin).to(dtype)
+        o = torch.zeros_like(sa)
+        do_not_use = sensor_origin  # silence linter about unused var
+        p = p - sensor_origin.to(dtype)
+
+        B = p.shape[0]
+        I2 = torch.eye(2, dtype=dtype, device=p.device).expand(B, 2, 2)
+
+        # Residual builder for LM acceptance checks.
+        def residual_at(pp: torch.Tensor) -> torch.Tensor:
+            da = torch.norm(pp - sa, dim=-1).clamp_min(self.eps)
+            db = torch.norm(pp - sb, dim=-1).clamp_min(self.eps)
+            d0 = torch.norm(pp, dim=-1).clamp_min(self.eps)
+            f1 = da - d0 - delta_d_a.to(dtype)
+            f2 = db - d0 - delta_d_b.to(dtype)
+            F = torch.stack((f1, f2), dim=-1)
+            return (F * F).sum(dim=-1)
+
+        for _ in range(self.max_iter):
+            da = torch.norm(p - sa, dim=-1).clamp_min(self.eps)
+            db = torch.norm(p - sb, dim=-1).clamp_min(self.eps)
+            d0 = torch.norm(p, dim=-1).clamp_min(self.eps)
+
+            f1 = da - d0 - delta_d_a.to(dtype)
+            f2 = db - d0 - delta_d_b.to(dtype)
+            F = torch.stack((f1, f2), dim=-1)  # (B, 2)
+
+            x, y = p.unbind(-1)
+            xa, ya = sa.unbind(-1)
+            xb, yb = sb.unbind(-1)
+
+            # Origin is (0, 0) in this frame.
+            j00 = (x - xa) / da - x / d0
+            j01 = (y - ya) / da - y / d0
+            j10 = (x - xb) / db - x / d0
+            j11 = (y - yb) / db - y / d0
+
+            J = torch.stack(
+                (
+                    torch.stack((j00, j01), dim=-1),
+                    torch.stack((j10, j11), dim=-1),
+                ),
+                dim=-2,
+            )  # (B, 2, 2)
+
+            # Initial residual norm for acceptance.
+            res0 = (F * F).sum(dim=-1)
+
+            # Levenberg–Marquardt via augmented least squares using lstsq.
+            lam = torch.full((B,), self.lm_init, dtype=dtype, device=p.device)
+            best_delta = torch.zeros(B, 2, dtype=dtype, device=p.device)
+            best_res = res0.clone()
+
+            for _try in range(self.lm_tries):
+                lam_sqrt = lam.sqrt().view(B, 1, 1)
+                A_aug = torch.cat((J, lam_sqrt * I2), dim=-2)  # (B, 4, 2)
+                b_aug = torch.cat(
+                    (
+                        -F.unsqueeze(-1),
+                        torch.zeros(B, 2, 1, dtype=dtype, device=p.device),
+                    ),
+                    dim=-2,
+                )  # (B, 4, 1)
+                try:
+                    delta = torch.linalg.lstsq(A_aug, b_aug).solution
+                    delta = delta.squeeze(-1)
+                except RuntimeError:
+                    # Final fallback: pinv with cutoff.
+                    delta = -(
+                        torch.linalg.pinv(J, rcond=self.rcond)
+                        @ F.unsqueeze(-1)
+                    ).squeeze(-1)
+
+                p_try = p + delta
+                res_try = residual_at(p_try)
+
+                improved = res_try < best_res
+                best_delta = torch.where(
+                    improved.unsqueeze(-1), delta, best_delta
+                )
+                best_res = torch.where(improved, res_try, best_res)
+
+                lam = torch.where(
+                    improved, lam * self.lm_decay, lam * self.lm_growth
+                )
+
+            p = p + best_delta
+
+            if best_delta.abs().amax(dim=-1).max() < self.tol:
+                break
+
+        # Return to original frame and dtype.
+        p = p + sensor_origin.to(dtype)
+        return p.to(initial_guess.dtype)
+
+
 def paired_xcorr(
     x: torch.Tensor,
     C: int,
