@@ -162,9 +162,11 @@ class FastFrameExtractor:
         self.max_shift = max_shift
 
         if onsets.ndim == 2:
+            self.idx = torch.argmin(torch.tensor(onsets), 1)
             onsets = torch.tensor(onsets.min(1), device=device)
         else:
             onsets = torch.tensor(onsets, device=device)
+            self.idx = torch.zeros_like(onsets)
 
         audio = torch.tensor(audio, dtype=torch.float32, device=device)
         audio_view = audio.unfold(0, self.frame_length, 1)
@@ -236,6 +238,10 @@ class MCPOSD(Dataset):
     # The alternative would be to pre-compute a large number of augmentations,
     # keep those in RAM, and deliver standard batches to GPU memory. This is
     # simpler for now.
+    """
+    :param return_i: set to True if this should also return the index of the
+        channel which triggered the onset
+    """
 
     def __init__(
         self,
@@ -246,6 +252,7 @@ class MCPOSD(Dataset):
         pre_samples: int = 0,
         max_shift: int = 0,
         n_extractions: int = 1,
+        return_i: bool = False,
         device=None,
         channels=None,
     ):
@@ -253,8 +260,15 @@ class MCPOSD(Dataset):
             data = data[:, channels]
         self.data = data
         self.frame_extractor = FastFrameExtractor(
-            data, onsets, frame_length, pre_samples, max_shift, device=device
+            data,
+            onsets,
+            frame_length,
+            pre_samples,
+            max_shift,
+            device=device,
         )
+        self.return_i = return_i
+        self.idx = self.frame_extractor.idx
 
         if (n_extractions == 1) and (max_shift == 0):
             self.y = torch.tensor(
@@ -272,12 +286,19 @@ class MCPOSD(Dataset):
 
     def __getitem__(self, index):
         if self.straight:
-            return self.x, self.y
+            if self.return_i:
+                return self.x, self.y, self.idx
+            else:
+                return self.x, self.y
         else:
             x = torch.cat(
                 [self.frame_extractor() for i in range(self.n_extractions)]
             )
-            return x, self.y
+            if self.return_i:
+                idx = torch.cat([self.idx for i in range(self.n_extractions)])
+                return x, self.y, idx
+            else:
+                return x, self.y
 
     def __len__(self):
         return 1
@@ -291,6 +312,7 @@ class MCPOSD(Dataset):
         pre_samples: int = 0,
         max_shift: int = 0,
         n_extractions: int = 1,
+        return_i: bool = False,
         channels=None,
     ):
         folder = Path(folder)
@@ -307,12 +329,20 @@ class MCPOSD(Dataset):
             pre_samples,
             max_shift,
             n_extractions,
+            return_i=return_i,
             channels=channels,
         )
 
     @classmethod
-    def from_xy(cls, x: torch.Tensor, y: torch.Tensor):
+    def from_xy(
+        cls, x: torch.Tensor, y: torch.Tensor, idx: torch.Tensor | None
+    ):
         ds = cls.__new__(cls)
+        if idx is None:
+            ds.return_i = False
+        else:
+            ds.return_i = True
+            ds.idx = idx
         ds.x = x
         ds.y = y
         ds.straight = True
@@ -322,8 +352,16 @@ class MCPOSD(Dataset):
         n = len(self.y)
         idx = torch.randperm(n)
         split = int(n * r)
-        ds1 = self.from_xy(self.x[idx[:split]], self.y[idx[:split]])
-        ds2 = self.from_xy(self.x[idx[split:]], self.y[idx[split:]])
+        if self.return_i:
+            ds1 = self.from_xy(
+                self.x[idx[:split]], self.y[idx[:split]], self.idx[idx[:split]]
+            )
+            ds2 = self.from_xy(
+                self.x[idx[split:]], self.y[idx[split:]], self.idx[idx[split:]]
+            )
+        else:
+            ds1 = self.from_xy(self.x[idx[:split]], self.y[idx[:split]])
+            ds2 = self.from_xy(self.x[idx[split:]], self.y[idx[split:]])
         return ds1, ds2
 
 
