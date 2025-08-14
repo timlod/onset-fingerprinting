@@ -920,10 +920,10 @@ class CCCNN(nn.Module):
         self.fc = nn.Linear((channels) * output_dim, channels * 2, bias=False)
         # Potentially optimize too using parameter
         self.register_buffer("sensor_pos", sensor_pos)
+        # self.register_parameter("sensor_pos", nn.Parameter(sensor_pos))
         self.register_buffer(
             "radius", torch.tensor(torch.sqrt(torch.sum(sensor_pos[0] ** 2)))
         )
-        # self.register_parameter("sensor_pos", nn.Parameter(sensor_pos))
         # self.c = nn.Parameter(torch.tensor(c, dtype=torch.float32))
         # self.register_parameter("sr", sr)
         self.solver = TrilaterationSolver(use_lstsq=True)
@@ -936,7 +936,6 @@ class CCCNN(nn.Module):
         :param i: index of sensor which triggered detection
         """
         B, C, _ = x.shape
-
         if self.group:
             x = self.conv_layers(x)  # (B, C*K, V)
         else:
@@ -947,8 +946,9 @@ class CCCNN(nn.Module):
         K = CK // C
         x = x.view(B, C, K, V).mean(dim=2)
         x = torch.flatten(x, start_dim=1)
-        lags = self.fc(x)
-        lags = (lags * self.radius).clip(-self.radius, self.radius)
+        lags = self.fc(x)  # .clip(-self.radius, self.radius)
+        # lags = lags * self.radius
+        # lags = (lags * self.radius).clip(-self.radius, self.radius)
 
         # Potentially use attention here to select lag from inter?
         # could use sr/c to decouple from sr and stuff like room temperature
@@ -962,6 +962,7 @@ class CCCNN(nn.Module):
         weight_a = abs(d_a) / self.radius
         weight_b = abs(d_b) / self.radius
         weight_o = abs(d_a + d_b) / (2 * self.radius)
+        weight_a = weight_b = weight_o = 0.333
 
         ig = torch.stack(
             [
@@ -1042,7 +1043,9 @@ class LLCNN(L.LightningModule):
         out = self.model(x, idx)
         loss = F.l1_loss(out, y)
         self.log("hp_metric", loss)
-        plots.cartesian_circle(out.cpu().detach().numpy())
+        plots.cartesian_circle(
+            out.cpu().detach().numpy(), figsize=(6, 6), limit_axes=True
+        )
         self.logger.experiment.add_figure("test", plt.gcf())
         plt.close()
         return loss
@@ -1059,10 +1062,10 @@ class LLCNN(L.LightningModule):
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, factor=0.5, patience=100
         # )
-        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 2000)
-        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, 300, 2
-        )
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 300)
+        # scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        #     optimizer, 300, 2
+        # )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
@@ -1158,7 +1161,7 @@ class LCNN(L.LightningModule):
         out = self.model(x)
         loss = F.l1_loss(out, y)
         self.log("hp_metric", loss)
-        plots.cartesian_circle(out.cpu().detach().numpy())
+        plots.cartesian_circle(out.cpu().detach().numpy(), figsize=(6, 6))
         self.logger.experiment.add_figure("test", plt.gcf())
         plt.close()
         return loss
@@ -1175,10 +1178,10 @@ class LCNN(L.LightningModule):
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, factor=0.5, patience=100
         # )
-        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 2000)
-        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, 300, 2
-        )
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 2000)
+        # scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        #     optimizer, 300, 2
+        # )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
