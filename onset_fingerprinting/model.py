@@ -72,19 +72,15 @@ class GradProbe(L.Callback):
 
 class TrilaterationSolver(nn.Module):
     """
-    Newton–Raphson solver for 2-D trilateration that is fully
-    differentiable w.r.t. all inputs.
+    Batched Newton–Raphson solver for 2-D trilateration, differentiable w.r.t.
+    all inputs.  Accepts tensors with leading batch dim B.
 
-    It solves, for point *p* = (x, y),
+    It solves, for point p = (x, y):
 
     .. math::
 
-        \|p-a\| - \|p-o\| &= Δd_a \\
-        \|p-b\| - \|p-o\| &= Δd_b
-
-    The Jacobian is computed analytically for speed; all operations
-    stay inside the autograd graph, so gradients flow through both the
-    iterative updates and the analytic Jacobian.
+        ||p-a|| - ||p-o|| = Δd_a
+        ||p-b|| - ||p-o|| = Δd_b
     """
 
     def __init__(
@@ -92,37 +88,40 @@ class TrilaterationSolver(nn.Module):
         max_iter: int = 20,
         tol: float = 1e-2,
         eps: float = 1e-9,
+        use_lstsq: bool = True,
     ) -> None:
         super().__init__()
         self.max_iter = max_iter
         self.tol = tol
         self.eps = eps
+        self.use_lstsq = use_lstsq
 
     def forward(
         self,
-        sensor_a: Tensor,  # (..., 2)
-        sensor_b: Tensor,  # (..., 2)
-        sensor_origin: Tensor,  # (..., 2)
-        delta_d_a: Tensor,  # (...,)
-        delta_d_b: Tensor,  # (...,)
-        initial_guess: Tensor,  # (..., 2)
-    ) -> Tensor:  # (..., 2)
+        sensor_a: Tensor,  # (B, 2)
+        sensor_b: Tensor,  # (B, 2)
+        sensor_origin: Tensor,  # (B, 2)
+        delta_d_a: Tensor,  # (B,)
+        delta_d_b: Tensor,  # (B,)
+        initial_guess: Tensor,  # (B, 2)
+    ) -> Tensor:  # (B, 2)
         """
         Parameters
         ----------
         sensor_a, sensor_b, sensor_origin
-            Cartesian coordinates shaped ``(..., 2)``.
+            Cartesian coordinates shaped ``(B, 2)``.
         delta_d_a, delta_d_b
-            Signed range-difference measurements.
+            Signed range-difference measurements shaped ``(B,)``.
         initial_guess
-            Initial position estimate.
+            Initial position estimate shaped ``(B, 2)``.
 
         Returns
         -------
         Tensor
-            Estimated positions, same leading batch dims as inputs.
+            Estimated positions shaped ``(B, 2)``.
         """
         p = initial_guess
+        B = p.shape[0]
 
         for _ in range(self.max_iter):
             d_a = torch.norm(p - sensor_a, dim=-1).clamp_min(self.eps)
@@ -149,12 +148,24 @@ class TrilaterationSolver(nn.Module):
                     torch.stack((j10, j11), dim=-1),
                 ),
                 dim=-2,
-            )
+            )  # (B, 2, 2)
 
-            delta = torch.linalg.solve(J, -F.unsqueeze(-1)).squeeze(-1)
+            if self.use_lstsq:
+                delta = torch.linalg.lstsq(
+                    J, -F.unsqueeze(-1)
+                ).solution.squeeze(-1)
+            else:
+                I = torch.eye(2, dtype=J.dtype, device=J.device).expand(
+                    B, 2, 2
+                )
+                JT = J.transpose(-2, -1)
+                H = JT @ J + 1e-6 * I
+                g = JT @ F.unsqueeze(-1)
+                delta = torch.linalg.solve(H, -g).squeeze(-1)
+
             p = p + delta
 
-            if delta.abs().max() < self.tol:
+            if delta.abs().amax(dim=-1).max() < self.tol:
                 break
 
         return p
