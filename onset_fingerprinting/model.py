@@ -712,15 +712,17 @@ class CCCNN(nn.Module):
         self,
         input_size: int,
         output_size: int,
+        sensor_pos: torch.tensor,
+        c: float = 82.0,
         channels: int = 3,
         layer_sizes: list[int] = [8, 16],
         kernel_sizes: int | list[int] = 3,
         strides: int | list[int] = 1,
         dropout_rate: float = 0.5,
-        batch_norm=False,
-        pool=False,
-        padding=1,
-        dilation=1,
+        batch_norm: bool = False,
+        pool: bool = False,
+        padding: int = 1,
+        dilation: int = 1,
         group: bool = False,
         activation=nn.SiLU,
     ) -> None:
@@ -775,48 +777,25 @@ class CCCNN(nn.Module):
             current_channels = layer_size * (channels if group else 1)
 
         self.dropout = nn.Dropout(dropout_rate)
-        self.max_lag = inp.shape[-1]
-        output_dim = 2 * self.max_lag - 1
-        self.fc = nn.Linear((channels) * output_dim, output_size, bias=False)
-
-        normalizer = np.concatenate(
-            (np.arange(1, self.max_lag), np.arange(self.max_lag, 0, -1))
-        )
-        norm_cutoff = 5
-        normalizer[:norm_cutoff] = norm_cutoff
-        normalizer[-norm_cutoff:] = norm_cutoff
-        normalizer = normalizer / (self.max_lag)
+        output_dim = inp.shape[-1]
+        self.fc = nn.Linear((channels) * output_dim, channels * 2, bias=False)
+        # Potentially optimize too using parameter
+        self.register_buffer("sensor_pos", sensor_pos)
         self.register_buffer(
-            "normalizer", torch.tensor(normalizer, dtype=torch.float32)
+            "radius", torch.tensor(torch.sqrt(torch.sum(sensor_pos[0] ** 2)))
         )
-
-        lags = (
-            torch.arange(-self.max_lag + 1, self.max_lag, dtype=torch.float32)
-            / self.max_lag
-        )
-        self.register_buffer("lags", lags)
-        # self.fc2 = nn.Linear(channels, output_size, bias=False)
-
-        self.fc = nn.Linear(
-            (channels - 1) * (output_dim), output_size, bias=False
-        )
-
-        # four edge mics on a 0.30 m radius membrane (any order now)
-        R = 0.142
-        self.R = R
-        pos = torch.tensor([[0.0, R], [R, 0.0], [0.0, -R], [-R, 0.0]])
-
-        self.solver = TrilaterationSolver()
-        self.fc = nn.Linear((channels - 1) * output_dim, 3, bias=False)
-        # self.fc = nn.Linear(channels * (output_dim), 3, bias=False)
-
-        # self.fc = nn.Sequential(
-        #     self.fc, nn.SiLU(), nn.Linear(3, output_size, bias=False)
-        # )
-
+        # self.register_parameter("sensor_pos", nn.Parameter(sensor_pos))
+        # self.c = nn.Parameter(torch.tensor(c, dtype=torch.float32))
+        # self.register_parameter("sr", sr)
+        self.solver = TrilaterationSolver(use_lstsq=True)
         print(self.fc, output_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, i: torch.Tensor) -> torch.Tensor:
+        """Forward call
+
+        :param x: audio window after/around onset
+        :param i: index of sensor which triggered detection
+        """
         B, C, _ = x.shape
 
         if self.group:
@@ -827,22 +806,159 @@ class CCCNN(nn.Module):
 
         _, CK, V = x.shape
         K = CK // C
+        x = x.view(B, C, K, V).mean(dim=2)
+        x = torch.flatten(x, start_dim=1)
+        lags = self.fc(x)
+        lags = (lags * self.radius).clip(-self.radius, self.radius)
 
-        x = F.normalize(x)
-        cc = paired_xcorr(x, C, K)
-        cc = cc / self.normalizer
-        # print("cc stats:", cc.min(), cc.max(), cc[9])
+        # Potentially use attention here to select lag from inter?
+        # could use sr/c to decouple from sr and stuff like room temperature
+        d_a, d_b = lags[range(B), 2 * i], lags[range(B), 2 * i + 1]
+        # print(d_a)
+        js = [(i - 1) % len(self.sensor_pos), (i + 1) % len(self.sensor_pos)]
+        sensor_o = self.sensor_pos[i]
+        sensor_a = self.sensor_pos[js[0]]
+        sensor_b = self.sensor_pos[js[1]]
 
-        probs = F.softmax(cc, dim=-1).view(B, C - 1, -1)  # (B, C-1, 2V-1)
-        # probs = (probs * self.lags).sum(-1)
-        probs = torch.flatten(probs, start_dim=1)  # (B, (C-1)*(2V-1))
-        inter = self.fc(probs) * self.R
-        # print(inter)
-        # inter = self.fc(probs) * (self.R)
-        return self.solver(inter)
+        weight_a = abs(d_a) / self.radius
+        weight_b = abs(d_b) / self.radius
+        weight_o = abs(d_a + d_b) / (2 * self.radius)
+
+        ig = torch.stack(
+            [
+                sensor_a[:, 0] * weight_a
+                + sensor_b[:, 0] * weight_b
+                + sensor_o[:, 0] * weight_o,
+                sensor_a[:, 1] * weight_a
+                + sensor_b[:, 1] * weight_b
+                + sensor_o[:, 1] * weight_o,
+            ],
+            dim=1,
+        )
+        return self.solver(sensor_a, sensor_b, sensor_o, d_a, d_b, ig)
 
 
-class LCCCNN(L.LightningModule):
+class LLCNN(L.LightningModule):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        sensor_pos: torch.tensor,
+        c: float = 82.0,
+        channels: int = 3,
+        layer_sizes: list[int] = [8, 16],
+        kernel_sizes: int | list[int] = 3,
+        strides: int | list[int] = 1,
+        dropout_rate: float = 0.5,
+        batch_norm=False,
+        pool=False,
+        padding=1,
+        dilation=1,
+        group: bool = False,
+        activation=nn.SiLU,
+        loss=F.l1_loss,
+        lr=1e-3,
+    ) -> None:
+        super().__init__()
+        self.model = CCCNN(
+            input_size,
+            output_size,
+            sensor_pos,
+            c,
+            channels,
+            layer_sizes,
+            kernel_sizes,
+            strides,
+            dropout_rate,
+            batch_norm,
+            pool,
+            padding,
+            dilation,
+            group,
+            activation,
+        )
+        self.lr = lr
+        self.loss = loss
+        self.save_hyperparameters()
+
+    def forward(self, x, idx):
+        return self.model(x, idx)
+
+    def training_step(self, batch, batch_idx):
+        x, y, idx = batch
+        out = self.model(x, idx)
+        loss = self.loss(out, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y, idx = batch
+        out = self.model(x, idx)
+        loss = F.l1_loss(out, y)
+        self.log("val_loss", loss)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        x, y, idx = batch
+        out = self.model(x, idx)
+        loss = F.l1_loss(out, y)
+        self.log("hp_metric", loss)
+        plots.cartesian_circle(out.cpu().detach().numpy())
+        self.logger.experiment.add_figure("test", plt.gcf())
+        plt.close()
+        return loss
+
+    def configure_optimizers(self):
+        # optimizer = optim.NAdam(self.parameters(), lr=self.lr)
+        optimizer = optim.SGD(
+            self.parameters(),
+            lr=self.lr * 100,
+            momentum=0.8,
+            weight_decay=1e-5,
+            # nesterov=True,
+        )
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, factor=0.5, patience=100
+        # )
+        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 2000)
+        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            optimizer, 300, 2
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }
+
+    def on_train_end(self):
+        # print(self.model.solver.c, self.model.solver.sensors)
+        pass
+
+    # def configure_gradient_clipping(
+    #     self,
+    #     optimizer,  # the current optimiser
+    #     gradient_clip_val: float | None,
+    #     gradient_clip_algorithm: str | None,
+    # ) -> None:
+
+    #     # clip the layer you care about
+    #     torch.nn.utils.clip_grad_value_(
+    #         self.model.fc.parameters(), clip_value=1.0
+    #     )
+
+    #     # optionally keep Lightning's built-in clipping for the rest
+    #     # (set gradient_clip_val in Trainer to a small number or None)
+    #     self.clip_gradients(
+    #         optimizer,
+    #         gradient_clip_val=gradient_clip_val,
+    #         gradient_clip_algorithm=gradient_clip_algorithm,
+    #     )
+
+
+class LCNN(L.LightningModule):
     def __init__(
         self,
         input_size: int,
@@ -862,7 +978,7 @@ class LCCCNN(L.LightningModule):
         lr=1e-3,
     ) -> None:
         super().__init__()
-        self.model = CCCNN(
+        self.model = CNN2(
             input_size,
             output_size,
             channels,
