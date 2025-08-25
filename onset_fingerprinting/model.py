@@ -28,9 +28,7 @@ class GradProbe(L.Callback):
         self.tol = tol
         self._outs: OrderedDict[str, Tensor] = OrderedDict()
 
-    # ------------------------------------------------------------------ #
-    # register forward hooks on *leaf* modules                            #
-    # ------------------------------------------------------------------ #
+    # register forward hooks on *leaf* modules
     def on_fit_start(
         self, trainer: L.Trainer, pl_module: L.LightningModule
     ) -> None:
@@ -52,9 +50,7 @@ class GradProbe(L.Callback):
             if not list(mod.children()):  # leaf module
                 mod.register_forward_hook(_hook(name))
 
-    # ------------------------------------------------------------------ #
-    # after backward: locate first zero-grad tensor                       #
-    # ------------------------------------------------------------------ #
+    # after backward: locate first zero-grad tensor
     def on_after_backward(
         self, trainer: L.Trainer, pl_module: L.LightningModule
     ) -> None:
@@ -930,8 +926,7 @@ class CCCNN(nn.Module):
         print(self.fc, output_dim)
 
     def forward(self, x: torch.Tensor, i: torch.Tensor) -> torch.Tensor:
-        """Forward call
-
+        """
         :param x: audio window after/around onset
         :param i: index of sensor which triggered detection
         """
