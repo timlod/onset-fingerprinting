@@ -942,11 +942,12 @@ class CCCNN(nn.Module):
         x = x.view(B, C, K, V).mean(dim=2)
         x = torch.flatten(x, start_dim=1)
         lags = self.fc(x)  # .clip(-self.radius, self.radius)
+        # print(lags * 96000 / 82.0)
         # lags = lags * self.radius
         # lags = (lags * self.radius).clip(-self.radius, self.radius)
-
-        # Potentially use attention here to select lag from inter?
         # could use sr/c to decouple from sr and stuff like room temperature
+
+        i = (i + torch.randint_like(i, -1, 2)) % 4
         d_a, d_b = lags[range(B), 2 * i], lags[range(B), 2 * i + 1]
         # print(d_a)
         js = [(i - 1) % len(self.sensor_pos), (i + 1) % len(self.sensor_pos)]
@@ -954,9 +955,9 @@ class CCCNN(nn.Module):
         sensor_a = self.sensor_pos[js[0]]
         sensor_b = self.sensor_pos[js[1]]
 
-        weight_a = abs(d_a) / self.radius
-        weight_b = abs(d_b) / self.radius
-        weight_o = abs(d_a + d_b) / (2 * self.radius)
+        # weight_a = abs(d_a) / self.radius
+        # weight_b = abs(d_b) / self.radius
+        # weight_o = abs(d_a + d_b) / (2 * self.radius)
         weight_a = weight_b = weight_o = 0.333
 
         ig = torch.stack(
