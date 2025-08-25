@@ -116,6 +116,7 @@ def objective(trial: optuna.trial.Trial) -> float:
     )
 
     trainer = L.Trainer(
+        default_root_dir="lightning_logs",
         logger=True,
         enable_checkpointing=False,
         max_epochs=epochs,
