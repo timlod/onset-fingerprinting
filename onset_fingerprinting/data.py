@@ -172,9 +172,9 @@ class FastFrameExtractor:
         audio_view = audio.unfold(0, self.frame_length, 1)
         if self.max_shift > 0:
             self.audio_view = audio_view
-            self.onsets = onsets
         else:
             self.frames = audio_view[onsets - self.pre_samples]
+        self.onsets = onsets
 
     def __call__(self) -> np.ndarray:
         """
