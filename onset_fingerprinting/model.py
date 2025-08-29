@@ -850,11 +850,11 @@ class CCCNN(nn.Module):
         output_size: int,
         sensor_pos: torch.tensor,
         c: float = 82.0,
-        channels: int = 3,
+        channels: int = 4,
         layer_sizes: list[int] = [8, 16],
         kernel_sizes: int | list[int] = 3,
         strides: int | list[int] = 1,
-        dropout_rate: float = 0.5,
+        dropout_rate: float = 0.0,
         batch_norm: bool = False,
         pool: bool = False,
         padding: int = 1,
@@ -872,7 +872,25 @@ class CCCNN(nn.Module):
         :param input_size: The size of the 1D audio window for each sensor.
         :param output_size: The dimensionality of the output (e.g., 2D
             coordinates).
+        :param sensor_pos: sensor positions in m with origin assumed at (0, 0)
+            shape: (N_sensors, 2)
+        :param c: speed of sound through membrane, currently unused (as time
+                  difference is estimated directly)
         :param channels: Number of input channels (sensors).
+        :param layer_sizes: filtersize of each conv layer
+        :param kernel_sizes: conv kernel sizes, single value for all layers, or
+            one per layer
+        :param strides: single stride for all layers, or one stride per layer
+        :param dropout_rate: dropout rate for FC layer
+        :param batch_norm: actually group norm, not batch norm, to normalize
+            after each conv layer (TODO: rename references)
+        :param pool: whether to max-pool after each conv layer
+        :param padding: padding of convolutional layers
+        :param dilation: dilation of convolutional layers
+        :param group: whether to use grouped convolutions (separate network for
+            each channel, in essence)
+        :param activation: activation function to use, use class inside
+            torch.nn module
         """
         super().__init__()
         self.conv_layers = nn.Sequential()
