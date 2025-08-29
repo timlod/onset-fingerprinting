@@ -28,9 +28,7 @@ class GradProbe(L.Callback):
         self.tol = tol
         self._outs: OrderedDict[str, Tensor] = OrderedDict()
 
-    # ------------------------------------------------------------------ #
-    # register forward hooks on *leaf* modules                            #
-    # ------------------------------------------------------------------ #
+    # register forward hooks on *leaf* modules
     def on_fit_start(
         self, trainer: L.Trainer, pl_module: L.LightningModule
     ) -> None:
@@ -52,9 +50,7 @@ class GradProbe(L.Callback):
             if not list(mod.children()):  # leaf module
                 mod.register_forward_hook(_hook(name))
 
-    # ------------------------------------------------------------------ #
-    # after backward: locate first zero-grad tensor                       #
-    # ------------------------------------------------------------------ #
+    # after backward: locate first zero-grad tensor
     def on_after_backward(
         self, trainer: L.Trainer, pl_module: L.LightningModule
     ) -> None:
@@ -72,19 +68,15 @@ class GradProbe(L.Callback):
 
 class TrilaterationSolver(nn.Module):
     """
-    Newton–Raphson solver for 2-D trilateration that is fully
-    differentiable w.r.t. all inputs.
+    Batched Newton–Raphson solver for 2-D trilateration, differentiable w.r.t.
+    all inputs.  Accepts tensors with leading batch dim B.
 
-    It solves, for point *p* = (x, y),
+    It solves, for point p = (x, y):
 
     .. math::
 
-        \|p-a\| - \|p-o\| &= Δd_a \\
-        \|p-b\| - \|p-o\| &= Δd_b
-
-    The Jacobian is computed analytically for speed; all operations
-    stay inside the autograd graph, so gradients flow through both the
-    iterative updates and the analytic Jacobian.
+        ||p-a|| - ||p-o|| = Δd_a
+        ||p-b|| - ||p-o|| = Δd_b
     """
 
     def __init__(
@@ -92,37 +84,40 @@ class TrilaterationSolver(nn.Module):
         max_iter: int = 20,
         tol: float = 1e-2,
         eps: float = 1e-9,
+        use_lstsq: bool = True,
     ) -> None:
         super().__init__()
         self.max_iter = max_iter
         self.tol = tol
         self.eps = eps
+        self.use_lstsq = use_lstsq
 
     def forward(
         self,
-        sensor_a: Tensor,  # (..., 2)
-        sensor_b: Tensor,  # (..., 2)
-        sensor_origin: Tensor,  # (..., 2)
-        delta_d_a: Tensor,  # (...,)
-        delta_d_b: Tensor,  # (...,)
-        initial_guess: Tensor,  # (..., 2)
-    ) -> Tensor:  # (..., 2)
+        sensor_a: Tensor,  # (B, 2)
+        sensor_b: Tensor,  # (B, 2)
+        sensor_origin: Tensor,  # (B, 2)
+        delta_d_a: Tensor,  # (B,)
+        delta_d_b: Tensor,  # (B,)
+        initial_guess: Tensor,  # (B, 2)
+    ) -> Tensor:  # (B, 2)
         """
         Parameters
         ----------
         sensor_a, sensor_b, sensor_origin
-            Cartesian coordinates shaped ``(..., 2)``.
+            Cartesian coordinates shaped ``(B, 2)``.
         delta_d_a, delta_d_b
-            Signed range-difference measurements.
+            Signed range-difference measurements shaped ``(B,)``.
         initial_guess
-            Initial position estimate.
+            Initial position estimate shaped ``(B, 2)``.
 
         Returns
         -------
         Tensor
-            Estimated positions, same leading batch dims as inputs.
+            Estimated positions shaped ``(B, 2)``.
         """
         p = initial_guess
+        B = p.shape[0]
 
         for _ in range(self.max_iter):
             d_a = torch.norm(p - sensor_a, dim=-1).clamp_min(self.eps)
@@ -149,15 +144,166 @@ class TrilaterationSolver(nn.Module):
                     torch.stack((j10, j11), dim=-1),
                 ),
                 dim=-2,
-            )
+            )  # (B, 2, 2)
 
-            delta = torch.linalg.solve(J, -F.unsqueeze(-1)).squeeze(-1)
+            if self.use_lstsq:
+                delta = torch.linalg.lstsq(
+                    J, -F.unsqueeze(-1)
+                ).solution.squeeze(-1)
+            else:
+                I = torch.eye(2, dtype=J.dtype, device=J.device).expand(
+                    B, 2, 2
+                )
+                JT = J.transpose(-2, -1)
+                H = JT @ J + 1e-6 * I
+                g = JT @ F.unsqueeze(-1)
+                delta = torch.linalg.solve(H, -g).squeeze(-1)
+
             p = p + delta
 
-            if delta.abs().max() < self.tol:
+            if delta.abs().amax(dim=-1).max() < self.tol:
                 break
 
         return p
+
+
+class TrilaterationSolver(nn.Module):
+    def __init__(
+        self,
+        max_iter: int = 20,
+        tol: float = 1e-2,
+        eps: float = 1e-6,
+        use_lstsq: bool = True,
+        lm_init: float = 1e-2,
+        lm_decay: float = 0.3,
+        lm_growth: float = 10.0,
+        lm_tries: int = 3,
+        rcond: float | None = 1e-6,
+        use_float64_internal: bool = True,
+    ) -> None:
+        super().__init__()
+        self.max_iter = max_iter
+        self.tol = tol
+        self.eps = eps
+        self.use_lstsq = use_lstsq
+        self.lm_init = lm_init
+        self.lm_decay = lm_decay
+        self.lm_growth = lm_growth
+        self.lm_tries = lm_tries
+        self.rcond = rcond
+        self.use_float64_internal = use_float64_internal
+
+    def forward(
+        self,
+        sensor_a: torch.Tensor,  # (B, 2)
+        sensor_b: torch.Tensor,  # (B, 2)
+        sensor_origin: torch.Tensor,  # (B, 2)
+        delta_d_a: torch.Tensor,  # (B,)
+        delta_d_b: torch.Tensor,  # (B,)
+        initial_guess: torch.Tensor,  # (B, 2)
+    ) -> torch.Tensor:  # (B, 2)
+        # Use higher precision internally for stability.
+        if self.use_float64_internal:
+            dtype = torch.float64
+        else:
+            dtype = initial_guess.dtype
+
+        p = initial_guess.to(dtype)
+        sa = (sensor_a - sensor_origin).to(dtype)
+        sb = (sensor_b - sensor_origin).to(dtype)
+        o = torch.zeros_like(sa)
+        do_not_use = sensor_origin  # silence linter about unused var
+        p = p - sensor_origin.to(dtype)
+
+        B = p.shape[0]
+        I2 = torch.eye(2, dtype=dtype, device=p.device).expand(B, 2, 2)
+
+        # Residual builder for LM acceptance checks.
+        def residual_at(pp: torch.Tensor) -> torch.Tensor:
+            da = torch.norm(pp - sa, dim=-1).clamp_min(self.eps)
+            db = torch.norm(pp - sb, dim=-1).clamp_min(self.eps)
+            d0 = torch.norm(pp, dim=-1).clamp_min(self.eps)
+            f1 = da - d0 - delta_d_a.to(dtype)
+            f2 = db - d0 - delta_d_b.to(dtype)
+            F = torch.stack((f1, f2), dim=-1)
+            return (F * F).sum(dim=-1)
+
+        for _ in range(self.max_iter):
+            da = torch.norm(p - sa, dim=-1).clamp_min(self.eps)
+            db = torch.norm(p - sb, dim=-1).clamp_min(self.eps)
+            d0 = torch.norm(p, dim=-1).clamp_min(self.eps)
+
+            f1 = da - d0 - delta_d_a.to(dtype)
+            f2 = db - d0 - delta_d_b.to(dtype)
+            F = torch.stack((f1, f2), dim=-1)  # (B, 2)
+
+            x, y = p.unbind(-1)
+            xa, ya = sa.unbind(-1)
+            xb, yb = sb.unbind(-1)
+
+            # Origin is (0, 0) in this frame.
+            j00 = (x - xa) / da - x / d0
+            j01 = (y - ya) / da - y / d0
+            j10 = (x - xb) / db - x / d0
+            j11 = (y - yb) / db - y / d0
+
+            J = torch.stack(
+                (
+                    torch.stack((j00, j01), dim=-1),
+                    torch.stack((j10, j11), dim=-1),
+                ),
+                dim=-2,
+            )  # (B, 2, 2)
+
+            # Initial residual norm for acceptance.
+            res0 = (F * F).sum(dim=-1)
+
+            # Levenberg–Marquardt via augmented least squares using lstsq.
+            lam = torch.full((B,), self.lm_init, dtype=dtype, device=p.device)
+            best_delta = torch.zeros(B, 2, dtype=dtype, device=p.device)
+            best_res = res0.clone()
+
+            for _try in range(self.lm_tries):
+                lam_sqrt = lam.sqrt().view(B, 1, 1)
+                A_aug = torch.cat((J, lam_sqrt * I2), dim=-2)  # (B, 4, 2)
+                b_aug = torch.cat(
+                    (
+                        -F.unsqueeze(-1),
+                        torch.zeros(B, 2, 1, dtype=dtype, device=p.device),
+                    ),
+                    dim=-2,
+                )  # (B, 4, 1)
+                try:
+                    delta = torch.linalg.lstsq(A_aug, b_aug).solution
+                    delta = delta.squeeze(-1)
+                except RuntimeError:
+                    # Final fallback: pinv with cutoff.
+                    delta = -(
+                        torch.linalg.pinv(J, rcond=self.rcond)
+                        @ F.unsqueeze(-1)
+                    ).squeeze(-1)
+
+                p_try = p + delta
+                res_try = residual_at(p_try)
+
+                improved = res_try < best_res
+                best_delta = torch.where(
+                    improved.unsqueeze(-1), delta, best_delta
+                )
+                best_res = torch.where(improved, res_try, best_res)
+
+                lam = torch.where(
+                    improved, lam * self.lm_decay, lam * self.lm_growth
+                )
+
+            p = p + best_delta
+
+            if best_delta.abs().amax(dim=-1).max() < self.tol:
+                break
+
+        # Return to original frame and dtype.
+        p = p + sensor_origin.to(dtype)
+        return p.to(initial_guess.dtype)
 
 
 def paired_xcorr(
@@ -701,15 +847,17 @@ class CCCNN(nn.Module):
         self,
         input_size: int,
         output_size: int,
+        sensor_pos: torch.tensor,
+        c: float = 82.0,
         channels: int = 3,
         layer_sizes: list[int] = [8, 16],
         kernel_sizes: int | list[int] = 3,
         strides: int | list[int] = 1,
         dropout_rate: float = 0.5,
-        batch_norm=False,
-        pool=False,
-        padding=1,
-        dilation=1,
+        batch_norm: bool = False,
+        pool: bool = False,
+        padding: int = 1,
+        dilation: int = 1,
         group: bool = False,
         activation=nn.SiLU,
     ) -> None:
@@ -764,50 +912,25 @@ class CCCNN(nn.Module):
             current_channels = layer_size * (channels if group else 1)
 
         self.dropout = nn.Dropout(dropout_rate)
-        self.max_lag = inp.shape[-1]
-        output_dim = 2 * self.max_lag - 1
-        self.fc = nn.Linear((channels) * output_dim, output_size, bias=False)
-
-        normalizer = np.concatenate(
-            (np.arange(1, self.max_lag), np.arange(self.max_lag, 0, -1))
-        )
-        norm_cutoff = 5
-        normalizer[:norm_cutoff] = norm_cutoff
-        normalizer[-norm_cutoff:] = norm_cutoff
-        normalizer = normalizer / (self.max_lag)
+        output_dim = inp.shape[-1]
+        self.fc = nn.Linear((channels) * output_dim, channels * 2, bias=False)
+        # Potentially optimize too using parameter
+        self.register_buffer("sensor_pos", sensor_pos)
+        # self.register_parameter("sensor_pos", nn.Parameter(sensor_pos))
         self.register_buffer(
-            "normalizer", torch.tensor(normalizer, dtype=torch.float32)
+            "radius", torch.tensor(torch.sqrt(torch.sum(sensor_pos[0] ** 2)))
         )
-
-        lags = (
-            torch.arange(-self.max_lag + 1, self.max_lag, dtype=torch.float32)
-            / self.max_lag
-        )
-        self.register_buffer("lags", lags)
-        # self.fc2 = nn.Linear(channels, output_size, bias=False)
-
-        self.fc = nn.Linear(
-            (channels - 1) * (output_dim), output_size, bias=False
-        )
-
-        # four edge mics on a 0.30 m radius membrane (any order now)
-        R = 0.142
-        self.R = R
-        pos = torch.tensor([[0.0, R], [R, 0.0], [0.0, -R], [-R, 0.0]])
-
-        self.solver = TrilaterationSolver()
-        self.fc = nn.Linear((channels - 1) * output_dim, 4, bias=False)
-        # self.fc = nn.Linear(channels * (output_dim), 3, bias=False)
-
-        # self.fc = nn.Sequential(
-        #     self.fc, nn.SiLU(), nn.Linear(3, output_size, bias=False)
-        # )
-
+        # self.c = nn.Parameter(torch.tensor(c, dtype=torch.float32))
+        # self.register_parameter("sr", sr)
+        self.solver = TrilaterationSolver(use_lstsq=True)
         print(self.fc, output_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, i: torch.Tensor) -> torch.Tensor:
+        """
+        :param x: audio window after/around onset
+        :param i: index of sensor which triggered detection
+        """
         B, C, _ = x.shape
-
         if self.group:
             x = self.conv_layers(x)  # (B, C*K, V)
         else:
@@ -816,23 +939,164 @@ class CCCNN(nn.Module):
 
         _, CK, V = x.shape
         K = CK // C
+        x = x.view(B, C, K, V).mean(dim=2)
+        x = torch.flatten(x, start_dim=1)
+        lags = self.fc(x)  # .clip(-self.radius, self.radius)
+        # print(lags * 96000 / 82.0)
+        # lags = lags * self.radius
+        # lags = (lags * self.radius).clip(-self.radius, self.radius)
+        # could use sr/c to decouple from sr and stuff like room temperature
 
-        x = F.normalize(x)
-        # cc = paired_xcorr(x, C, K)
-        # cc = cc / self.normalizer
-        # print("cc stats:", cc.min(), cc.max(), cc[9])
+        i = (i + torch.randint_like(i, -1, 2)) % 4
+        d_a, d_b = lags[range(B), 2 * i], lags[range(B), 2 * i + 1]
+        # print(d_a)
+        js = [(i - 1) % len(self.sensor_pos), (i + 1) % len(self.sensor_pos)]
+        sensor_o = self.sensor_pos[i]
+        sensor_a = self.sensor_pos[js[0]]
+        sensor_b = self.sensor_pos[js[1]]
 
-        probs = F.softmax(cc, dim=-1).view(B, C - 1, -1)  # (B, C-1, 2V-1)
-        # probs = (probs * self.lags).sum(-1)
-        probs = torch.flatten(probs, start_dim=1)  # (B, (C-1)*(2V-1))
-        inter = self.fc(probs) * self.R
-        # add a stage to select 3 earliest outputs
-        # print(inter)
-        # inter = self.fc(probs) * (self.R)
-        return self.solver(inter)
+        # weight_a = abs(d_a) / self.radius
+        # weight_b = abs(d_b) / self.radius
+        # weight_o = abs(d_a + d_b) / (2 * self.radius)
+        weight_a = weight_b = weight_o = 0.333
+
+        ig = torch.stack(
+            [
+                sensor_a[:, 0] * weight_a
+                + sensor_b[:, 0] * weight_b
+                + sensor_o[:, 0] * weight_o,
+                sensor_a[:, 1] * weight_a
+                + sensor_b[:, 1] * weight_b
+                + sensor_o[:, 1] * weight_o,
+            ],
+            dim=1,
+        )
+        return self.solver(sensor_a, sensor_b, sensor_o, d_a, d_b, ig)
 
 
-class LCCCNN(L.LightningModule):
+class LLCNN(L.LightningModule):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        sensor_pos: torch.tensor,
+        c: float = 82.0,
+        channels: int = 3,
+        layer_sizes: list[int] = [8, 16],
+        kernel_sizes: int | list[int] = 3,
+        strides: int | list[int] = 1,
+        dropout_rate: float = 0.5,
+        batch_norm=False,
+        pool=False,
+        padding=1,
+        dilation=1,
+        group: bool = False,
+        activation=nn.SiLU,
+        loss=F.l1_loss,
+        lr=1e-3,
+    ) -> None:
+        super().__init__()
+        self.model = CCCNN(
+            input_size,
+            output_size,
+            sensor_pos,
+            c,
+            channels,
+            layer_sizes,
+            kernel_sizes,
+            strides,
+            dropout_rate,
+            batch_norm,
+            pool,
+            padding,
+            dilation,
+            group,
+            activation,
+        )
+        self.lr = lr
+        self.loss = loss
+        self.save_hyperparameters()
+
+    def forward(self, x, idx):
+        return self.model(x, idx)
+
+    def training_step(self, batch, batch_idx):
+        x, y, idx = batch
+        out = self.model(x, idx)
+        loss = self.loss(out, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        x, y, idx = batch
+        out = self.model(x, idx)
+        loss = F.l1_loss(out, y)
+        self.log("val_loss", loss)
+        return loss
+
+    def test_step(self, batch, batch_idx):
+        x, y, idx = batch
+        out = self.model(x, idx)
+        loss = F.l1_loss(out, y)
+        self.log("hp_metric", loss)
+        plots.cartesian_circle(
+            out.cpu().detach().numpy(), figsize=(6, 6), limit_axes=True
+        )
+        self.logger.experiment.add_figure("test", plt.gcf())
+        plt.close()
+        return loss
+
+    def configure_optimizers(self):
+        # optimizer = optim.NAdam(self.parameters(), lr=self.lr)
+        optimizer = optim.SGD(
+            self.parameters(),
+            lr=self.lr * 100,
+            momentum=0.8,
+            weight_decay=1e-5,
+            # nesterov=True,
+        )
+        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer, factor=0.5, patience=100
+        # )
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 300)
+        # scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        #     optimizer, 300, 2
+        # )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "frequency": 1,
+            },
+        }
+
+    def on_train_end(self):
+        # print(self.model.solver.c, self.model.solver.sensors)
+        pass
+
+    # def configure_gradient_clipping(
+    #     self,
+    #     optimizer,  # the current optimiser
+    #     gradient_clip_val: float | None,
+    #     gradient_clip_algorithm: str | None,
+    # ) -> None:
+
+    #     # clip the layer you care about
+    #     torch.nn.utils.clip_grad_value_(
+    #         self.model.fc.parameters(), clip_value=1.0
+    #     )
+
+    #     # optionally keep Lightning's built-in clipping for the rest
+    #     # (set gradient_clip_val in Trainer to a small number or None)
+    #     self.clip_gradients(
+    #         optimizer,
+    #         gradient_clip_val=gradient_clip_val,
+    #         gradient_clip_algorithm=gradient_clip_algorithm,
+    #     )
+
+
+class LCNN(L.LightningModule):
     def __init__(
         self,
         input_size: int,
@@ -852,7 +1116,7 @@ class LCCCNN(L.LightningModule):
         lr=1e-3,
     ) -> None:
         super().__init__()
-        self.model = CCCNN(
+        self.model = CNN2(
             input_size,
             output_size,
             channels,
@@ -893,7 +1157,7 @@ class LCCCNN(L.LightningModule):
         out = self.model(x)
         loss = F.l1_loss(out, y)
         self.log("hp_metric", loss)
-        plots.cartesian_circle(out.cpu().detach().numpy())
+        plots.cartesian_circle(out.cpu().detach().numpy(), figsize=(6, 6))
         self.logger.experiment.add_figure("test", plt.gcf())
         plt.close()
         return loss
@@ -910,10 +1174,10 @@ class LCCCNN(L.LightningModule):
         # scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         #     optimizer, factor=0.5, patience=100
         # )
-        # scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 2000)
-        scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            optimizer, 300, 2
-        )
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, 2000)
+        # scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        #     optimizer, 300, 2
+        # )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {

@@ -184,6 +184,7 @@ def cartesian_circle(
     s=3,
     cmap="rainbow",
     title="",
+    limit_axes: bool = False,
 ):
     if ax is None:
         fig = plt.figure(figsize=figsize)
@@ -222,6 +223,8 @@ def cartesian_circle(
         cbar.set_label("Error (cm)", rotation=270, labelpad=15)
 
     ax.axis("equal")
+    ax.set_ylim((-radius, radius))
+    ax.set_xlim((-radius, radius))
     return ax
 
 
