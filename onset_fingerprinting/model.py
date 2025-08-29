@@ -634,14 +634,12 @@ class CNNRNN(L.LightningModule):
         activation=nn.SiLU,
     ) -> None:
         """
-        A flexible CNN architecture for audio processing tasks.
+        A combined CNN/RNN architecture for audio processing tasks.
 
-        :param window_size: The size of the 1D audio window for each sensor.
+        :param input_size: The size of the 1D audio window for each sensor.
         :param output_size: The dimensionality of the output (e.g., 2D
             coordinates).
         :param channels: Number of input channels (sensors).
-        :param conv_layers_config: List of dictionaries defining each
-            convolutional layer configuration.
         :param dropout_rate: Dropout rate applied after all convolutional
             layers.
         """
@@ -764,12 +762,7 @@ class CNN2(nn.Module):
         activation=nn.SiLU,
     ) -> None:
         """
-        A flexible CNN architecture.
-
-        :param input_size: The size of the 1D audio window for each sensor.
-        :param output_size: The dimensionality of the output (e.g., 2D
-            coordinates).
-        :param channels: Number of input channels (sensors).
+        Flexible CNN architecture, pure pytorch.
         """
         super().__init__()
         self.conv_layers = nn.Sequential()
@@ -804,7 +797,6 @@ class CNN2(nn.Module):
             if batch_norm:
                 self.conv_layers.add_module(
                     f"bn{i+1}",
-                    # nn.BatchNorm1d(layer_size * (channels if group else 1)),
                     nn.GroupNorm(1, layer_size * (channels if group else 1)),
                 )
             if pool:
@@ -836,6 +828,8 @@ class CNN2(nn.Module):
                 x.unsqueeze(2)
             )
             x1 = x
+            # This is currently configured to concatenate the first layers
+            # output with the final output.
             x = vmap(self.conv_layers[1:], in_dims=1, out_dims=1)(x)
             # → (B, C, K, V)
             x = x.reshape(B, C * x.shape[2], x.shape[3])
@@ -869,8 +863,11 @@ class CCCNN(nn.Module):
         activation=nn.SiLU,
     ) -> None:
         """
-        A flexible CNN architecture to mimic computation of the
-        cross-correlation (CC).
+        A flexible CNN architecture to mimic computation of cross-correlation
+        (CC) lags, or time differences of arrival.
+
+        Plugs in a Trilateration solver after a CNN architecture which operates
+        on TDoA.
 
         :param input_size: The size of the 1D audio window for each sensor.
         :param output_size: The dimensionality of the output (e.g., 2D
@@ -949,12 +946,9 @@ class CCCNN(nn.Module):
         x = x.view(B, C, K, V).mean(dim=2)
         x = torch.flatten(x, start_dim=1)
         lags = self.fc(x)  # .clip(-self.radius, self.radius)
-        # print(lags * 96000 / 82.0)
-        # lags = lags * self.radius
-        # lags = (lags * self.radius).clip(-self.radius, self.radius)
+        # print(lags * 96000 / 82.0) # This would be the sample lags given c=82
         # could use sr/c to decouple from sr and stuff like room temperature
 
-        i = (i + torch.randint_like(i, -1, 2)) % 4
         d_a, d_b = lags[range(B), 2 * i], lags[range(B), 2 * i + 1]
         # print(d_a)
         js = [(i - 1) % len(self.sensor_pos), (i + 1) % len(self.sensor_pos)]
@@ -962,6 +956,7 @@ class CCCNN(nn.Module):
         sensor_a = self.sensor_pos[js[0]]
         sensor_b = self.sensor_pos[js[1]]
 
+        # Naive weighting currently is more numerically stable
         # weight_a = abs(d_a) / self.radius
         # weight_b = abs(d_b) / self.radius
         # weight_o = abs(d_a + d_b) / (2 * self.radius)
@@ -1029,6 +1024,10 @@ class LLCNN(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y, idx = batch
+        # Train also using different sensor orderings (only disallow starting
+        # at furthest sensor) - this increases training data and removes
+        # discontinuities at quadrant boundaries
+        idx = (idx + torch.randint_like(idx, -1, 2)) % 4
         out = self.model(x, idx)
         loss = self.loss(out, y)
         self.log("train_loss", loss)
@@ -1103,6 +1102,7 @@ class LLCNN(L.LightningModule):
     #     )
 
 
+# Normal CNN
 class LCNN(L.LightningModule):
     def __init__(
         self,
