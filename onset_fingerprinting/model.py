@@ -66,7 +66,7 @@ class GradProbe(L.Callback):
         self._outs.clear()
 
 
-class TrilaterationSolver(nn.Module):
+class TrilaterationSolverUnstable(nn.Module):
     """
     Batched Newton–Raphson solver for 2-D trilateration, differentiable w.r.t.
     all inputs.  Accepts tensors with leading batch dim B.
@@ -102,19 +102,12 @@ class TrilaterationSolver(nn.Module):
         initial_guess: Tensor,  # (B, 2)
     ) -> Tensor:  # (B, 2)
         """
-        Parameters
-        ----------
-        sensor_a, sensor_b, sensor_origin
-            Cartesian coordinates shaped ``(B, 2)``.
-        delta_d_a, delta_d_b
-            Signed range-difference measurements shaped ``(B,)``.
-        initial_guess
-            Initial position estimate shaped ``(B, 2)``.
-
-        Returns
-        -------
-        Tensor
-            Estimated positions shaped ``(B, 2)``.
+        :param sensor_a: Cartesian coordinates shaped ``(B, 2)``.
+        :param sensor_b: Cartesian coordinates shaped ``(B, 2)``.
+        :param sensor_origin: Cartesian coordinates shaped ``(B, 2)``.
+        :param delta_d_a: Signed range-difference measurements shaped ``(B,)``.
+        :param delta_d_b: Signed range-difference measurements shaped ``(B,)``.
+        :param initial_guess: Initial position estimate shaped ``(B, 2)``.
         """
         p = initial_guess
         B = p.shape[0]
@@ -168,6 +161,11 @@ class TrilaterationSolver(nn.Module):
 
 
 class TrilaterationSolver(nn.Module):
+    """
+    More numerically stable version of TrilaterationSolverUnstable (LLM output
+    which needs to be further verified)
+    """
+
     def __init__(
         self,
         max_iter: int = 20,
@@ -202,6 +200,15 @@ class TrilaterationSolver(nn.Module):
         delta_d_b: torch.Tensor,  # (B,)
         initial_guess: torch.Tensor,  # (B, 2)
     ) -> torch.Tensor:  # (B, 2)
+        """
+        :param sensor_a: Cartesian coordinates shaped ``(B, 2)``.
+        :param sensor_b: Cartesian coordinates shaped ``(B, 2)``.
+        :param sensor_origin: Cartesian coordinates shaped ``(B, 2)``.
+        :param delta_d_a: Signed range-difference measurements shaped ``(B,)``.
+        :param delta_d_b: Signed range-difference measurements shaped ``(B,)``.
+        :param initial_guess: Initial position estimate shaped ``(B, 2)``.
+        """
+
         # Use higher precision internally for stability.
         if self.use_float64_internal:
             dtype = torch.float64
