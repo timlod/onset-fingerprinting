@@ -37,7 +37,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-devtools = ["black", "black-macchiato", "mypy", "flake8", "isort", "python-lsp-server"]
+devtools = ["black", "black-macchiato", "mypy", "flake8", "isort", "basedpyright"]
 dev = ["jupyter"]
 
 [tool.setuptools]
