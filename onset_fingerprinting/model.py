@@ -66,7 +66,7 @@ class GradProbe(L.Callback):
         self._outs.clear()
 
 
-class TrilaterationSolver(nn.Module):
+class TrilaterationSolverUnstable(nn.Module):
     """
     Batched Newton–Raphson solver for 2-D trilateration, differentiable w.r.t.
     all inputs.  Accepts tensors with leading batch dim B.
@@ -102,19 +102,12 @@ class TrilaterationSolver(nn.Module):
         initial_guess: Tensor,  # (B, 2)
     ) -> Tensor:  # (B, 2)
         """
-        Parameters
-        ----------
-        sensor_a, sensor_b, sensor_origin
-            Cartesian coordinates shaped ``(B, 2)``.
-        delta_d_a, delta_d_b
-            Signed range-difference measurements shaped ``(B,)``.
-        initial_guess
-            Initial position estimate shaped ``(B, 2)``.
-
-        Returns
-        -------
-        Tensor
-            Estimated positions shaped ``(B, 2)``.
+        :param sensor_a: Cartesian coordinates shaped ``(B, 2)``.
+        :param sensor_b: Cartesian coordinates shaped ``(B, 2)``.
+        :param sensor_origin: Cartesian coordinates shaped ``(B, 2)``.
+        :param delta_d_a: Signed range-difference measurements shaped ``(B,)``.
+        :param delta_d_b: Signed range-difference measurements shaped ``(B,)``.
+        :param initial_guess: Initial position estimate shaped ``(B, 2)``.
         """
         p = initial_guess
         B = p.shape[0]
@@ -168,6 +161,11 @@ class TrilaterationSolver(nn.Module):
 
 
 class TrilaterationSolver(nn.Module):
+    """
+    More numerically stable version of TrilaterationSolverUnstable (LLM output
+    which needs to be further verified)
+    """
+
     def __init__(
         self,
         max_iter: int = 20,
@@ -202,6 +200,15 @@ class TrilaterationSolver(nn.Module):
         delta_d_b: torch.Tensor,  # (B,)
         initial_guess: torch.Tensor,  # (B, 2)
     ) -> torch.Tensor:  # (B, 2)
+        """
+        :param sensor_a: Cartesian coordinates shaped ``(B, 2)``.
+        :param sensor_b: Cartesian coordinates shaped ``(B, 2)``.
+        :param sensor_origin: Cartesian coordinates shaped ``(B, 2)``.
+        :param delta_d_a: Signed range-difference measurements shaped ``(B,)``.
+        :param delta_d_b: Signed range-difference measurements shaped ``(B,)``.
+        :param initial_guess: Initial position estimate shaped ``(B, 2)``.
+        """
+
         # Use higher precision internally for stability.
         if self.use_float64_internal:
             dtype = torch.float64
@@ -627,14 +634,12 @@ class CNNRNN(L.LightningModule):
         activation=nn.SiLU,
     ) -> None:
         """
-        A flexible CNN architecture for audio processing tasks.
+        A combined CNN/RNN architecture for audio processing tasks.
 
-        :param window_size: The size of the 1D audio window for each sensor.
+        :param input_size: The size of the 1D audio window for each sensor.
         :param output_size: The dimensionality of the output (e.g., 2D
             coordinates).
         :param channels: Number of input channels (sensors).
-        :param conv_layers_config: List of dictionaries defining each
-            convolutional layer configuration.
         :param dropout_rate: Dropout rate applied after all convolutional
             layers.
         """
@@ -757,12 +762,7 @@ class CNN2(nn.Module):
         activation=nn.SiLU,
     ) -> None:
         """
-        A flexible CNN architecture.
-
-        :param input_size: The size of the 1D audio window for each sensor.
-        :param output_size: The dimensionality of the output (e.g., 2D
-            coordinates).
-        :param channels: Number of input channels (sensors).
+        Flexible CNN architecture, pure pytorch.
         """
         super().__init__()
         self.conv_layers = nn.Sequential()
@@ -797,7 +797,6 @@ class CNN2(nn.Module):
             if batch_norm:
                 self.conv_layers.add_module(
                     f"bn{i+1}",
-                    # nn.BatchNorm1d(layer_size * (channels if group else 1)),
                     nn.GroupNorm(1, layer_size * (channels if group else 1)),
                 )
             if pool:
@@ -829,6 +828,8 @@ class CNN2(nn.Module):
                 x.unsqueeze(2)
             )
             x1 = x
+            # This is currently configured to concatenate the first layers
+            # output with the final output.
             x = vmap(self.conv_layers[1:], in_dims=1, out_dims=1)(x)
             # → (B, C, K, V)
             x = x.reshape(B, C * x.shape[2], x.shape[3])
@@ -849,11 +850,11 @@ class CCCNN(nn.Module):
         output_size: int,
         sensor_pos: torch.tensor,
         c: float = 82.0,
-        channels: int = 3,
+        channels: int = 4,
         layer_sizes: list[int] = [8, 16],
         kernel_sizes: int | list[int] = 3,
         strides: int | list[int] = 1,
-        dropout_rate: float = 0.5,
+        dropout_rate: float = 0.0,
         batch_norm: bool = False,
         pool: bool = False,
         padding: int = 1,
@@ -862,13 +863,34 @@ class CCCNN(nn.Module):
         activation=nn.SiLU,
     ) -> None:
         """
-        A flexible CNN architecture to mimic computation of the
-        cross-correlation (CC).
+        A flexible CNN architecture to mimic computation of cross-correlation
+        (CC) lags, or time differences of arrival.
+
+        Plugs in a Trilateration solver after a CNN architecture which operates
+        on TDoA.
 
         :param input_size: The size of the 1D audio window for each sensor.
         :param output_size: The dimensionality of the output (e.g., 2D
             coordinates).
+        :param sensor_pos: sensor positions in m with origin assumed at (0, 0)
+            shape: (N_sensors, 2)
+        :param c: speed of sound through membrane, currently unused (as time
+                  difference is estimated directly)
         :param channels: Number of input channels (sensors).
+        :param layer_sizes: filtersize of each conv layer
+        :param kernel_sizes: conv kernel sizes, single value for all layers, or
+            one per layer
+        :param strides: single stride for all layers, or one stride per layer
+        :param dropout_rate: dropout rate for FC layer
+        :param batch_norm: actually group norm, not batch norm, to normalize
+            after each conv layer (TODO: rename references)
+        :param pool: whether to max-pool after each conv layer
+        :param padding: padding of convolutional layers
+        :param dilation: dilation of convolutional layers
+        :param group: whether to use grouped convolutions (separate network for
+            each channel, in essence)
+        :param activation: activation function to use, use class inside
+            torch.nn module
         """
         super().__init__()
         self.conv_layers = nn.Sequential()
@@ -942,12 +964,9 @@ class CCCNN(nn.Module):
         x = x.view(B, C, K, V).mean(dim=2)
         x = torch.flatten(x, start_dim=1)
         lags = self.fc(x)  # .clip(-self.radius, self.radius)
-        # print(lags * 96000 / 82.0)
-        # lags = lags * self.radius
-        # lags = (lags * self.radius).clip(-self.radius, self.radius)
+        # print(lags * 96000 / 82.0) # This would be the sample lags given c=82
         # could use sr/c to decouple from sr and stuff like room temperature
 
-        i = (i + torch.randint_like(i, -1, 2)) % 4
         d_a, d_b = lags[range(B), 2 * i], lags[range(B), 2 * i + 1]
         # print(d_a)
         js = [(i - 1) % len(self.sensor_pos), (i + 1) % len(self.sensor_pos)]
@@ -955,6 +974,7 @@ class CCCNN(nn.Module):
         sensor_a = self.sensor_pos[js[0]]
         sensor_b = self.sensor_pos[js[1]]
 
+        # Naive weighting currently is more numerically stable
         # weight_a = abs(d_a) / self.radius
         # weight_b = abs(d_b) / self.radius
         # weight_o = abs(d_a + d_b) / (2 * self.radius)
@@ -1022,6 +1042,10 @@ class LLCNN(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         x, y, idx = batch
+        # Train also using different sensor orderings (only disallow starting
+        # at furthest sensor) - this increases training data and removes
+        # discontinuities at quadrant boundaries
+        idx = (idx + torch.randint_like(idx, -1, 2)) % 4
         out = self.model(x, idx)
         loss = self.loss(out, y)
         self.log("train_loss", loss)
@@ -1096,6 +1120,7 @@ class LLCNN(L.LightningModule):
     #     )
 
 
+# Normal CNN
 class LCNN(L.LightningModule):
     def __init__(
         self,
